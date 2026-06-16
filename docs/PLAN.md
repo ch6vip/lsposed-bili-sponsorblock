@@ -43,7 +43,7 @@
 - [ ] 支持小窗和切集场景
 
 ### 5. UI 与提示
-- [ ] 画进度条片段标记
+- [x] 画进度条片段标记
 - [x] 显示跳过提示
 - [ ] 显示剩余时间扣减
 - [ ] 做设置页
@@ -89,6 +89,8 @@
 - 已加按 `video/cid/uuid/start-end` 的防重复跳过记录，避免同一片段被进度回调重复触发。
 - 播放器 toast 提示已通过 `PlayerToastBridge` 接入，反射构造 `PlayerToast` 并调用 `getToastService().showToast(...)`。
 - 当前提示文案为简化直出：`已跳过 <category>`；APK 的分类本地化文案仍待对齐。
+- 进度条标记已通过 `ProgressMarkerPainter` 接入 `seek.v3.f#draw(Canvas)`，按 `start/end/duration` 在 drawable bounds 上绘制片段区间。
+- 当前进度条标记使用最近活动播放器 context 和固定黄色；APK 中按分类颜色绘制，后续需要对齐分类颜色配置。
 
 ## 下一步验收
 
