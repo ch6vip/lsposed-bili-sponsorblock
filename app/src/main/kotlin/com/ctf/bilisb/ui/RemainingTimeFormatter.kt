@@ -4,6 +4,10 @@ import com.ctf.bilisb.model.SponsorSegment
 import java.util.Locale
 
 object RemainingTimeFormatter {
+    // 对应 APK `an.d()` = `this == s`(highlight/poi 分类)。
+    // 高亮片段只标记不跳过,不应从剩余时长里扣减。
+    private val nonDeductibleCategories = setOf("poi_highlight")
+
     fun adjustedDuration(totalMs: Long, segments: List<SponsorSegment>): Long {
         if (totalMs <= 0 || segments.isEmpty()) {
             return totalMs
@@ -12,7 +16,7 @@ object RemainingTimeFormatter {
         var deducted = 0L
         var currentEnd = -1L
         segments
-            .filter { it.actionType == "skip" }
+            .filter { it.actionType == "skip" && it.category !in nonDeductibleCategories }
             .sortedBy { it.startMs }
             .forEach { segment ->
                 val start = segment.startMs.coerceAtLeast(0L)

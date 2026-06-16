@@ -21,7 +21,9 @@ class SponsorBlockController(
     private val submissionDraftController: SubmissionDraftController = SubmissionDraftController(),
 ) {
     private val executor = Executors.newSingleThreadExecutor()
-    private val requestedVideos = mutableSetOf<String>()
+    // 正在拉取中的视频 key,防止 onStart 短时间多次触发导致并发重复请求。
+    // 缓存有效期由 repository TTL 控制,过期后这里会清掉允许重拉。
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val latestStateByContext = ConcurrentHashMap<Int, PlayerState>()
     private val latestContainerByContext = ConcurrentHashMap<Int, Any>()
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
@@ -53,30 +55,44 @@ class SponsorBlockController(
             return
         }
         val bvid = AidBvidConverter.aidToBvid(aid)
+        // duration 在 director onStart 触发时从 core 取(对应 APK so.d 内部经
+        // PlayerHookProvider.o(obj) 取 getDuration)。onStart 早于首帧准备的极端情况下
+        // getDuration 可能返回 0,后续进度回调会用进度文本 hook 里的 duration 兜底。
+        val core = playerHandles[contextHash]?.core
+        val durationMs = core?.let { PlayerActions.durationMs(module, it) } ?: 0L
         val state = PlayerState(
             aid = aid,
             bvid = bvid,
             cid = cid,
-            durationMs = 0L,
-            currentPositionMs = 0L,
+            durationMs = durationMs,
+            currentPositionMs = core?.let { PlayerActions.currentPositionMs(module, it) } ?: 0L,
         )
         latestStateByContext[contextHash] = state
         latestContextHash = contextHash
 
         val query = SponsorBlockQuery(state.bvid, state.cid)
+        // 缓存未过期(repository TTL 内)直接复用,不再发起请求。
+        if (repository.getCached(query) != null) {
+            return
+        }
         val key = "${query.bvid}:${query.cid}"
-        synchronized(requestedVideos) {
-            if (!requestedVideos.add(key)) {
-                return
-            }
+        // in-flight 防并发:同一视频已在拉取则跳过;拉取完成后不移除 key,
+        // 改由缓存命中挡后续请求,TTL 过期清缓存后下次 getCached 返回 null
+        // 仍会被 inFlight 拦 —— 因此过期重拉需要显式清 inFlight。
+        if (!inFlight.add(key)) {
+            return
         }
 
         executor.execute {
-            val result = repository.fetchAndCache(query)
-            module.info(
-                "segments fetched video=${query.bvid} aid=$aid cid=${query.cid} " +
-                    "status=${result.statusCode} count=${result.segments.size}",
-            )
+            try {
+                val result = repository.fetchAndCache(query)
+                module.info(
+                    "segments fetched video=${query.bvid} aid=$aid cid=${query.cid} " +
+                        "status=${result.statusCode} count=${result.segments.size}",
+                )
+            } finally {
+                inFlight.remove(key)
+            }
         }
     }
 
@@ -154,12 +170,7 @@ class SponsorBlockController(
 
     private fun currentPositionMs(contextHash: Int): Long? {
         val core = playerHandles[contextHash]?.core ?: return null
-        return runCatching {
-            val method = core.javaClass.getDeclaredMethod("getCurrentPosition").apply {
-                isAccessible = true
-            }
-            (method.invoke(core) as? Number)?.toLong()
-        }.getOrNull()
+        return PlayerActions.currentPositionMs(module, core)
     }
 
     private fun submit(submission: SponsorBlockSubmission, state: PlayerState) {
@@ -194,6 +205,11 @@ class SponsorBlockController(
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
         val state = latestStateByContext[contextHash] ?: return
+        // 进度文本 hook 的 duration 比 onStart 时刻更准(首帧已就绪),
+        // 持续把非零 duration 回填到 state,供进度条标记与提交使用。
+        if (durationMs > 0 && state.durationMs != durationMs) {
+            latestStateByContext[contextHash] = state.copy(durationMs = durationMs)
+        }
         val handle = playerHandles[contextHash] ?: return
         val query = SponsorBlockQuery(state.bvid, state.cid)
         val segments = repository.getCached(query) ?: return
