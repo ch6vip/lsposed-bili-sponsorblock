@@ -28,6 +28,7 @@ object BiliSponsorBlockHooks {
 
         hookPlayerContainer(module, cl)
         hookProgressDrawable(module, cl)
+        hookProgressText(module, cl)
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
@@ -46,6 +47,10 @@ object BiliSponsorBlockHooks {
                         "position=${state.currentPositionMs} duration=${state.durationMs}",
                 )
                 sponsorBlockController?.onPlayerState(state)
+                val contextHash = PlayerBridge.contextHash(container)
+                if (contextHash != 0) {
+                    sponsorBlockController?.bindContext(contextHash, state)
+                }
             }
             module.info("player container created")
         }
@@ -59,6 +64,49 @@ object BiliSponsorBlockHooks {
             ProbeLogger.dumpClassOnce(module, "player-destroy", chain.getThisObject())
             module.info("player container destroyed")
         }
+    }
+
+    private fun hookProgressText(module: XposedModule, cl: ClassLoader) {
+        hookAfter(
+            module,
+            cl,
+            "com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget",
+            "J",
+            Long::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+        ) { chain ->
+            onProgressTextUpdate(chain)
+        }
+
+        hookAfter(
+            module,
+            cl,
+            "com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget",
+            "K",
+            Long::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+        ) { chain ->
+            onProgressTextUpdate(chain)
+        }
+
+        hookAfter(
+            module,
+            cl,
+            "com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget",
+            "updateTime",
+            Int::class.javaPrimitiveType!!,
+            Int::class.javaPrimitiveType!!,
+        ) { chain ->
+            onProgressTextUpdate(chain)
+        }
+    }
+
+    private fun onProgressTextUpdate(chain: io.github.libxposed.api.XposedInterface.Chain) {
+        val target = chain.getThisObject() ?: return
+        val args = chain.getArgs()
+        val positionMs = (args.getOrNull(0) as? Number)?.toLong() ?: return
+        val durationMs = (args.getOrNull(1) as? Number)?.toLong() ?: return
+        sponsorBlockController?.onProgress(target.hashCode(), positionMs, durationMs)
     }
 
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {
