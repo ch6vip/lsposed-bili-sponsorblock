@@ -4,10 +4,11 @@ import com.ctf.bilisb.model.SponsorBlockQuery
 import com.ctf.bilisb.model.SponsorBlockSubmission
 import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.player.PlayerActions
-import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerBridge
+import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
 import com.ctf.bilisb.ui.PlayerToastBridge
+import com.ctf.bilisb.util.AidBvidConverter
 import com.ctf.bilisb.util.info
 import android.content.Context
 import io.github.libxposed.api.XposedModule
@@ -27,11 +28,40 @@ class SponsorBlockController(
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var latestContextHash: Int = 0
 
-    fun onPlayerState(state: PlayerState) {
-        if (!state.hasVideoId) {
-            module.info("skip segment lookup: missing bvid/cid in player state")
+    /**
+     * 容器创建时绑定播放器 handle(core 用于 seek,container 用于 toast / context)。
+     *
+     * 此时还没有 video id —— aid/cid 由 [onVideoIds] 在 video director `onStart`
+     * 回调里异步喂入,与 APK `PlayerHookProvider.h/g` 链路一致。
+     */
+    fun bindPlayerHandle(handle: PlayerHandle) {
+        playerHandles[handle.contextHash] = handle
+        latestContainerByContext[handle.contextHash] = handle.container
+        latestContextHash = handle.contextHash
+        module.info("player handle bound context=${handle.contextHash}")
+    }
+
+    /**
+     * video director `onStart(aid, cid)` 回调入口。
+     *
+     * 对应 APK `so.d(aid, cid)` → `SponsorBlockPatch.c(aid, cid, epId, duration, ...)`:
+     * aid 实时转 bvid(对应 APK `i6.H(aid)`),拼成 query 后异步拉片段。
+     * 切集时同一 context 会再次回调,按 `bvid:cid` 去重只拉新视频。
+     */
+    fun onVideoIds(contextHash: Int, aid: Long, cid: Long) {
+        if (aid <= 0 || cid <= 0) {
             return
         }
+        val bvid = AidBvidConverter.aidToBvid(aid)
+        val state = PlayerState(
+            aid = aid,
+            bvid = bvid,
+            cid = cid,
+            durationMs = 0L,
+            currentPositionMs = 0L,
+        )
+        latestStateByContext[contextHash] = state
+        latestContextHash = contextHash
 
         val query = SponsorBlockQuery(state.bvid, state.cid)
         val key = "${query.bvid}:${query.cid}"
@@ -44,7 +74,7 @@ class SponsorBlockController(
         executor.execute {
             val result = repository.fetchAndCache(query)
             module.info(
-                "segments fetched video=${query.bvid} cid=${query.cid} " +
+                "segments fetched video=${query.bvid} aid=$aid cid=${query.cid} " +
                     "status=${result.statusCode} count=${result.segments.size}",
             )
         }
@@ -53,13 +83,6 @@ class SponsorBlockController(
     fun bindContext(contextHash: Int, state: PlayerState) {
         latestStateByContext[contextHash] = state
         latestContextHash = contextHash
-    }
-
-    fun bindPlayerHandle(handle: PlayerHandle, state: PlayerState) {
-        playerHandles[handle.contextHash] = handle
-        latestContainerByContext[handle.contextHash] = handle.container
-        latestStateByContext[handle.contextHash] = state
-        latestContextHash = handle.contextHash
     }
 
     fun submitSegment(

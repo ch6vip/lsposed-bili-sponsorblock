@@ -16,6 +16,27 @@
 - 播放 / 暂停 / seek
 - 小窗进入
 
+## video id 获取链路（已确认，对齐 APK）
+
+aid/cid 不反射 `PlayerParamsV2`，而是 hook `VideoDirectorObserver.onStart`：
+
+```
+Ch1.g#onCreate → container.getPlayDirectorServiceV3()/getVideoPlayDirectorService()
+  → director.addVideoDirectorObserver(代理 VideoDirectorObserver)
+  → onStart(current, previous)
+  → current.getLogDescription() = "....aid: 12345, cid: 67890"
+  → 正则 ^.*aid:\s(\d+),\scid:\s(\d+)$ → aid, cid
+  → AidBvidConverter.aidToBvid(aid) → bvid → /api/skipSegments
+```
+
+证据：
+- `PlayerHookProvider.g()` 判定 `onStart`：`returnType==void && paramCount==2 && param[0]==param[1]`
+- 解析 `yl.c(getLogDescription).a()` 得 `ej` list，`get(1)=aid`、`get(2)=cid`
+- 正则来自 `vg.java:173`，与项目 `PlayerBridge` 旧 `logDescriptionPattern` 一致
+- `zo.toString()` = `SegmentsInfo(aid=,cid=,epId=,duration=,segments=)`，证明 `c(aid,cid,epId,duration)` 参数顺序
+
+APK 存的是 aid 不是 bvid，bvid 由 `i6.H(aid)` 实时转换。
+
 ## 先做最小版
 
 先只做：
