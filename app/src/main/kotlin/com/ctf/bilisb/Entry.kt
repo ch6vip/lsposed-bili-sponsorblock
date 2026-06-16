@@ -3,10 +3,11 @@ package com.ctf.bilisb
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
+import com.ctf.bilisb.util.info
 
 class Entry : XposedModule() {
     override fun onModuleLoaded(param: ModuleLoadedParam) {
-        log("BiliSponsorBlock module loaded in ${param.processName}")
+        info("BiliSponsorBlock module loaded in ${param.processName}")
     }
 
     override fun onPackageLoaded(param: PackageLoadedParam) {

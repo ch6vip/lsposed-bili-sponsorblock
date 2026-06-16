@@ -11,6 +11,7 @@
 - [x] 配置 LSPosed / Xposed 入口文件
 - [x] 补齐基础 Gradle 与 manifest
 - [x] 接入 libxposed API 102 依赖
+- [ ] 补 Gradle wrapper 或确认本机 Gradle 可用
 - [ ] 构建 APK 并验证模块能被 LSPosed 识别
 
 ### 2. 视频与播放器识别
@@ -51,3 +52,20 @@
 3. 在播放时 seek
 
 后续先做 `2 + 3`，再补 UI。
+
+## 当前实现状态
+
+- 入口采用 `libxposed` API 102 的 `XposedModule`。
+- 模块元数据位于 `app/src/main/resources/META-INF/xposed/`。
+- 当前 hook 是低风险探针版，目标：
+  - `Ch1.g#onCreate(Bundle)`
+  - `Ch1.g#onDestroy()`
+  - `com.bilibili.playerbizcommonv2.widget.seek.v3.f#draw(Canvas)`
+- `SponsorBlockClient` 已按 APK 行为生成 `/api/skipSegments/{sha256Prefix}` 请求 URL，但 JSON 解析和播放 seek 仍未实现。
+
+## 下一步验收
+
+1. 让仓库能执行 `gradlew.bat :app:assembleDebug`。
+2. 修完所有 Kotlin / `libxposed` API 编译问题。
+3. 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`。
+4. 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针。
