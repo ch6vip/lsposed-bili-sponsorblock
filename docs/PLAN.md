@@ -86,22 +86,25 @@
 - 播放器标记入口已通过 `SubmissionButtonInjector` 注入到 `actions_container_right`，点击执行“标起点/标终点提交”，长按取消草稿。
 - APK 原始实现注入 `ControlWidgetLinearLayout` + 两个 `ImageView`，并提供标记、预览、分类确认、手动编辑等完整弹窗流程；当前 LSPosed 版本使用普通 `TextView` 控件替代 ReVanced 资源，属于推测实现。
 - 播放器桥接只负责取 core / context（用于 seek 与 toast），不再反射 `PlayerParamsV2`。
-- video id（aid / cid）改由 `VideoDirectorObserver` 获取，对齐 APK 链路：
-  - 容器创建时 `PlayerHookProvider.h` 等价：取 director 服务（`getPlayDirectorServiceV3` / `getVideoPlayDirectorService`）并 `addVideoDirectorObserver` 注册动态代理。
-  - 代理 `onStart(current, previous)` 触发时，对 `current` 调 `getLogDescription()`，用正则 `^.*aid:\s(\d+),\scid:\s(\d+)$`（与 APK `vg.java:173` 一致）提 aid/cid。
-  - aid 经 `AidBvidConverter` 转 bvid（对应 APK `i6.H(aid)`）后请求片段。
-  - 证据链已确认：`PlayerHookProvider.g()` 解析 `yl.c(getLogDescription).a()` 得 `ej`，`get(1)=aid`、`get(2)=cid`。
+- **8.96.0 原版适配**（真机装的是原版官方 8.96.0，不是 8.98.0 patch 版；之前对 patch 版 dex 找的类名全错位）：
+  - 播放器容器：`be1.j#onCreate(Bundle)` / `onDestroy()`（对应 patch 版 `Ch1.g`；注意 smali 真实类名小写 `be1`，非 jadx 显示的 `Be1`）。
+  - 进度文本：`onPlayerProgressChange(int,int)`（v2 / Gemini），v1 仍用 `updateTime(int,int)`。参数是 `int,int` 不是 patch 版的 `long,long`。
+  - seekbar drawable：`seek.v3.a#draw(Canvas)`（对应 patch 版 `seek.v3.f`）。
+- **video id 获取：8.96.0 原版与 patch 版链路不同，当前为探针实现**：
+  - patch 版 `VideoDirectorObserver.onStart + getLogDescription` 在 8.96.0 不成立：原版接口方法是 `onItemStart`/`onItemWillChange`，director service 用 `addVideoPlayEventListener` 而非 `addVideoDirectorObserver`；`Video` 对象 `getId()` 返回对象 hash、`getDescription()` 返回 "video"，不含 aid/cid；`getLogDescription()` 在 `*PlayableParams` 类上。
+  - 当前 `VideoIdProbe` 在容器创建时取 `getPlayerParams()` 拿 `PlayerParamsV2`，递归 dump 字段树按名匹配 `aid/avid/cid`，命中即回调。
+  - **aid/cid 的精确字段路径待运行时确认**（探针日志会打印 `videoIdProbe:` 开头的字段 dump）。
 - `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
 - `sponsor/` 模块已独立出来，用于承载协议请求、缓存和后续自动跳过决策。
-- 进度文本 hook 已覆盖：
-  - `com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget#J(long,long)`
-  - `com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget#K(long,long)`
+- 进度文本 hook 已覆盖（8.96.0 原版类名/方法名）：
+  - `com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget#onPlayerProgressChange(int,int)`
+  - `com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget#onPlayerProgressChange(int,int)`
   - `com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget#updateTime(int,int)`
 - 自动跳过已按 APK 行为调用 `IPlayerCoreService#seekTo(endMs, true)`。
 - 已加按 `video/cid/uuid/start-end` 的防重复跳过记录，避免同一片段被进度回调重复触发。
 - 播放器 toast 提示已通过 `PlayerToastBridge` 接入，反射构造 `PlayerToast` 并调用 `getToastService().showToast(...)`。
 - 当前提示文案为简化直出：`已跳过 <category>`；APK 的分类本地化文案仍待对齐。
-- 进度条标记已通过 `ProgressMarkerPainter` 接入 `seek.v3.f#draw(Canvas)`，按 `start/end/duration` 在 drawable bounds 上绘制片段区间。
+- 进度条标记已通过 `ProgressMarkerPainter` 接入 `seek.v3.a#draw(Canvas)`，按 `start/end/duration` 在 drawable bounds 上绘制片段区间。
 - 当前进度条标记使用最近活动播放器 context 和固定黄色；APK 中按分类颜色绘制，后续需要对齐分类颜色配置。
 - 剩余时间扣减已通过 `RemainingTimeFormatter` + `ProgressTextDecorator` 接入进度文本 hook，当前效果是文本后追加 `(<扣减后时长>)`。
 - 这是按 APK `onPlayerUpdateProgressTextLong` 行为做的文本层复刻，具体文案和去重策略仍属于推测实现。
@@ -110,5 +113,6 @@
 
 1. [x] 让仓库能执行 `gradlew.bat :app:assembleDebug`（已补 gradle wrapper 8.12，本地 `BUILD SUCCESSFUL`，产物 `app-debug.apk`）。
 2. [x] 修完所有 Kotlin / `libxposed` API 编译问题（首次构建即通过，无编译错误）。
-3. [ ] 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`。
-4. [ ] 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针。
+3. [x] 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`（日志确认主进程加载、子进程跳过）。
+4. [ ] 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针（首轮日志显示 5 个 hook 点全 ClassNotFoundException/NoSuchMethod —— 因对着 8.98.0 patch 版类名；已改 8.96.0 原版类名，待重测）。
+5. [ ] 装机看 `videoIdProbe:` 日志，确认 aid/cid 字段路径，把探针换成确定读取。
