@@ -12,6 +12,7 @@ import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
 import com.ctf.bilisb.ui.RemainingTimeFormatter
+import com.ctf.bilisb.ui.SubmissionButtonInjector
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
@@ -59,6 +60,9 @@ object BiliSponsorBlockHooks {
                         PlayerHandle(contextHash, container, core),
                         state,
                     )
+                    sponsorBlockController?.let { controller ->
+                        SubmissionButtonInjector.attach(module, container, controller, contextHash)
+                    }
                 }
             }
             module.info("player container created")
