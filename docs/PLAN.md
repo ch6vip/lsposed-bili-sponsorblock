@@ -30,9 +30,9 @@
 - [ ] 获取 `aid / bvid / cid / duration / currentTime`
 
 ### 3. 片段协议
-- [ ] 实现 `BV -> SHA-256 -> 前缀`
-- [ ] 请求 `/api/skipSegments/{prefix}`
-- [ ] 解析片段 JSON
+- [x] 实现 `BV -> SHA-256 -> 前缀`
+- [x] 请求 `/api/skipSegments/{prefix}`
+- [x] 解析片段 JSON
 - [ ] 加缓存和失效策略
 
 ### 4. 自动跳过
@@ -79,6 +79,7 @@
   - `seekTo(int, boolean)`
 - `PlayerParamsV2` 字段布局暂未在已反编译 dex 中确认，当前只做运行时探针，属于推测实现。
 - `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
+- `sponsor/` 模块已独立出来，用于承载协议请求、缓存和后续自动跳过决策。
 
 ## 下一步验收
 
