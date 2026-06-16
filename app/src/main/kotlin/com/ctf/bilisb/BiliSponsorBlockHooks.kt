@@ -6,6 +6,7 @@ import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
+import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
@@ -13,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 object BiliSponsorBlockHooks {
     private val installed = ConcurrentHashMap.newKeySet<String>()
+    private var sponsorBlockController: SponsorBlockController? = null
 
     fun install(module: XposedModule, param: PackageLoadedParam, processName: String) {
         val installKey = "${param.packageName}:$processName"
@@ -22,6 +24,7 @@ object BiliSponsorBlockHooks {
 
         val cl = param.defaultClassLoader
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
+        sponsorBlockController = SponsorBlockController(module)
 
         hookPlayerContainer(module, cl)
         hookProgressDrawable(module, cl)
@@ -42,6 +45,7 @@ object BiliSponsorBlockHooks {
                     "player state aid=${state.aid} cid=${state.cid} bvid=${state.bvid} " +
                         "position=${state.currentPositionMs} duration=${state.durationMs}",
                 )
+                sponsorBlockController?.onPlayerState(state)
             }
             module.info("player container created")
         }

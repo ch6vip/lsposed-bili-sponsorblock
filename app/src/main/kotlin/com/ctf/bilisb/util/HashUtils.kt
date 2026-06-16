@@ -8,8 +8,11 @@ object HashUtils {
         return digest.joinToString("") { byte -> "%02x".format(byte) }
     }
 
+    fun videoIdHashPrefix(videoId: String): String {
+        return sha256Hex(videoId).take(4)
+    }
+
     fun hashPrefix(value: String): String {
-        return sha256Hex(value).take(4)
+        return videoIdHashPrefix(value)
     }
 }
-

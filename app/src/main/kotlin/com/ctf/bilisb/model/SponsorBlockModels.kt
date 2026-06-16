@@ -12,11 +12,22 @@ data class SponsorSegment(
 ) {
     val startMs: Long get() = segment.getOrNull(0) ?: 0L
     val endMs: Long get() = segment.getOrNull(1) ?: startMs
+    val durationMs: Long get() = (endMs - startMs).coerceAtLeast(0L)
 }
 
 data class SponsorBlockConfig(
     val serverAddress: String = "https://www.bsbsb.top",
     val enabled: Boolean = true,
     val autoSkip: Boolean = true,
+    val enabledCategories: Set<String> = setOf(
+        "sponsor",
+        "selfpromo",
+        "interaction",
+        "intro",
+        "outro",
+        "preview",
+        "music_offtopic",
+        "filler",
+    ),
+    val enabledActionTypes: Set<String> = setOf("skip", "poi", "mute"),
 )
-
