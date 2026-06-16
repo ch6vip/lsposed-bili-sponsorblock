@@ -105,7 +105,7 @@
 
 ## 下一步验收
 
-1. 让仓库能执行 `gradlew.bat :app:assembleDebug`。
-2. 修完所有 Kotlin / `libxposed` API 编译问题。
-3. 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`。
-4. 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针。
+1. [x] 让仓库能执行 `gradlew.bat :app:assembleDebug`（已补 gradle wrapper 8.12，本地 `BUILD SUCCESSFUL`，产物 `app-debug.apk`）。
+2. [x] 修完所有 Kotlin / `libxposed` API 编译问题（首次构建即通过，无编译错误）。
+3. [ ] 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`。
+4. [ ] 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针。
