@@ -1,6 +1,8 @@
 package com.ctf.bilisb.sponsor
 
 import com.ctf.bilisb.model.SponsorBlockQuery
+import com.ctf.bilisb.player.PlayerActions
+import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
@@ -14,6 +16,8 @@ class SponsorBlockController(
     private val executor = Executors.newSingleThreadExecutor()
     private val requestedVideos = mutableSetOf<String>()
     private val latestStateByContext = ConcurrentHashMap<Int, PlayerState>()
+    private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
+    private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
 
     fun onPlayerState(state: PlayerState) {
         if (!state.hasVideoId) {
@@ -42,17 +46,28 @@ class SponsorBlockController(
         latestStateByContext[contextHash] = state
     }
 
+    fun bindPlayerHandle(handle: PlayerHandle, state: PlayerState) {
+        playerHandles[handle.contextHash] = handle
+        latestStateByContext[handle.contextHash] = state
+    }
+
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
         val state = latestStateByContext[contextHash] ?: return
+        val handle = playerHandles[contextHash] ?: return
         val query = SponsorBlockQuery(state.bvid, state.cid)
         val segments = repository.getCached(query) ?: return
         val segment = SkipDecision.findAutoSkipSegment(positionMs, segments) ?: return
+        val skipKey = "${state.bvid}:${state.cid}:${segment.uuid}:${segment.startMs}-${segment.endMs}"
+        if (!skippedSegments.add(skipKey)) {
+            return
+        }
 
-        // Seek is intentionally not executed here yet. APK behavior uses
-        // PlayerHookProvider.z(playerCore, endMs, true); wiring the concrete
-        // player core object is the next module boundary.
+        // APK behavior uses PlayerHookProvider.z(playerCore, endMs, true).
+        // This is the direct Hook equivalent, with the handle coming from the
+        // player container/context binding.
+        PlayerActions.seekTo(module, handle.core, segment.endMs)
         module.info(
-            "auto-skip candidate video=${state.bvid} cid=${state.cid} " +
+            "auto-skipped video=${state.bvid} cid=${state.cid} " +
                 "position=$positionMs duration=$durationMs " +
                 "segment=${segment.startMs}-${segment.endMs} category=${segment.category}",
         )

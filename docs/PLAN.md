@@ -36,7 +36,7 @@
 - [ ] 加缓存和失效策略
 
 ### 4. 自动跳过
-- [ ] 绑定播放器 core 并执行 `seekTo(endMs, true)`
+- [x] 绑定播放器 core 并执行 `seekTo(endMs, true)`
 - [x] 通过进度文本 hook 检测命中片段
 - [ ] 支持 `skip / mute / poi` 分类策略
 - [ ] 支持手动取消与重跳
@@ -85,7 +85,9 @@
   - `com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget#J(long,long)`
   - `com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget#K(long,long)`
   - `com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget#updateTime(int,int)`
-- 当前自动跳过只输出候选日志，尚未执行 seek。原因：还需要把具体 `IPlayerCoreService` 对象按 context 绑定到 `sponsor/` 模块。
+- 自动跳过已按 APK 行为调用 `IPlayerCoreService#seekTo(endMs, true)`。
+- 已加按 `video/cid/uuid/start-end` 的防重复跳过记录，避免同一片段被进度回调重复触发。
+- 播放器 toast 提示尚未完成；APK 参考为 `PlayerHookProvider.C(container, text, 54)`，后续会单独落 `ui/toast` 模块。
 
 ## 下一步验收
 

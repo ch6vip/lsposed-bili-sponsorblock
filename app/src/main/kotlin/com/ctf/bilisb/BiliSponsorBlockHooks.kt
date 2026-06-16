@@ -6,6 +6,7 @@ import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
+import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
@@ -48,8 +49,12 @@ object BiliSponsorBlockHooks {
                 )
                 sponsorBlockController?.onPlayerState(state)
                 val contextHash = PlayerBridge.contextHash(container)
-                if (contextHash != 0) {
-                    sponsorBlockController?.bindContext(contextHash, state)
+                val core = PlayerBridge.coreService(container)
+                if (contextHash != 0 && core != null) {
+                    sponsorBlockController?.bindPlayerHandle(
+                        PlayerHandle(contextHash, container, core),
+                        state,
+                    )
                 }
             }
             module.info("player container created")
