@@ -28,18 +28,20 @@
 - [x] 抽象播放器桥接模块
 - [x] 获取当前视频 ID（通过 hook `VideoDirectorObserver.onStart`，对齐 APK `PlayerHookProvider.g` 链路）
 - [x] 获取 `aid / cid`（director `onStart` 回调解析 `getLogDescription`）
-- [ ] 获取 `duration / currentTime`（进度回调已有 duration/position，core 反射取 currentPosition 已接入，duration 尚需对齐）
+- [x] 获取 `duration / currentTime`（onStart 时从 core 反射 getDuration/getCurrentPosition,进度回调持续回填 duration）
+- [x] 获取 `epId`（番剧场景,普通视频为 0,提交时按需带上）
 
 ### 3. 片段协议
 - [x] 实现 `BV -> SHA-256 -> 前缀`
 - [x] 请求 `/api/skipSegments/{prefix}`
 - [x] 解析片段 JSON
-- [ ] 加缓存和失效策略
+- [x] 加缓存和失效策略（内存缓存 + 1h TTL,in-flight 防并发,对齐 APK 内存 map + X-SKIP-CACHE）
 
 ### 4. 自动跳过
 - [x] 绑定播放器 core 并执行 `seekTo(endMs, true)`
 - [x] 通过进度文本 hook 检测命中片段
-- [ ] 支持 `skip / mute / poi` 分类策略
+- [x] 支持 `skip / poi` 分类策略（poi_highlight 不自动跳过、不扣时长、画圆点,对齐 APK `an.d()`）
+- [ ] 支持 `mute` 静音策略（APK 此版本未实现,暂缓）
 - [ ] 支持手动取消与重跳
 - [ ] 支持小窗和切集场景
 
