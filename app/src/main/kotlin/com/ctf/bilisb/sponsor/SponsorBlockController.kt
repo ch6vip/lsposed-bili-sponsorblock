@@ -4,6 +4,7 @@ import com.ctf.bilisb.model.SponsorBlockQuery
 import com.ctf.bilisb.player.PlayerActions
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
+import com.ctf.bilisb.ui.PlayerToastBridge
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.ConcurrentHashMap
@@ -66,6 +67,7 @@ class SponsorBlockController(
         // This is the direct Hook equivalent, with the handle coming from the
         // player container/context binding.
         PlayerActions.seekTo(module, handle.core, segment.endMs)
+        PlayerToastBridge.showSkipToast(module, handle.container, "已跳过 ${segment.category}")
         module.info(
             "auto-skipped video=${state.bvid} cid=${state.cid} " +
                 "position=$positionMs duration=$durationMs " +
