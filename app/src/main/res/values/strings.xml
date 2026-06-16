@@ -1,0 +1,4 @@
+<resources>
+    <string name="module_name">Bili SponsorBlock</string>
+    <string name="module_description">SponsorBlock for Bilibili via LSPosed</string>
+</resources>

@@ -3,18 +3,9 @@
 
     <application
         android:allowBackup="false"
-        android:label="Bili SponsorBlock"
+        android:label="@string/module_name"
+        android:description="@string/module_description"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="SponsorBlock for Bilibili via LSPosed" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="93" />
     </application>
 </manifest>
-
