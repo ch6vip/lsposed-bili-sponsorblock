@@ -62,6 +62,11 @@ class SponsorBlockController(
         return state.durationMs to segments
     }
 
+    fun segmentsForContext(contextHash: Int): List<SponsorSegment>? {
+        val state = latestStateByContext[contextHash] ?: return null
+        return repository.getCached(SponsorBlockQuery(state.bvid, state.cid))
+    }
+
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
         val state = latestStateByContext[contextHash] ?: return
         val handle = playerHandles[contextHash] ?: return
