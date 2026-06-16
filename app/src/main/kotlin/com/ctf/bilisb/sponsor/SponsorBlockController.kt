@@ -1,6 +1,7 @@
 package com.ctf.bilisb.sponsor
 
 import com.ctf.bilisb.model.SponsorBlockQuery
+import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.player.PlayerActions
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
@@ -19,6 +20,7 @@ class SponsorBlockController(
     private val latestStateByContext = ConcurrentHashMap<Int, PlayerState>()
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var latestContextHash: Int = 0
 
     fun onPlayerState(state: PlayerState) {
         if (!state.hasVideoId) {
@@ -45,11 +47,19 @@ class SponsorBlockController(
 
     fun bindContext(contextHash: Int, state: PlayerState) {
         latestStateByContext[contextHash] = state
+        latestContextHash = contextHash
     }
 
     fun bindPlayerHandle(handle: PlayerHandle, state: PlayerState) {
         playerHandles[handle.contextHash] = handle
         latestStateByContext[handle.contextHash] = state
+        latestContextHash = handle.contextHash
+    }
+
+    fun progressMarkers(): Pair<Long, List<SponsorSegment>>? {
+        val state = latestStateByContext[latestContextHash] ?: return null
+        val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
+        return state.durationMs to segments
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {

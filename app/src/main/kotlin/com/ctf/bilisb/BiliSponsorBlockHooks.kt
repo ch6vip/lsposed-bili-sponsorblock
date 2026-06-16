@@ -8,6 +8,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.sponsor.SponsorBlockController
+import com.ctf.bilisb.ui.ProgressMarkerPainter
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
@@ -122,8 +123,12 @@ object BiliSponsorBlockHooks {
             "draw",
             Canvas::class.java,
         ) { chain ->
-            ProbeLogger.dumpClassOnce(module, "seekbar-draw", chain.getThisObject())
-            module.info("seekbar draw")
+            val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
+            val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
+            ProbeLogger.dumpClassOnce(module, "seekbar-draw", drawable)
+            sponsorBlockController?.progressMarkers()?.let { (durationMs, segments) ->
+                ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
+            }
         }
     }
 
