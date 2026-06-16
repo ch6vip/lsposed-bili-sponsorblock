@@ -8,7 +8,7 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
-import com.ctf.bilisb.player.VideoDirectorObserver
+import com.ctf.bilisb.player.VideoIdProbe
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
@@ -39,10 +39,12 @@ object BiliSponsorBlockHooks {
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
+        // 原版 8.96.0 播放器容器是 be1.j(对应 8.98.0 patch 版的 Ch1.g,均为 PlayerContainer 子类)。
+        // 注意用 smali 真实类名(小写 be1),不是 jadx 显示的 Be1。
         hookAfter(
             module,
             cl,
-            "Ch1.g",
+            "be1.j",
             "onCreate",
             Bundle::class.java,
         ) { chain ->
@@ -50,15 +52,15 @@ object BiliSponsorBlockHooks {
             ProbeLogger.dumpClassOnce(module, "player-container", container)
 
             // 容器创建时:绑定 core/context handle(用于 seek 与 toast),
-            // 并注册 video director observer —— aid/cid 在 onStart 回调里异步拿到,
-            // 不再反射 PlayerParamsV2。与 APK onPlayerContainerCreate -> PlayerHookProvider.h 链路一致。
+            // 并探查 video id —— 8.96.0 原版 aid/cid 来源与 8.98.0 patch 版不同,
+            // 当前用 PlayerParamsV2 字段树探针,装机后看日志定位真实字段路径。
             val contextHash = PlayerBridge.contextHash(container)
             val core = PlayerBridge.coreService(container)
             if (contextHash != 0 && core != null) {
                 val handle = PlayerHandle(contextHash, container, core)
                 sponsorBlockController?.bindPlayerHandle(handle)
                 sponsorBlockController?.let { controller ->
-                    VideoDirectorObserver.register(module, container) { aid, cid ->
+                    VideoIdProbe.probe(module, container) { aid, cid ->
                         controller.onVideoIds(contextHash, aid, cid)
                     }
                     SubmissionButtonInjector.attach(module, container, controller, contextHash)
@@ -72,7 +74,7 @@ object BiliSponsorBlockHooks {
         hookAfter(
             module,
             cl,
-            "Ch1.g",
+            "be1.j",
             "onDestroy",
         ) { chain ->
             ProbeLogger.dumpClassOnce(module, "player-destroy", chain.getThisObject())
@@ -81,13 +83,15 @@ object BiliSponsorBlockHooks {
     }
 
     private fun hookProgressText(module: XposedModule, cl: ClassLoader) {
+        // 8.96.0 原版进度回调方法名是 onPlayerProgressChange(int position, int duration),
+        // 不是 8.98.0 patch 版的 J(long,long)。三个进度文本类统一用 onPlayerProgressChange。
         hookAfter(
             module,
             cl,
             "com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget",
-            "J",
-            Long::class.javaPrimitiveType!!,
-            Long::class.javaPrimitiveType!!,
+            "onPlayerProgressChange",
+            Int::class.javaPrimitiveType!!,
+            Int::class.javaPrimitiveType!!,
         ) { chain ->
             onProgressTextUpdate(chain)
         }
@@ -96,9 +100,9 @@ object BiliSponsorBlockHooks {
             module,
             cl,
             "com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget",
-            "K",
-            Long::class.javaPrimitiveType!!,
-            Long::class.javaPrimitiveType!!,
+            "onPlayerProgressChange",
+            Int::class.javaPrimitiveType!!,
+            Int::class.javaPrimitiveType!!,
         ) { chain ->
             onProgressTextUpdate(chain)
         }
@@ -132,10 +136,11 @@ object BiliSponsorBlockHooks {
     }
 
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {
+        // 8.96.0 原版 seekbar process drawable 是 seek.v3.a(对应 8.98.0 patch 版的 seek.v3.f)。
         hookAfter(
             module,
             cl,
-            "com.bilibili.playerbizcommonv2.widget.seek.v3.f",
+            "com.bilibili.playerbizcommonv2.widget.seek.v3.a",
             "draw",
             Canvas::class.java,
         ) { chain ->

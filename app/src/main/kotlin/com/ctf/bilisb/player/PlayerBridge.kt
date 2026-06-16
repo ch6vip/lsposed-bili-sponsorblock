@@ -6,8 +6,8 @@ package com.ctf.bilisb.player
  * 只负责从 `Ch1.g`(PlayerContainer)上取播放器 core / android context,
  * 用于后续 seek 跳过与 toast 提示。
  *
- * video id(aid / cid)不由这里取 —— 那来自 [VideoDirectorObserver] 的
- * `onStart` 回调,与 APK `PlayerHookProvider.g()` 链路一致。
+ * video id(aid / cid)不由这里取 —— 8.96.0 原版走 [VideoIdProbe] 在容器创建时
+ * 探查 PlayerParamsV2 字段树(8.98.0 patch 版的 VideoDirectorObserver 链路在 8.96.0 不成立)。
  */
 object PlayerBridge {
     // APK: getPlayerServiceMethodName = "getPlayerCoreService"
