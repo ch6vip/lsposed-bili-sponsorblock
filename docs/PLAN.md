@@ -4,19 +4,28 @@
 
 把 `Bili-v8.98.0-x1.27.3@bb_show.apk` 里的 SponsorBlock 行为，复刻成可独立维护的 LSPosed 模块。
 
+## 开发约束
+
+- 参考 `Bili-v8.98.0-x1.27.3@bb_show.apk` 分析 UI、播放器行为和 Hook 点。
+- 参考 `hanydd/BilibiliSponsorBlock` 复刻 SponsorBlock 协议、片段过滤和跳过逻辑。
+- 不做完整 B 站客户端，只通过 Hook 介入播放器和相关逻辑。
+- 每完成一个功能模块或进行较大改动前，先提交并推送 GitHub。
+- 关键逻辑必须加注释；APK 行为不明确时，代码和文档都标注为推测实现。
+
 ## 阶段任务
 
 ### 1. 入口与环境
 - [x] 建立独立仓库骨架
 - [x] 配置 LSPosed / Xposed 入口文件
 - [x] 补齐基础 Gradle 与 manifest
-- [x] 接入 libxposed API 102 依赖
-- [ ] 补 Gradle wrapper 或确认本机 Gradle 可用
-- [ ] 构建 APK 并验证模块能被 LSPosed 识别
+- [x] 接入 libxposed API 101 依赖
+- [x] 确认本机 Gradle 与 `E:\Android` SDK 可用
+- [x] 构建 APK 并验证模块能被 LSPosed 识别
 
 ### 2. 视频与播放器识别
-- [ ] 识别 `tv.danmaku.bili` 目标进程
-- [ ] 定位播放器容器创建点
+- [x] 识别 `tv.danmaku.bili` 主进程，跳过 `:web` 等子进程
+- [x] 定位播放器容器创建点
+- [x] 抽象播放器桥接模块
 - [ ] 获取当前视频 ID
 - [ ] 获取 `aid / bvid / cid / duration / currentTime`
 
@@ -56,12 +65,20 @@
 ## 当前实现状态
 
 - 入口采用 `libxposed` API 102 的 `XposedModule`。
+- 当前兼容线已降到 `libxposed` API 101，避免 LSPosed API 102 激活失败。
 - 模块元数据位于 `app/src/main/resources/META-INF/xposed/`。
 - 当前 hook 是低风险探针版，目标：
   - `Ch1.g#onCreate(Bundle)`
   - `Ch1.g#onDestroy()`
   - `com.bilibili.playerbizcommonv2.widget.seek.v3.f#draw(Canvas)`
 - `SponsorBlockClient` 已按 APK 行为生成 `/api/skipSegments/{sha256Prefix}` 请求 URL，但 JSON 解析和播放 seek 仍未实现。
+- 播放器桥接采用 APK 中 `PlayerHookProvider` 的方法名策略：
+  - `getPlayerCoreService()`
+  - `getCurrentPosition()`
+  - `getDuration()`
+  - `seekTo(int, boolean)`
+- `PlayerParamsV2` 字段布局暂未在已反编译 dex 中确认，当前只做运行时探针，属于推测实现。
+- `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
 
 ## 下一步验收
 
