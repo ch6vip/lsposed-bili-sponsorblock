@@ -44,7 +44,7 @@
 
 ### 5. UI 与提示
 - [ ] 画进度条片段标记
-- [ ] 显示跳过提示
+- [x] 显示跳过提示
 - [ ] 显示剩余时间扣减
 - [ ] 做设置页
 
@@ -87,7 +87,8 @@
   - `com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget#updateTime(int,int)`
 - 自动跳过已按 APK 行为调用 `IPlayerCoreService#seekTo(endMs, true)`。
 - 已加按 `video/cid/uuid/start-end` 的防重复跳过记录，避免同一片段被进度回调重复触发。
-- 播放器 toast 提示尚未完成；APK 参考为 `PlayerHookProvider.C(container, text, 54)`，后续会单独落 `ui/toast` 模块。
+- 播放器 toast 提示已通过 `PlayerToastBridge` 接入，反射构造 `PlayerToast` 并调用 `getToastService().showToast(...)`。
+- 当前提示文案为简化直出：`已跳过 <category>`；APK 的分类本地化文案仍待对齐。
 
 ## 下一步验收
 
