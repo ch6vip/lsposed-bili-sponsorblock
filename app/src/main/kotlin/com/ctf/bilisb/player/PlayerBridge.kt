@@ -1,6 +1,7 @@
 package com.ctf.bilisb.player
 
 import com.ctf.bilisb.util.info
+import com.ctf.bilisb.util.AidBvidConverter
 import io.github.libxposed.api.XposedModule
 import java.util.regex.Pattern
 
@@ -18,24 +19,24 @@ object PlayerBridge {
         // getDuration() and seekTo(int, boolean). Video ids are not stored on the core
         // service; they are obtained from video-director callbacks. Until that observer
         // module is implemented, we expose duration/progress and leave aid/bvid/cid empty.
-        val ids = extractIdsFromPlayerParams(module, playerContainer)
+        val videoIds = extractIdsFromPlayerParams(module, playerContainer)
         val currentPositionMs = (invokeNoArg(core, "getCurrentPosition") as? Number)?.toLong() ?: 0L
         val durationMs = (invokeNoArg(core, "getDuration") as? Number)?.toLong() ?: 0L
+        val bvid = videoIds?.bvid ?: videoIds?.aid?.takeIf { it > 0 }?.let(AidBvidConverter::aidToBvid).orEmpty()
 
         return PlayerState(
-            aid = ids?.first ?: 0L,
-            bvid = "",
-            cid = ids?.second ?: 0L,
+            aid = videoIds?.aid ?: 0L,
+            bvid = bvid,
+            cid = videoIds?.cid ?: 0L,
             durationMs = durationMs,
             currentPositionMs = currentPositionMs,
         )
     }
 
-    private fun extractIdsFromPlayerParams(module: XposedModule, playerContainer: Any): Pair<Long, Long>? {
+    private fun extractIdsFromPlayerParams(module: XposedModule, playerContainer: Any): VideoIds? {
         val params = invokeNoArg(playerContainer, "getPlayerParams") ?: return null
-        val direct = readLongByCandidate(params, "aid", "avId", "avid") to
-            readLongByCandidate(params, "cid")
-        if (direct.first > 0 && direct.second > 0) {
+        val direct = findVideoIds(params, 0, mutableSetOf())
+        if (direct != null && (direct.aid > 0 || direct.bvid.isNotBlank()) && direct.cid > 0) {
             return direct
         }
 
@@ -46,6 +47,36 @@ object PlayerBridge {
             runCatching {
                 field.isAccessible = true
                 module.info("player params field ${field.name}:${field.type.name}=${field.get(params)}")
+            }
+        }
+        return null
+    }
+
+    private fun findVideoIds(target: Any, depth: Int, seen: MutableSet<Int>): VideoIds? {
+        if (depth > 2 || !seen.add(System.identityHashCode(target))) {
+            return null
+        }
+
+        val ids = VideoIds(
+            aid = readLongByCandidate(target, "aid", "avId", "avid"),
+            cid = readLongByCandidate(target, "cid"),
+            bvid = readStringByCandidate(target, "bvid", "bvId"),
+        )
+        if ((ids.aid > 0 || ids.bvid.isNotBlank()) && ids.cid > 0) {
+            return ids
+        }
+
+        target.javaClass.declaredFields.forEach { field ->
+            val nested = runCatching {
+                field.isAccessible = true
+                field.get(target)
+            }.getOrNull() ?: return@forEach
+            if (nested.javaClass.name.startsWith("java.")) {
+                return@forEach
+            }
+            val nestedIds = findVideoIds(nested, depth + 1, seen)
+            if (nestedIds != null) {
+                return nestedIds
             }
         }
         return null
@@ -68,6 +99,23 @@ object PlayerBridge {
         return 0L
     }
 
+    private fun readStringByCandidate(target: Any, vararg names: String): String {
+        for (name in names) {
+            val value = runCatching {
+                target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target)
+            }.getOrNull()
+            if (value is String && value.isNotBlank()) {
+                return value
+            }
+            val getterName = "get${name.replaceFirstChar { it.uppercaseChar() }}"
+            val getterValue = invokeNoArg(target, getterName)
+            if (getterValue is String && getterValue.isNotBlank()) {
+                return getterValue
+            }
+        }
+        return ""
+    }
+
     private fun parseIds(description: String?): Pair<Long, Long>? {
         if (description.isNullOrBlank()) {
             return null
@@ -87,4 +135,10 @@ object PlayerBridge {
             method.invoke(target)
         }.getOrNull()
     }
+
+    private data class VideoIds(
+        val aid: Long,
+        val cid: Long,
+        val bvid: String,
+    )
 }
