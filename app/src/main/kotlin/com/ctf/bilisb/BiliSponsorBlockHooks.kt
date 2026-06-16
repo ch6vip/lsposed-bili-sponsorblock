@@ -8,7 +8,7 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
-import com.ctf.bilisb.player.VideoIdProbe
+import com.ctf.bilisb.player.VideoDirectorListener
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
@@ -51,24 +51,38 @@ object BiliSponsorBlockHooks {
             val container = chain.getThisObject()
             ProbeLogger.dumpClassOnce(module, "player-container", container)
 
-            // 容器创建时:绑定 core/context handle(用于 seek 与 toast),
-            // 并探查 video id —— 8.96.0 原版 aid/cid 来源与 8.98.0 patch 版不同,
-            // 当前用 PlayerParamsV2 字段树探针,装机后看日志定位真实字段路径。
+            // 容器创建时:绑定 core/context handle。director service 在 onCreate 时还是 null,
+            // 需要在 onStart 时再注册 listener。
             val contextHash = PlayerBridge.contextHash(container)
             val core = PlayerBridge.coreService(container)
             if (contextHash != 0 && core != null) {
                 val handle = PlayerHandle(contextHash, container, core)
                 sponsorBlockController?.bindPlayerHandle(handle)
                 sponsorBlockController?.let { controller ->
-                    VideoIdProbe.probe(module, container) { aid, cid ->
-                        controller.onVideoIds(contextHash, aid, cid)
-                    }
                     SubmissionButtonInjector.attach(module, container, controller, contextHash)
                 }
             } else {
                 module.info("player container missing core/context, skip binding context=$contextHash")
             }
             module.info("player container created")
+        }
+
+        hookAfter(
+            module,
+            cl,
+            "be1.j",
+            "onStart",
+        ) { chain ->
+            val container = chain.getThisObject()
+            val contextHash = PlayerBridge.contextHash(container)
+
+            // onStart 时 director service 已初始化,注册 VideoPlayEventListener 拿 aid/cid
+            sponsorBlockController?.let { controller ->
+                VideoDirectorListener.register(module, container) { aid, cid ->
+                    controller.onVideoIds(contextHash, aid, cid)
+                }
+            }
+            module.info("player container started, director listener registered")
         }
 
         hookAfter(
