@@ -1,12 +1,15 @@
 package com.ctf.bilisb.sponsor
 
 import com.ctf.bilisb.model.SponsorBlockQuery
+import com.ctf.bilisb.model.SponsorBlockSubmission
 import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.player.PlayerActions
 import com.ctf.bilisb.player.PlayerHandle
+import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerState
 import com.ctf.bilisb.ui.PlayerToastBridge
 import com.ctf.bilisb.util.info
+import android.content.Context
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -14,10 +17,12 @@ import java.util.concurrent.Executors
 class SponsorBlockController(
     private val module: XposedModule,
     private val repository: SponsorBlockRepository = SponsorBlockRepository(),
+    private val submissionDraftController: SubmissionDraftController = SubmissionDraftController(),
 ) {
     private val executor = Executors.newSingleThreadExecutor()
     private val requestedVideos = mutableSetOf<String>()
     private val latestStateByContext = ConcurrentHashMap<Int, PlayerState>()
+    private val latestContainerByContext = ConcurrentHashMap<Int, Any>()
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var latestContextHash: Int = 0
@@ -52,8 +57,105 @@ class SponsorBlockController(
 
     fun bindPlayerHandle(handle: PlayerHandle, state: PlayerState) {
         playerHandles[handle.contextHash] = handle
+        latestContainerByContext[handle.contextHash] = handle.container
         latestStateByContext[handle.contextHash] = state
         latestContextHash = handle.contextHash
+    }
+
+    fun submitSegment(
+        contextHash: Int,
+        startMs: Long,
+        endMs: Long,
+        category: String = "sponsor",
+        epId: Int = 0,
+    ) {
+        val state = latestStateByContext[contextHash] ?: run {
+            module.info("submit skipped: missing player state for context=$contextHash")
+            return
+        }
+        val userId = userIdForContext(contextHash) ?: return
+        val submission = SponsorBlockSubmission(
+            userId = userId,
+            bvid = state.bvid,
+            cid = state.cid,
+            category = category,
+            startMs = startMs,
+            endMs = endMs,
+            videoDurationMs = state.durationMs,
+            epId = epId,
+        )
+        submit(submission, state)
+    }
+
+    fun markOrSubmitCurrentPosition(
+        contextHash: Int,
+        category: String = "sponsor",
+        epId: Int = 0,
+    ) {
+        val state = latestStateByContext[contextHash] ?: run {
+            module.info("mark skipped: missing player state for context=$contextHash")
+            return
+        }
+        val userId = userIdForContext(contextHash) ?: return
+        val positionMs = currentPositionMs(contextHash) ?: state.currentPositionMs
+        val submission = submissionDraftController.markOrBuildSubmission(
+            userId = userId,
+            state = state,
+            positionMs = positionMs,
+            category = category,
+            epId = epId,
+        )
+        if (submission == null) {
+            module.info(
+                "segment mark start video=${state.bvid} cid=${state.cid} " +
+                    "position=$positionMs category=$category",
+            )
+            return
+        }
+        submit(submission, state)
+    }
+
+    fun cancelSubmissionDraft(contextHash: Int) {
+        val state = latestStateByContext[contextHash] ?: return
+        submissionDraftController.cancel(state)
+        module.info("segment draft canceled video=${state.bvid} cid=${state.cid}")
+    }
+
+    private fun userIdForContext(contextHash: Int): String? {
+        val context = latestContainerByContext[contextHash]?.let { PlayerBridge.context(it) as? Context } ?: run {
+            module.info("submit skipped: missing android context for context=$contextHash")
+            return null
+        }
+        return UserIdentityStore(context).getOrCreateUserId()
+    }
+
+    private fun currentPositionMs(contextHash: Int): Long? {
+        val core = playerHandles[contextHash]?.core ?: return null
+        return runCatching {
+            val method = core.javaClass.getDeclaredMethod("getCurrentPosition").apply {
+                isAccessible = true
+            }
+            (method.invoke(core) as? Number)?.toLong()
+        }.getOrNull()
+    }
+
+    private fun submit(submission: SponsorBlockSubmission, state: PlayerState) {
+        if (!submission.isValid) {
+            module.info("submit skipped: invalid submission $submission")
+            return
+        }
+
+        executor.execute {
+            val result = repository.submit(submission)
+            module.info(
+                "segment submitted video=${state.bvid} cid=${state.cid} " +
+                    "status=${result.statusCode} start=${submission.startMs} end=${submission.endMs} " +
+                    "category=${submission.category}",
+            )
+            if (result.statusCode == 200) {
+                repository.clear(SponsorBlockQuery(state.bvid, state.cid))
+            }
+        }
     }
 
     fun progressMarkers(): Pair<Long, List<SponsorSegment>>? {

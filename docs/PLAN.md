@@ -49,10 +49,12 @@
 - [ ] 做设置页
 
 ### 6. 提交与统计
-- [ ] 片段提交入口
+- [x] 片段提交协议入口
 - [ ] 投票和反馈
 - [ ] 用户统计
 - [ ] 服务器地址和分类配置
+- [x] 本地 `userID` 持久化（按目标 App 私有 `SharedPreferences` 存储，属于推测实现）
+- [x] 草稿式标记控制器（第一次标起点，第二次提交）
 
 ## 当前判断
 
@@ -73,6 +75,9 @@
   - `Ch1.g#onDestroy()`
   - `com.bilibili.playerbizcommonv2.widget.seek.v3.f#draw(Canvas)`
 - `SponsorBlockClient` 已按 APK 行为生成 `/api/skipSegments/{sha256Prefix}` 请求 URL，但 JSON 解析和播放 seek 仍未实现。
+- `SponsorBlockClient` 已补齐 APK 对齐的提交 URL：`GET /api/skipSegments?userID=...&videoID=...&cid=...&category=...&startTime=...&endTime=...&videoDuration=...`
+- `userID` 按 APK 规则生成 32 位无连字符 UUID 字符串；存储位置采用目标 App 私有 `SharedPreferences`，这一点属于推测实现。
+- `SubmissionDraftController` 已加入，用于后续挂接播放器按钮的“标记起点/终点”交互。
 - 播放器桥接采用 APK 中 `PlayerHookProvider` 的方法名策略：
   - `getPlayerCoreService()`
   - `getCurrentPosition()`

@@ -1,6 +1,7 @@
 package com.ctf.bilisb.sponsor
 
 import com.ctf.bilisb.model.SponsorBlockQuery
+import com.ctf.bilisb.model.SponsorBlockSubmission
 import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.net.SponsorBlockClient
 import java.util.concurrent.ConcurrentHashMap
@@ -24,6 +25,10 @@ class SponsorBlockRepository(
 
     fun clear(query: SponsorBlockQuery) {
         cache.remove(cacheKey(query))
+    }
+
+    fun submit(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SponsorBlockClient.SubmitResult {
+        return client.submitSegment(submission, ignoreCache)
     }
 
     private fun cacheKey(query: SponsorBlockQuery): String {

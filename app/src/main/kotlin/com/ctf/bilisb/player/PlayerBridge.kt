@@ -38,6 +38,10 @@ object PlayerBridge {
         return context?.hashCode() ?: 0
     }
 
+    fun context(playerContainer: Any): Any? {
+        return invokeNoArg(playerContainer, "getContext")
+    }
+
     fun coreService(playerContainer: Any): Any? {
         return invokeNoArg(playerContainer, "getPlayerCoreService")
     }
