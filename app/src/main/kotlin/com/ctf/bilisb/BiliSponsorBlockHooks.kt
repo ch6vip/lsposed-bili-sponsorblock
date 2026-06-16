@@ -97,6 +97,7 @@ object BiliSponsorBlockHooks {
     }
 
     private fun hookProgressText(module: XposedModule, cl: ClassLoader) {
+        // Hook 1: 在 onPlayerProgressChange 里缓存调整后的时长,用于后续 setText 拦截
         // 8.96.0 原版进度回调方法名是 onPlayerProgressChange(int position, int duration),
         // 不是 8.98.0 patch 版的 J(long,long)。三个进度文本类统一用 onPlayerProgressChange。
         hookAfter(
@@ -131,6 +132,119 @@ object BiliSponsorBlockHooks {
         ) { chain ->
             onProgressTextUpdate(module, chain)
         }
+
+        // Hook 2: 拦截 TextView.setText(),自动替换成调整后的文本
+        hookProgressTextViewSetText(module, cl)
+    }
+
+    private fun hookProgressTextViewSetText(module: XposedModule, cl: ClassLoader) {
+        // Hook 这三个进度文本类的 setText(CharSequence, BufferType)
+        // 注意:setText 签名是 (CharSequence, TextView$BufferType),两个参数!
+        val classNames = listOf(
+            "com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget",
+            "com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget",
+            "com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget"
+        )
+
+        val bufferTypeClass = TextView.BufferType::class.java
+
+        classNames.forEach { className ->
+            // 用 before hook 修改 setText 的第一个参数(文本),从根源替换
+            hookBeforeSetText(module, cl, className, bufferTypeClass)
+        }
+    }
+
+    // 防止 setText 递归的标志
+    private val isAdjusting = ThreadLocal.withInitial { false }
+
+    private fun hookBeforeSetText(
+        module: XposedModule,
+        cl: ClassLoader,
+        className: String,
+        bufferTypeClass: Class<*>,
+    ) {
+        val method = findMethod(module, cl, className, "setText", CharSequence::class.java, bufferTypeClass) ?: run {
+            module.info("skip missing setText hook: $className")
+            return
+        }
+
+        module.hook(method)
+            .setPriority(XposedInterface.PRIORITY_DEFAULT)
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .intercept { chain ->
+                // 先执行原方法(设置原始文本)
+                val result = chain.proceed()
+
+                // 防递归:如果是我们触发的 setText,跳过
+                if (isAdjusting.get()) {
+                    return@intercept result
+                }
+
+                val textView = chain.getThisObject() as? TextView ?: return@intercept result
+                val originalText = textView.text ?: return@intercept result
+
+                val newText = computeAdjustedText(originalText)
+                if (newText != null && newText.toString() != originalText.toString()) {
+                    isAdjusting.set(true)
+                    try {
+                        textView.text = newText
+                    } finally {
+                        isAdjusting.set(false)
+                    }
+                }
+                result
+            }
+    }
+
+    private fun computeAdjustedText(originalText: CharSequence): CharSequence? {
+        // 已经带括号的不再处理(避免重复)
+        val textStr = originalText.toString()
+        if (textStr.contains("(") && textStr.contains(")")) {
+            return null
+        }
+
+        val controller = sponsorBlockController ?: return null
+        val (_, segments) = controller.latestSegments() ?: return null
+        if (segments.isEmpty()) {
+            return null
+        }
+
+        val durationMs = extractDurationFromText(textStr)
+        if (durationMs <= 0) {
+            return null
+        }
+
+        val adjustedDurationMs = RemainingTimeFormatter.adjustedDuration(durationMs, segments)
+        if (adjustedDurationMs >= durationMs) {
+            return null  // 没有可扣减的片段
+        }
+
+        return RemainingTimeFormatter.appendAdjustedDuration(originalText, adjustedDurationMs)
+    }
+
+    private fun extractDurationFromText(text: String): Long {
+        // 尝试从 "00:16 / 30:01" 格式中提取总时长
+        val regex = Regex("""(\d+):(\d+):(\d+)\s*/\s*(\d+):(\d+):(\d+)""")
+        val match = regex.find(text)
+        if (match != null) {
+            val groups = match.groupValues
+            val h = groups.getOrNull(4)?.toLongOrNull() ?: 0
+            val m = groups.getOrNull(5)?.toLongOrNull() ?: 0
+            val s = groups.getOrNull(6)?.toLongOrNull() ?: 0
+            return (h * 3600 + m * 60 + s) * 1000
+        }
+
+        // 尝试 "00:16 / 30:01" 格式 (无小时)
+        val regex2 = Regex("""(\d+):(\d+)\s*/\s*(\d+):(\d+)""")
+        val match2 = regex2.find(text)
+        if (match2 != null) {
+            val groups = match2.groupValues
+            val m = groups.getOrNull(3)?.toLongOrNull() ?: 0
+            val s = groups.getOrNull(4)?.toLongOrNull() ?: 0
+            return (m * 60 + s) * 1000
+        }
+
+        return -1L
     }
 
     private fun onProgressTextUpdate(module: XposedModule, chain: io.github.libxposed.api.XposedInterface.Chain) {
@@ -139,20 +253,13 @@ object BiliSponsorBlockHooks {
         val positionMs = (args.getOrNull(0) as? Number)?.toLong() ?: return
         val durationMs = (args.getOrNull(1) as? Number)?.toLong() ?: return
 
-        // 每 5 秒打一次日志,避免刷屏
-        if (positionMs % 5000 < 1000) {
-            module?.info("progress text update: ${target.javaClass.simpleName} pos=${positionMs}ms dur=${durationMs}ms")
+        // onProgressTextUpdate 只负责触发自动跳过。
+        // 时长扣减显示完全交给 setText hook (hookBeforeSetText),
+        // 因为 B 站显示/隐藏进度条时会重新 setText,只有拦截 setText 才能持久生效。
+        sponsorBlockController?.let { controller ->
+            val contextHash = controller.latestContextHash
+            controller.onProgress(contextHash, positionMs, durationMs)
         }
-
-        val contextHash = target.hashCode()
-        sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
-        val segments = sponsorBlockController?.segmentsForContext(contextHash) ?: return
-        val textView = target as? TextView ?: return
-        if (ProgressTextDecorator.isSameDecoration(textView, textView.text)) {
-            return
-        }
-        val adjustedDurationMs = RemainingTimeFormatter.adjustedDuration(durationMs, segments)
-        textView.text = ProgressTextDecorator.applyIfNeeded(textView, adjustedDurationMs, textView.text)
     }
 
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {
@@ -164,13 +271,15 @@ object BiliSponsorBlockHooks {
             "draw",
             Canvas::class.java,
         ) { chain ->
-            module.info("seekbar draw triggered")
             val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
             val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
             ProbeLogger.dumpClassOnce(module, "seekbar-draw", drawable)
-            sponsorBlockController?.progressMarkers()?.let { (durationMs, segments) ->
-                ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
+            val markers = sponsorBlockController?.progressMarkers()
+            if (markers == null) {
+                return@hookAfter
             }
+            val (durationMs, segments) = markers
+            ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
         }
     }
 

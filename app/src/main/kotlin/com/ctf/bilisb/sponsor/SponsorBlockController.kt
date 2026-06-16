@@ -28,7 +28,7 @@ class SponsorBlockController(
     private val latestContainerByContext = ConcurrentHashMap<Int, Any>()
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
-    @Volatile private var latestContextHash: Int = 0
+    @Volatile var latestContextHash: Int = 0
 
     /**
      * 容器创建时绑定播放器 handle(core 用于 seek,container 用于 toast / context)。
@@ -201,6 +201,12 @@ class SponsorBlockController(
     fun segmentsForContext(contextHash: Int): List<SponsorSegment>? {
         val state = latestStateByContext[contextHash] ?: return null
         return repository.getCached(SponsorBlockQuery(state.bvid, state.cid))
+    }
+
+    fun latestSegments(): Pair<Long, List<SponsorSegment>>? {
+        val state = latestStateByContext[latestContextHash] ?: return null
+        val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
+        return state.durationMs to segments
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
