@@ -26,8 +26,9 @@
 - [x] 识别 `tv.danmaku.bili` 主进程，跳过 `:web` 等子进程
 - [x] 定位播放器容器创建点
 - [x] 抽象播放器桥接模块
-- [ ] 获取当前视频 ID
-- [ ] 获取 `aid / bvid / cid / duration / currentTime`
+- [x] 获取当前视频 ID（通过 hook `VideoDirectorObserver.onStart`，对齐 APK `PlayerHookProvider.g` 链路）
+- [x] 获取 `aid / cid`（director `onStart` 回调解析 `getLogDescription`）
+- [ ] 获取 `duration / currentTime`（进度回调已有 duration/position，core 反射取 currentPosition 已接入，duration 尚需对齐）
 
 ### 3. 片段协议
 - [x] 实现 `BV -> SHA-256 -> 前缀`
@@ -82,12 +83,12 @@
 - `SubmissionDraftController` 已加入，用于后续挂接播放器按钮的“标记起点/终点”交互。
 - 播放器标记入口已通过 `SubmissionButtonInjector` 注入到 `actions_container_right`，点击执行“标起点/标终点提交”，长按取消草稿。
 - APK 原始实现注入 `ControlWidgetLinearLayout` + 两个 `ImageView`，并提供标记、预览、分类确认、手动编辑等完整弹窗流程；当前 LSPosed 版本使用普通 `TextView` 控件替代 ReVanced 资源，属于推测实现。
-- 播放器桥接采用 APK 中 `PlayerHookProvider` 的方法名策略：
-  - `getPlayerCoreService()`
-  - `getCurrentPosition()`
-  - `getDuration()`
-  - `seekTo(int, boolean)`
-- `PlayerParamsV2` 字段布局暂未在已反编译 dex 中确认，当前只做运行时探针，属于推测实现。
+- 播放器桥接只负责取 core / context（用于 seek 与 toast），不再反射 `PlayerParamsV2`。
+- video id（aid / cid）改由 `VideoDirectorObserver` 获取，对齐 APK 链路：
+  - 容器创建时 `PlayerHookProvider.h` 等价：取 director 服务（`getPlayDirectorServiceV3` / `getVideoPlayDirectorService`）并 `addVideoDirectorObserver` 注册动态代理。
+  - 代理 `onStart(current, previous)` 触发时，对 `current` 调 `getLogDescription()`，用正则 `^.*aid:\s(\d+),\scid:\s(\d+)$`（与 APK `vg.java:173` 一致）提 aid/cid。
+  - aid 经 `AidBvidConverter` 转 bvid（对应 APK `i6.H(aid)`）后请求片段。
+  - 证据链已确认：`PlayerHookProvider.g()` 解析 `yl.c(getLogDescription).a()` 得 `ej`，`get(1)=aid`、`get(2)=cid`。
 - `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
 - `sponsor/` 模块已独立出来，用于承载协议请求、缓存和后续自动跳过决策。
 - 进度文本 hook 已覆盖：

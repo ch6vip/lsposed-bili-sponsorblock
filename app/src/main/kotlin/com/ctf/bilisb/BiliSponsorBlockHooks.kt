@@ -8,6 +8,7 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
+import com.ctf.bilisb.player.VideoDirectorObserver
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
@@ -47,23 +48,23 @@ object BiliSponsorBlockHooks {
         ) { chain ->
             val container = chain.getThisObject()
             ProbeLogger.dumpClassOnce(module, "player-container", container)
-            PlayerBridge.extractState(module, container)?.let { state ->
-                module.info(
-                    "player state aid=${state.aid} cid=${state.cid} bvid=${state.bvid} " +
-                        "position=${state.currentPositionMs} duration=${state.durationMs}",
-                )
-                sponsorBlockController?.onPlayerState(state)
-                val contextHash = PlayerBridge.contextHash(container)
-                val core = PlayerBridge.coreService(container)
-                if (contextHash != 0 && core != null) {
-                    sponsorBlockController?.bindPlayerHandle(
-                        PlayerHandle(contextHash, container, core),
-                        state,
-                    )
-                    sponsorBlockController?.let { controller ->
-                        SubmissionButtonInjector.attach(module, container, controller, contextHash)
+
+            // 容器创建时:绑定 core/context handle(用于 seek 与 toast),
+            // 并注册 video director observer —— aid/cid 在 onStart 回调里异步拿到,
+            // 不再反射 PlayerParamsV2。与 APK onPlayerContainerCreate -> PlayerHookProvider.h 链路一致。
+            val contextHash = PlayerBridge.contextHash(container)
+            val core = PlayerBridge.coreService(container)
+            if (contextHash != 0 && core != null) {
+                val handle = PlayerHandle(contextHash, container, core)
+                sponsorBlockController?.bindPlayerHandle(handle)
+                sponsorBlockController?.let { controller ->
+                    VideoDirectorObserver.register(module, container) { aid, cid ->
+                        controller.onVideoIds(contextHash, aid, cid)
                     }
+                    SubmissionButtonInjector.attach(module, container, controller, contextHash)
                 }
+            } else {
+                module.info("player container missing core/context, skip binding context=$contextHash")
             }
             module.info("player container created")
         }
