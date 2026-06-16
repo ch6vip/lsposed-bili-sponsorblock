@@ -107,7 +107,7 @@ object BiliSponsorBlockHooks {
             Int::class.javaPrimitiveType!!,
             Int::class.javaPrimitiveType!!,
         ) { chain ->
-            onProgressTextUpdate(chain)
+            onProgressTextUpdate(module, chain)
         }
 
         hookAfter(
@@ -118,7 +118,7 @@ object BiliSponsorBlockHooks {
             Int::class.javaPrimitiveType!!,
             Int::class.javaPrimitiveType!!,
         ) { chain ->
-            onProgressTextUpdate(chain)
+            onProgressTextUpdate(module, chain)
         }
 
         hookAfter(
@@ -129,15 +129,21 @@ object BiliSponsorBlockHooks {
             Int::class.javaPrimitiveType!!,
             Int::class.javaPrimitiveType!!,
         ) { chain ->
-            onProgressTextUpdate(chain)
+            onProgressTextUpdate(module, chain)
         }
     }
 
-    private fun onProgressTextUpdate(chain: io.github.libxposed.api.XposedInterface.Chain) {
+    private fun onProgressTextUpdate(module: XposedModule, chain: io.github.libxposed.api.XposedInterface.Chain) {
         val target = chain.getThisObject() ?: return
         val args = chain.getArgs()
         val positionMs = (args.getOrNull(0) as? Number)?.toLong() ?: return
         val durationMs = (args.getOrNull(1) as? Number)?.toLong() ?: return
+
+        // 每 5 秒打一次日志,避免刷屏
+        if (positionMs % 5000 < 1000) {
+            module?.info("progress text update: ${target.javaClass.simpleName} pos=${positionMs}ms dur=${durationMs}ms")
+        }
+
         val contextHash = target.hashCode()
         sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
         val segments = sponsorBlockController?.segmentsForContext(contextHash) ?: return
@@ -158,6 +164,7 @@ object BiliSponsorBlockHooks {
             "draw",
             Canvas::class.java,
         ) { chain ->
+            module.info("seekbar draw triggered")
             val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
             val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
             ProbeLogger.dumpClassOnce(module, "seekbar-draw", drawable)
