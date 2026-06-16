@@ -13,13 +13,14 @@ import java.util.concurrent.ConcurrentHashMap
 object BiliSponsorBlockHooks {
     private val installed = ConcurrentHashMap.newKeySet<String>()
 
-    fun install(module: XposedModule, param: PackageLoadedParam) {
-        if (!installed.add(param.packageName)) {
+    fun install(module: XposedModule, param: PackageLoadedParam, processName: String) {
+        val installKey = "${param.packageName}:$processName"
+        if (!installed.add(installKey)) {
             return
         }
 
         val cl = param.defaultClassLoader
-        module.info("Installing hooks for ${param.packageName} with $cl")
+        module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
 
         hookPlayerContainer(module, cl)
         hookProgressDrawable(module, cl)
@@ -69,8 +70,8 @@ object BiliSponsorBlockHooks {
         vararg paramTypes: Class<*>,
         onAfter: (io.github.libxposed.api.XposedInterface.Chain) -> Unit,
     ) {
-        val method = findMethod(cl, className, methodName, *paramTypes) ?: run {
-            module.info("skip missing hook target: $className#$methodName")
+        val method = findMethod(module, cl, className, methodName, *paramTypes) ?: run {
+            module.info("skip missing hook target: $className#$methodName(${paramTypes.joinToString { it.name }})")
             return
         }
 
@@ -85,6 +86,7 @@ object BiliSponsorBlockHooks {
     }
 
     private fun findMethod(
+        module: XposedModule,
         cl: ClassLoader,
         className: String,
         methodName: String,
@@ -94,6 +96,8 @@ object BiliSponsorBlockHooks {
             Class.forName(className, false, cl).getDeclaredMethod(methodName, *paramTypes).apply {
                 isAccessible = true
             }
+        }.onFailure { throwable ->
+            module.info("failed to resolve $className#$methodName: ${throwable.javaClass.name}: ${throwable.message}")
         }.getOrNull()
     }
 }

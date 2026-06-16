@@ -6,7 +6,10 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.util.info
 
 class Entry : XposedModule() {
+    private var processName: String = ""
+
     override fun onModuleLoaded(param: ModuleLoadedParam) {
+        processName = param.processName
         info("BiliSponsorBlock module loaded in ${param.processName}")
     }
 
@@ -15,7 +18,12 @@ class Entry : XposedModule() {
             return
         }
 
-        BiliSponsorBlockHooks.install(this, param)
+        if (processName != TARGET_PACKAGE) {
+            info("Skip hooks in non-main process: $processName")
+            return
+        }
+
+        BiliSponsorBlockHooks.install(this, param, processName)
     }
 
     private companion object {
