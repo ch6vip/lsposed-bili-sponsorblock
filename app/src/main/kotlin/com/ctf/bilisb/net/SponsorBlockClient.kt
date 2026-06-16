@@ -2,11 +2,13 @@ package com.ctf.bilisb.net
 
 import com.ctf.bilisb.model.SponsorBlockConfig
 import com.ctf.bilisb.model.SponsorBlockQuery
+import com.ctf.bilisb.model.SponsorBlockSubmission
 import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.util.HashUtils
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,6 +19,11 @@ class SponsorBlockClient(
         val statusCode: Int,
         val body: String?,
         val segments: List<SponsorSegment>,
+    )
+
+    data class SubmitResult(
+        val statusCode: Int,
+        val body: String?,
     )
 
     fun endpointForBvid(bvid: String): String {
@@ -52,6 +59,33 @@ class SponsorBlockClient(
 
     fun fetchRawSkipSegments(bvid: String, cid: Long): String? {
         return fetchSkipSegments(SponsorBlockQuery(bvid, cid)).body
+    }
+
+    fun submitSegment(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SubmitResult {
+        val url = URL(buildSubmitUrl(submission))
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 5000
+            readTimeout = 5000
+            setRequestProperty("Origin", "BiliRoamingX")
+            setRequestProperty("X-EXT-VERSION", "1.27.3")
+            if (ignoreCache) {
+                setRequestProperty("cache-control", "no-cache")
+                setRequestProperty("X-SKIP-CACHE", "1")
+            }
+            doInput = true
+        }
+
+        return runCatching {
+            val status = conn.responseCode
+            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }
+            SubmitResult(status, body)
+        }.getOrElse {
+            SubmitResult(-1, null)
+        }.also {
+            conn.disconnect()
+        }
     }
 
     fun parseSegments(raw: String): List<SponsorSegment> {
@@ -116,7 +150,28 @@ class SponsorBlockClient(
         return "?videoID=${encode(query.bvid)}&cid=${query.cid}&actionType=${encode(query.actionType)}"
     }
 
+    fun buildSubmitUrl(submission: SponsorBlockSubmission): String {
+        val base = "${config.serverAddress.trimEnd('/')}/api/skipSegments"
+        val query = buildString {
+            append("?userID=").append(encode(submission.userId))
+            append("&videoID=").append(encode(submission.bvid))
+            append("&cid=").append(submission.cid)
+            append("&category=").append(encode(submission.category))
+            append("&startTime=").append(formatSeconds(submission.startMs))
+            append("&endTime=").append(formatSeconds(submission.endMs))
+            append("&videoDuration=").append(formatSeconds(submission.videoDurationMs))
+            if (submission.epId > 0) {
+                append("&epId=").append(submission.epId)
+            }
+        }
+        return base + query
+    }
+
     private fun encode(value: String): String {
         return URLEncoder.encode(value, Charsets.UTF_8.name())
+    }
+
+    private fun formatSeconds(valueMs: Long): String {
+        return String.format(Locale.US, "%.3f", valueMs / 1000.0)
     }
 }
