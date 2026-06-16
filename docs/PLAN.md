@@ -50,11 +50,13 @@
 
 ### 6. 提交与统计
 - [x] 片段提交协议入口
+- [x] 播放器标记按钮入口（轻量推测实现）
 - [ ] 投票和反馈
 - [ ] 用户统计
 - [ ] 服务器地址和分类配置
 - [x] 本地 `userID` 持久化（按目标 App 私有 `SharedPreferences` 存储，属于推测实现）
 - [x] 草稿式标记控制器（第一次标起点，第二次提交）
+- [ ] APK 对齐的分类选择、手动时间编辑、预览后确认
 
 ## 当前判断
 
@@ -78,6 +80,8 @@
 - `SponsorBlockClient` 已补齐 APK 对齐的提交 URL：`GET /api/skipSegments?userID=...&videoID=...&cid=...&category=...&startTime=...&endTime=...&videoDuration=...`
 - `userID` 按 APK 规则生成 32 位无连字符 UUID 字符串；存储位置采用目标 App 私有 `SharedPreferences`，这一点属于推测实现。
 - `SubmissionDraftController` 已加入，用于后续挂接播放器按钮的“标记起点/终点”交互。
+- 播放器标记入口已通过 `SubmissionButtonInjector` 注入到 `actions_container_right`，点击执行“标起点/标终点提交”，长按取消草稿。
+- APK 原始实现注入 `ControlWidgetLinearLayout` + 两个 `ImageView`，并提供标记、预览、分类确认、手动编辑等完整弹窗流程；当前 LSPosed 版本使用普通 `TextView` 控件替代 ReVanced 资源，属于推测实现。
 - 播放器桥接采用 APK 中 `PlayerHookProvider` 的方法名策略：
   - `getPlayerCoreService()`
   - `getCurrentPosition()`
