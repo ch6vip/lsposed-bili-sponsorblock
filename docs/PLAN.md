@@ -42,8 +42,8 @@
 - [x] 通过进度文本 hook 检测命中片段
 - [x] 支持 `skip / poi` 分类策略（poi_highlight 不自动跳过、不扣时长、画圆点,对齐 APK `an.d()`）
 - [ ] 支持 `mute` 静音策略（APK 此版本未实现,暂缓）
-- [ ] 支持手动取消与重跳
-- [ ] 支持小窗和切集场景
+- [~] 支持手动取消与重跳（APK 8.98.0 此构建无 unskip/undo,`PlayerHookProvider.C` toast 无 action 按钮,跳过即终态;按"对齐原 APK"原则不做）
+- [ ] 支持小窗和切集场景（需运行时验证:小窗是否复用 `Ch1.g` 容器;若是则 director observer + 进度 hook 自动生效,若用独立容器类需补 hook。APK `onStartMiniPlay` 是 patch 层片段迁移,与我们 LSPosed 进程模型不同,不直接对应）
 
 ### 5. UI 与提示
 - [x] 画进度条片段标记
