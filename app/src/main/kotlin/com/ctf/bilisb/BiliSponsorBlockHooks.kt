@@ -2,13 +2,16 @@ package com.ctf.bilisb
 
 import android.graphics.Canvas
 import android.os.Bundle
+import android.widget.TextView
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.sponsor.SponsorBlockController
+import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
+import com.ctf.bilisb.ui.RemainingTimeFormatter
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
@@ -112,7 +115,15 @@ object BiliSponsorBlockHooks {
         val args = chain.getArgs()
         val positionMs = (args.getOrNull(0) as? Number)?.toLong() ?: return
         val durationMs = (args.getOrNull(1) as? Number)?.toLong() ?: return
-        sponsorBlockController?.onProgress(target.hashCode(), positionMs, durationMs)
+        val contextHash = target.hashCode()
+        sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
+        val segments = sponsorBlockController?.segmentsForContext(contextHash) ?: return
+        val textView = target as? TextView ?: return
+        if (ProgressTextDecorator.isSameDecoration(textView, textView.text)) {
+            return
+        }
+        val adjustedDurationMs = RemainingTimeFormatter.adjustedDuration(durationMs, segments)
+        textView.text = ProgressTextDecorator.applyIfNeeded(textView, adjustedDurationMs, textView.text)
     }
 
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {

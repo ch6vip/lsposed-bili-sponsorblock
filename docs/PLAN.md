@@ -45,7 +45,7 @@
 ### 5. UI 与提示
 - [x] 画进度条片段标记
 - [x] 显示跳过提示
-- [ ] 显示剩余时间扣减
+- [x] 显示剩余时间扣减
 - [ ] 做设置页
 
 ### 6. 提交与统计
@@ -91,6 +91,8 @@
 - 当前提示文案为简化直出：`已跳过 <category>`；APK 的分类本地化文案仍待对齐。
 - 进度条标记已通过 `ProgressMarkerPainter` 接入 `seek.v3.f#draw(Canvas)`，按 `start/end/duration` 在 drawable bounds 上绘制片段区间。
 - 当前进度条标记使用最近活动播放器 context 和固定黄色；APK 中按分类颜色绘制，后续需要对齐分类颜色配置。
+- 剩余时间扣减已通过 `RemainingTimeFormatter` + `ProgressTextDecorator` 接入进度文本 hook，当前效果是文本后追加 `(<扣减后时长>)`。
+- 这是按 APK `onPlayerUpdateProgressTextLong` 行为做的文本层复刻，具体文案和去重策略仍属于推测实现。
 
 ## 下一步验收
 
