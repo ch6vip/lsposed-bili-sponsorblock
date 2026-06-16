@@ -33,6 +33,11 @@ object PlayerBridge {
         )
     }
 
+    fun contextHash(playerContainer: Any): Int {
+        val context = invokeNoArg(playerContainer, "getContext")
+        return context?.hashCode() ?: 0
+    }
+
     private fun extractIdsFromPlayerParams(module: XposedModule, playerContainer: Any): VideoIds? {
         val params = invokeNoArg(playerContainer, "getPlayerParams") ?: return null
         val direct = findVideoIds(params, 0, mutableSetOf())
