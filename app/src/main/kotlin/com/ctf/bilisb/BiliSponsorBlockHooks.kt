@@ -5,6 +5,7 @@ import android.os.Bundle
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
+import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
@@ -34,7 +35,14 @@ object BiliSponsorBlockHooks {
             "onCreate",
             Bundle::class.java,
         ) { chain ->
-            ProbeLogger.dumpClassOnce(module, "player-container", chain.getThisObject())
+            val container = chain.getThisObject()
+            ProbeLogger.dumpClassOnce(module, "player-container", container)
+            PlayerBridge.extractState(module, container)?.let { state ->
+                module.info(
+                    "player state aid=${state.aid} cid=${state.cid} bvid=${state.bvid} " +
+                        "position=${state.currentPositionMs} duration=${state.durationMs}",
+                )
+            }
             module.info("player container created")
         }
 
