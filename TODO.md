@@ -32,6 +32,8 @@
   - [ ] 用户 ID 管理
   - [ ] 默认标记类别
 - [x] 基础存储与 Hook 端读取
+- [x] 设置界面结构:主页单入口 SponsorBlock → 详情页(小标题分隔);关于页(版本/作者/更新,点「更新」跳转项目主页)
+- [x] 输入保存修复:数字/服务器失焦 + 离开前 clearFocus 强制提交;服务器非空校验;常驻 SettingsWriter 防镜像被 GC 静默失效
 
 ### 1.1 设置入口稳定性
 - [x] 缩窄 `MineMenuInjector` 的 hook 面 — 从全局 `RecyclerView.Adapter.notifyDataSetChanged` 收窄到 `HomeUserCenterAdapter`（commit 912bd4d）
