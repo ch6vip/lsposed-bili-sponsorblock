@@ -2,6 +2,9 @@ package com.ctf.bilisb.settings
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -16,6 +19,7 @@ import android.widget.*
 import com.ctf.bilisb.BuildConfig
 import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SkipStatsStore
+import com.ctf.bilisb.sponsor.UserIdentityStore
 
 /**
  * Bili2233 设置对话框(纯代码,不依赖 XML / PreferenceFragment)。
@@ -137,6 +141,7 @@ object SponsorBlockSettingDialog {
 
         // 提交配置
         root.addView(sectionTitle(activity, "提交配置"))
+        root.addView(userIdRow(activity, p))
         root.addView(defaultSubmitCategoryRow(activity, p))
 
         // 服务器
@@ -349,6 +354,86 @@ object SponsorBlockSettingDialog {
                     .show()
             }
         }
+    }
+
+    private fun userIdRow(activity: Activity, prefs: SharedPreferences): View {
+        fun currentUserId(): String {
+            val saved = prefs.getString(SettingsKeys.USER_ID, "")
+            if (UserIdentityStore.isValidUserId(saved)) return saved ?: ""
+            val generated = UserIdentityStore.generateUserId()
+            prefs.edit().putString(SettingsKeys.USER_ID, generated).apply()
+            return generated
+        }
+
+        val valueView = TextView(activity).apply {
+            textSize = 12f
+            setTextColor(Color.GRAY)
+            setPadding(0, dp(activity, 2), 0, 0)
+        }
+        fun refresh() {
+            valueView.text = currentUserId()
+        }
+        refresh()
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(activity, 10), 0, dp(activity, 10))
+            addView(TextView(activity).apply {
+                text = "用户 ID"
+                textSize = 16f
+                setTextColor(Color.parseColor("#212121"))
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            addView(valueView)
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Button(activity).apply {
+                    text = "复制"
+                    setOnClickListener {
+                        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Bili2233 userId", currentUserId()))
+                        Toast.makeText(activity, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                })
+                addView(Button(activity).apply {
+                    text = "重置"
+                    setOnClickListener {
+                        prefs.edit().putString(SettingsKeys.USER_ID, UserIdentityStore.generateUserId()).apply()
+                        refresh()
+                        Toast.makeText(activity, "已重置", Toast.LENGTH_SHORT).show()
+                    }
+                })
+                addView(Button(activity).apply {
+                    text = "导入"
+                    setOnClickListener {
+                        showUserIdImportDialog(activity, prefs, ::refresh)
+                    }
+                })
+            })
+        }
+    }
+
+    private fun showUserIdImportDialog(activity: Activity, prefs: SharedPreferences, onSaved: () -> Unit) {
+        val edit = EditText(activity).apply {
+            setText(prefs.getString(SettingsKeys.USER_ID, ""))
+            inputType = InputType.TYPE_CLASS_TEXT
+            textSize = 14f
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("导入用户 ID")
+            .setView(edit)
+            .setPositiveButton("保存") { _, _ ->
+                val userId = edit.text.toString().trim()
+                if (!UserIdentityStore.isValidUserId(userId)) {
+                    Toast.makeText(activity, "用户 ID 必须是 32 位十六进制", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
+                onSaved()
+                Toast.makeText(activity, "已保存", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     // ===================== UI 小工具 =====================

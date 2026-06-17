@@ -37,6 +37,7 @@ object SettingsKeys {
     const val DEFAULT_SERVER = "https://bsbsb.top"
 
     // 提交配置
+    const val USER_ID = "user_id"
     const val DEFAULT_SUBMIT_CATEGORY = "default_submit_category"
     const val DEFAULT_SUBMIT_CATEGORY_VALUE = "sponsor"
 
@@ -98,7 +99,7 @@ object SettingsKeys {
     ) + CATEGORY_MAP.keys.toList()
 
     /** 所有 string 类型 key */
-    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION, SKIP_COUNTDOWN, DEFAULT_SUBMIT_CATEGORY)
+    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION, SKIP_COUNTDOWN, USER_ID, DEFAULT_SUBMIT_CATEGORY)
 
     /** Bool key 默认值 */
     val BOOL_DEFAULTS = mapOf(
@@ -112,6 +113,7 @@ object SettingsKeys {
         SERVER_ADDRESS to DEFAULT_SERVER,
         MIN_SKIP_DURATION to "0",
         SKIP_COUNTDOWN to "0",
+        USER_ID to "",
         DEFAULT_SUBMIT_CATEGORY to DEFAULT_SUBMIT_CATEGORY_VALUE,
     )
 }
