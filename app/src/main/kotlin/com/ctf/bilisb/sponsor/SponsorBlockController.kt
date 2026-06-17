@@ -281,6 +281,7 @@ class SponsorBlockController(
             ManualSkipButton.show(module, handle.container, categoryName) {
                 PlayerActions.seekTo(module, handle.core, segment.endMs)
                 manualButtonSegmentKey = null
+                SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
                 if (settings.showToast) {
                     val durationSec = (segment.endMs - segment.startMs) / 1000.0
                     PlayerToastBridge.showSkipToast(
@@ -329,6 +330,7 @@ class SponsorBlockController(
                 onComplete = {
                     countdownSegmentKey = null
                     PlayerActions.seekTo(module, handle.core, endMs)
+                    SkipStatsStore.record(segment.category, endMs - startMs)
                     if (settings.showToast) {
                         val durationSec = (endMs - startMs) / 1000.0
                         PlayerToastBridge.showSkipToast(
@@ -356,6 +358,7 @@ class SponsorBlockController(
         // This is the direct Hook equivalent, with the handle coming from the
         // player container/context binding.
         PlayerActions.seekTo(module, handle.core, segment.endMs)
+        SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
         if (settings.showToast) {
             val categoryName = getCategoryDisplayName(segment.category)
             val durationSec = (segment.endMs - segment.startMs) / 1000.0
@@ -374,18 +377,6 @@ class SponsorBlockController(
         AudioMuteController.unmute(module, host)
     }
 
-    private fun getCategoryDisplayName(category: String): String {
-        return when (category) {
-            "sponsor" -> "赞助/恰饭"
-            "selfpromo" -> "自我推广"
-            "interaction" -> "互动提醒"
-            "intro" -> "开场动画"
-            "outro" -> "结束画面"
-            "preview" -> "回顾/概要"
-            "music_offtopic" -> "非音乐片段"
-            "filler" -> "填充内容"
-            "poi_highlight" -> "精彩时刻"
-            else -> category
-        }
-    }
+    private fun getCategoryDisplayName(category: String): String =
+        com.ctf.bilisb.model.SponsorCategories.displayName(category)
 }

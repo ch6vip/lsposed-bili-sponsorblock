@@ -1,6 +1,7 @@
 package com.ctf.bilisb.settings
 
 import android.content.Context
+import android.graphics.Color
 import android.net.Uri
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
@@ -107,6 +108,9 @@ object ModuleSettings {
             showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
             showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
             showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(bundle.getString(SettingsKeys.colorKey(category), def), def)
+            },
         )
     }
 
@@ -135,8 +139,17 @@ object ModuleSettings {
             showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
             showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
             showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(str(SettingsKeys.colorKey(category), def), def)
+            },
         )
     }
+
+    /** 解析 hex 颜色;非法时回退到默认 hex(默认也非法则回退灰色,理论不会发生)。 */
+    private fun parseColor(hex: String?, default: String): Int =
+        runCatching { Color.parseColor(hex) }.getOrElse {
+            runCatching { Color.parseColor(default) }.getOrDefault(Color.GRAY)
+        }
 
     /** 把秒字符串解析成非负 Float,解析失败或负数按 0(不过滤)处理。 */
     private fun parseDuration(raw: String?): Float =
@@ -159,6 +172,8 @@ data class SettingsSnapshot(
     val showSeekbarMarker: Boolean,
     val showTimeDeduction: Boolean,
     val showSubmitButton: Boolean,
+    /** 分类标记颜色:category 字符串 → ARGB int。缺省由 CATEGORY_COLOR_DEFAULTS 填充。 */
+    val categoryColors: Map<String, Int>,
 ) {
     companion object {
         val DEFAULT = SettingsSnapshot(
@@ -177,6 +192,9 @@ data class SettingsSnapshot(
             showSeekbarMarker = true,
             showTimeDeduction = true,
             showSubmitButton = true,
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) ->
+                runCatching { Color.parseColor(hex) }.getOrDefault(Color.GRAY)
+            },
         )
     }
 }

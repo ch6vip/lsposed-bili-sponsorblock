@@ -19,8 +19,9 @@ import com.ctf.bilisb.model.SponsorSegment
  * 调用点是 `seek.v3.f#draw(Canvas)`（薄轨道 drawable），与 patch 注入点一致。
  */
 object ProgressMarkerPainter {
-    // 分类配色（实色，无 alpha）。对齐 SponsorBlock/PiliPlus 常见配色。
-    private val categoryColors = mapOf(
+    // 分类配色兜底(实色,无 alpha)。当快照里没有该分类颜色时回退到这里。
+    // 与 SettingsKeys.CATEGORY_COLOR_DEFAULTS 的默认值保持一致。
+    private val defaultCategoryColors = mapOf(
         "sponsor" to Color.rgb(0, 210, 0),           // 绿色
         "selfpromo" to Color.rgb(255, 255, 0),       // 黄色
         "interaction" to Color.rgb(170, 0, 255),     // 紫色
@@ -44,8 +45,15 @@ object ProgressMarkerPainter {
      * 在轨道 drawable 上绘制标记。对应 patch 的 `b(...)`。
      *
      * @param drawable 轨道 drawable（seek.v3.f），用它的 bounds 决定标记的位置和高度
+     * @param colorOverrides 用户在设置里自定义的分类颜色(category→ARGB)。缺该分类则回退内置配色。
      */
-    fun draw(drawable: Drawable, canvas: Canvas, durationMs: Long, segments: List<SponsorSegment>) {
+    fun draw(
+        drawable: Drawable,
+        canvas: Canvas,
+        durationMs: Long,
+        segments: List<SponsorSegment>,
+        colorOverrides: Map<String, Int> = emptyMap(),
+    ) {
         if (durationMs <= 0 || segments.isEmpty()) {
             return
         }
@@ -67,7 +75,9 @@ object ProgressMarkerPainter {
         val radius = height / 2.0f
 
         segments.forEach { segment ->
-            paint.color = categoryColors[segment.category] ?: defaultColor
+            paint.color = colorOverrides[segment.category]
+                ?: defaultCategoryColors[segment.category]
+                ?: defaultColor
 
             val xStart = left + segment.startMs * pxPerMs
 

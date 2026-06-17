@@ -25,9 +25,9 @@
   - [x] 各类别片段开关 (sponsor/intro/outro/interaction/selfpromo/music_offtopic/poi_highlight)
   - [x] 进度条标记开关
   - [x] 剩余时长扣减开关
-- [ ] 标记颜色配置:
-  - [ ] 每个类别可自定义颜色
-  - [ ] 颜色选择器
+- [x] 标记颜色配置:
+  - [x] 每个类别可自定义颜色 (设置项 `color_<category>`,hex 存储)
+  - [x] 颜色选择器 (`ColorPickerDialog`:预设色板 + hex 手输,两个设置界面共用)
 - [ ] 提交配置:
   - [ ] 用户 ID 管理
   - [ ] 默认标记类别
@@ -46,7 +46,7 @@
 ### 3. UI 优化
 - [x] 跳过按钮 (手动模式下播放器右下角浮出胶囊按钮 `ManualSkipButton`)
 - [x] 倒计时取消 (设置项 `skip_countdown` 秒,进入片段显示 "N秒后跳过 [取消]",`SkipCountdownOverlay`)
-- [ ] 片段统计 (已跳过时长累计)
+- [x] 片段统计 (已跳过时长累计) — `SkipStatsStore` 进程内单例 + 宿主数据目录 JSON 持久化;立即/倒计时/手动三处跳过点记录;in-app 设置对话框显示总计+分类明细+重置
 
 ### 4. 性能优化
 - [ ] 片段缓存 TTL 可配置

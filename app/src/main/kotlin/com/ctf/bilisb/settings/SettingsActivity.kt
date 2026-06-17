@@ -79,6 +79,27 @@ class SettingsActivity : Activity() {
         root.addView(switchItem(SettingsKeys.SHOW_TIME_DEDUCTION, "剩余时长扣减", "时间显示扣除片段后的时长", true))
         root.addView(switchItem(SettingsKeys.SHOW_SUBMIT_BUTTON, "标记按钮", "播放器内显示片段标记按钮", true))
 
+        // ===== 标记颜色 =====
+        root.addView(sectionTitle("标记颜色"))
+        root.addView(TextView(this).apply {
+            text = "点击色块自定义各分类在进度条上的标记颜色"
+            textSize = 12f
+            setTextColor(Color.GRAY)
+            setPadding(dp(8), 0, dp(8), dp(4))
+        })
+        for ((category, name) in com.ctf.bilisb.model.SponsorCategories.displayNames) {
+            root.addView(ColorPickerDialog.colorRow(this, writer.sharedPreferences, category, name))
+        }
+
+        // ===== 统计 =====
+        root.addView(sectionTitle("统计"))
+        root.addView(TextView(this).apply {
+            text = "跳过统计在播放器进程中累计。请在 B 站「我的」→ Bili2233 设置入口查看与重置。"
+            setTextColor(Color.GRAY)
+            textSize = 12f
+            setPadding(dp(8), 0, dp(8), dp(4))
+        })
+
         // ===== 说明 =====
         root.addView(TextView(this).apply {
             text = "提示:修改设置后,重新进入播放页面即可生效，无需重启应用。"
