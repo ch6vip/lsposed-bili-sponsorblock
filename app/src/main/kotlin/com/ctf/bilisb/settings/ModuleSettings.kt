@@ -97,6 +97,8 @@ object ModuleSettings {
         return SettingsSnapshot(
             enabled = bundle.getBoolean(SettingsKeys.ENABLED, true),
             autoSkip = bundle.getBoolean(SettingsKeys.AUTO_SKIP, true),
+            manualSkip = bundle.getBoolean(SettingsKeys.MANUAL_SKIP, false),
+            minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
             serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
             enabledCategories = enabledCategories,
             showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
@@ -121,6 +123,8 @@ object ModuleSettings {
         return SettingsSnapshot(
             enabled = bool(SettingsKeys.ENABLED, true),
             autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
+            manualSkip = bool(SettingsKeys.MANUAL_SKIP, false),
+            minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
             serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
             enabledCategories = enabledCategories,
             showToast = bool(SettingsKeys.SHOW_TOAST, true),
@@ -129,6 +133,10 @@ object ModuleSettings {
             showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
         )
     }
+
+    /** 把秒字符串解析成非负 Float,解析失败或负数按 0(不过滤)处理。 */
+    private fun parseDuration(raw: String?): Float =
+        raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
 }
 
 /**
@@ -137,6 +145,8 @@ object ModuleSettings {
 data class SettingsSnapshot(
     val enabled: Boolean,
     val autoSkip: Boolean,
+    val manualSkip: Boolean,
+    val minSkipDurationSec: Float,
     val serverAddress: String,
     val enabledCategories: Set<String>,
     val showToast: Boolean,
@@ -148,6 +158,8 @@ data class SettingsSnapshot(
         val DEFAULT = SettingsSnapshot(
             enabled = true,
             autoSkip = true,
+            manualSkip = false,
+            minSkipDurationSec = 0f,
             serverAddress = SettingsKeys.DEFAULT_SERVER,
             enabledCategories = setOf(
                 "sponsor", "selfpromo", "interaction", "intro",

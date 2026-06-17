@@ -11,6 +11,7 @@ import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
 import com.ctf.bilisb.settings.SettingsSnapshot
 import com.ctf.bilisb.ui.PlayerToastBridge
+import com.ctf.bilisb.ui.ManualSkipButton
 import com.ctf.bilisb.util.AidBvidConverter
 import com.ctf.bilisb.util.info
 import android.content.Context
@@ -44,6 +45,8 @@ class SponsorBlockController(
     private val latestContainerByContext = ConcurrentHashMap<Int, Any>()
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
+    // 手动模式下当前正在展示跳过按钮的片段 key,用于避免每个进度回调都重设按钮。
+    @Volatile private var manualButtonSegmentKey: String? = null
     @Volatile var latestContextHash: Int = 0
 
     /**
@@ -226,8 +229,10 @@ class SponsorBlockController(
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
-        if (!settings.autoSkip) {
-            return // 自动跳过已关闭
+        // 手动模式也需要进度回调来显示/隐藏按钮,所以这里不再因 autoSkip 关闭而早退,
+        // 改在拿到命中片段后按 manualSkip / autoSkip 分流。
+        if (!settings.autoSkip && !settings.manualSkip) {
+            return // 自动跳过与手动跳过都关闭,无需处理
         }
 
         val state = latestStateByContext[contextHash] ?: return
@@ -239,7 +244,43 @@ class SponsorBlockController(
         val handle = playerHandles[contextHash] ?: return
         val query = SponsorBlockQuery(state.bvid, state.cid)
         val segments = repository.getCached(query) ?: return
-        val segment = SkipDecision.findAutoSkipSegment(positionMs, segments) ?: return
+        // 最小片段时长过滤:短于阈值的片段不跳过、不显示按钮(避免微小片段跳转抖动)。
+        val minDurationMs = (settings.minSkipDurationSec * 1000).toLong()
+        val segment = SkipDecision.findActiveSkipSegment(positionMs, segments, minDurationMs)
+
+        // 手动跳过优先:命中片段时浮出按钮,由用户点按跳过;离开片段时收起。
+        if (settings.manualSkip) {
+            if (segment == null) {
+                if (manualButtonSegmentKey != null) {
+                    manualButtonSegmentKey = null
+                    ManualSkipButton.hide(module, handle.container)
+                }
+                return
+            }
+            val skipKey = "${state.bvid}:${state.cid}:${segment.uuid}:${segment.startMs}-${segment.endMs}"
+            if (manualButtonSegmentKey == skipKey) {
+                return // 同一片段已在展示,避免重复重设按钮
+            }
+            manualButtonSegmentKey = skipKey
+            val categoryName = getCategoryDisplayName(segment.category)
+            ManualSkipButton.show(module, handle.container, categoryName) {
+                PlayerActions.seekTo(module, handle.core, segment.endMs)
+                manualButtonSegmentKey = null
+                if (settings.showToast) {
+                    val durationSec = (segment.endMs - segment.startMs) / 1000.0
+                    PlayerToastBridge.showSkipToast(
+                        module, handle.container, String.format("%s (%.1f秒)", categoryName, durationSec),
+                    )
+                }
+            }
+            module.info(
+                "manual skip button shown video=${state.bvid} cid=${state.cid} " +
+                    "segment=${segment.startMs}-${segment.endMs} category=${segment.category}",
+            )
+            return
+        }
+
+        if (segment == null) return
         val skipKey = "${state.bvid}:${state.cid}:${segment.uuid}:${segment.startMs}-${segment.endMs}"
         if (!skippedSegments.add(skipKey)) {
             return

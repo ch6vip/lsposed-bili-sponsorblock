@@ -36,6 +36,7 @@ object SponsorBlockSettingDialog {
 
         // 添加所有设置项
         addBasicSettings(activity, mainLayout, prefs)
+        addSkipStrategySettings(activity, mainLayout, prefs)
         addCategorySettings(activity, mainLayout, prefs)
         addUISettings(activity, mainLayout, prefs)
         addServerSettings(activity, mainLayout, prefs)
@@ -72,6 +73,42 @@ object SponsorBlockSettingDialog {
             "自动跳过检测到的片段",
             true
         ))
+    }
+
+    private fun addSkipStrategySettings(activity: Activity, parent: LinearLayout, prefs: SharedPreferences) {
+        parent.addView(createSectionTitle(activity, "跳过策略"))
+
+        parent.addView(createCheckBox(
+            activity, prefs,
+            SettingsKeys.MANUAL_SKIP,
+            "手动跳过",
+            "片段内显示跳过按钮,点按才跳(覆盖自动跳过)",
+            false
+        ))
+
+        val durationLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 10, 0, 10)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        durationLayout.addView(TextView(activity).apply {
+            text = "最小片段时长(秒)："
+            textSize = 14f
+        })
+        durationLayout.addView(EditText(activity).apply {
+            setText(prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
+            hint = "0"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    val normalized = (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: 0f).toString()
+                    setText(normalized)
+                    prefs.edit().putString(SettingsKeys.MIN_SKIP_DURATION, normalized).apply()
+                }
+            }
+        })
+        parent.addView(durationLayout)
     }
 
     private fun addCategorySettings(activity: Activity, parent: LinearLayout, prefs: SharedPreferences) {

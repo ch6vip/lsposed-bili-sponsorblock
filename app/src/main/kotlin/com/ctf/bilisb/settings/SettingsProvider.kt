@@ -36,6 +36,8 @@ class SettingsProvider : ContentProvider() {
         return android.os.Bundle().apply {
             putBoolean(SettingsKeys.ENABLED, prefs.getBoolean(SettingsKeys.ENABLED, true))
             putBoolean(SettingsKeys.AUTO_SKIP, prefs.getBoolean(SettingsKeys.AUTO_SKIP, true))
+            putBoolean(SettingsKeys.MANUAL_SKIP, prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false))
+            putString(SettingsKeys.MIN_SKIP_DURATION, prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
             putString(SettingsKeys.SERVER_ADDRESS, prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
 
             SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
