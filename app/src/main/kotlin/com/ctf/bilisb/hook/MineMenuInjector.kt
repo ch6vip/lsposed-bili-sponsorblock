@@ -18,6 +18,7 @@ object MineMenuInjector {
     private const val SETTING_ID = 0x5B5B5B5BL
     private const val SETTING_URI = "bilisb://settings"
     private const val SETTING_TITLE = "Bili2233"
+    private const val MENU_GROUP_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup"
     // 宿主“我的”页按钮图标链路实际接受远程图片 URL。
     private const val SETTING_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
 
@@ -132,25 +133,35 @@ object MineMenuInjector {
     }
 
     private fun injectSettingItemIfMineAdapter(module: XposedModule, adapter: Any, menuItemClass: Class<*>) {
-        // 查找存储MenuGroup列表的字段
-        val dataField = findDataField(adapter) ?: return
-
-        @Suppress("UNCHECKED_CAST")
-        val data = dataField.get(adapter) as? MutableList<Any> ?: return
-
+        // 直接按内容定位 List<MenuGroup> 字段，避免“第一个 List 字段”假设在改版后选错。
+        val data = findListFieldByContent(adapter, MENU_GROUP_CLASS) ?: return
         if (data.isEmpty()) return
-
-        // 检查第一个元素是否是MenuGroup类型
-        val firstItem = data.firstOrNull() ?: return
-        if (firstItem.javaClass.name != "com.bilibili.lib.homepage.mine.MenuGroup") {
-            return // 不是mine页面的adapter
-        }
 
         // 记录adapter类名用于后续hook点击
         module.info("Found mine adapter: ${adapter.javaClass.name}")
 
         // 注入设置项
         injectSettingItem(module, data, menuItemClass)
+    }
+
+    /**
+     * 在 adapter 的所有 List 字段里，挑出元素类型为 [expectedClassName] 的那一个。
+     *
+     * 之前只取“第一个 List 字段”，一旦宿主在前面新增/重排其它 List 字段就会选错并静默失败。
+     * 按内容匹配后，字段顺序变化不再影响入口注入。匹配不到时回退到第一个非空 List，保持旧行为兜底。
+     */
+    private fun findListFieldByContent(adapter: Any, expectedClassName: String): MutableList<Any>? {
+        var fallback: MutableList<Any>? = null
+        for (field in adapter.javaClass.declaredFields) {
+            if (!List::class.java.isAssignableFrom(field.type)) continue
+            field.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val list = field.get(adapter) as? MutableList<Any> ?: continue
+            val first = list.firstOrNull() ?: continue
+            if (first.javaClass.name == expectedClassName) return list
+            if (fallback == null) fallback = list
+        }
+        return fallback
     }
 
     private fun findDataField(adapter: Any): Field? {
@@ -252,10 +263,8 @@ object MineMenuInjector {
     }
 
     private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
-        // 获取适配器的数据
-        val dataField = findDataField(adapter) ?: return
-        @Suppress("UNCHECKED_CAST")
-        val data = dataField.get(adapter) as? List<Any> ?: return
+        // 获取适配器的数据(List<MenuGroup>),按内容定位以兼容字段重排
+        val data = findListFieldByContent(adapter, MENU_GROUP_CLASS) ?: return
 
         if (position >= data.size) return
 
