@@ -10,11 +10,11 @@
 - [x] 防重复跳过 (skippedSegments set)
 
 ## 待修复 Bug
-- [ ] **时间显示位置不对** — 剩余时长调整功能工作了，但显示在了错误的 TextView 上
-  - 日志显示: `adjusting duration from 1399085ms to 1314834ms`
-  - 应该显示: `05:30 / 30:00 (25:00)` (括号内是扣除片段后的时长)
-  - 实际情况: 显示位置不对
-  - 需要调试: 找到正确的进度文本 TextView
+- [x] **时间显示位置不对** — 已修复 (commit 4fbe083)
+  - 问题: 进度条隐藏后再显示，扣减文本 `(15:05)` 消失
+  - 原因: B站显示进度条时重新调用 setText，覆盖了我们在 onPlayerProgressChange 里的修改
+  - 解决: hook setText(CharSequence, BufferType)，每次设置文本后重新追加扣减时长，用 ThreadLocal 防递归
+  - 验证: 竖屏/半屏模式扣减文本持久显示
 
 ## 待实现功能
 

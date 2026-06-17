@@ -2,11 +2,14 @@ package com.ctf.bilisb.sponsor
 
 import com.ctf.bilisb.model.SponsorBlockQuery
 import com.ctf.bilisb.model.SponsorBlockSubmission
+import com.ctf.bilisb.model.SponsorBlockConfig
 import com.ctf.bilisb.model.SponsorSegment
+import com.ctf.bilisb.net.SponsorBlockClient
 import com.ctf.bilisb.player.PlayerActions
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
+import com.ctf.bilisb.settings.SettingsSnapshot
 import com.ctf.bilisb.ui.PlayerToastBridge
 import com.ctf.bilisb.util.AidBvidConverter
 import com.ctf.bilisb.util.info
@@ -17,9 +20,22 @@ import java.util.concurrent.Executors
 
 class SponsorBlockController(
     private val module: XposedModule,
-    private val repository: SponsorBlockRepository = SponsorBlockRepository(),
-    private val submissionDraftController: SubmissionDraftController = SubmissionDraftController(),
+    private val settings: SettingsSnapshot = SettingsSnapshot.DEFAULT,
 ) {
+    private val submissionDraftController = SubmissionDraftController()
+
+    // 用 settings 构造 repository(配置服务器地址和启用类别)
+    private val repository = SponsorBlockRepository(
+        client = SponsorBlockClient(
+            config = SponsorBlockConfig(
+                serverAddress = settings.serverAddress,
+                enabled = settings.enabled,
+                autoSkip = settings.autoSkip,
+                enabledCategories = settings.enabledCategories,
+            )
+        )
+    )
+
     private val executor = Executors.newSingleThreadExecutor()
     // 正在拉取中的视频 key,防止 onStart 短时间多次触发导致并发重复请求。
     // 缓存有效期由 repository TTL 控制,过期后这里会清掉允许重拉。
@@ -210,6 +226,10 @@ class SponsorBlockController(
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
+        if (!settings.autoSkip) {
+            return // 自动跳过已关闭
+        }
+
         val state = latestStateByContext[contextHash] ?: return
         // 进度文本 hook 的 duration 比 onStart 时刻更准(首帧已就绪),
         // 持续把非零 duration 回填到 state,供进度条标记与提交使用。
@@ -229,11 +249,31 @@ class SponsorBlockController(
         // This is the direct Hook equivalent, with the handle coming from the
         // player container/context binding.
         PlayerActions.seekTo(module, handle.core, segment.endMs)
-        PlayerToastBridge.showSkipToast(module, handle.container, "已跳过 ${segment.category}")
+        if (settings.showToast) {
+            val categoryName = getCategoryDisplayName(segment.category)
+            val durationSec = (segment.endMs - segment.startMs) / 1000.0
+            val message = String.format("%s (%.1f秒)", categoryName, durationSec)
+            PlayerToastBridge.showSkipToast(module, handle.container, message)
+        }
         module.info(
             "auto-skipped video=${state.bvid} cid=${state.cid} " +
                 "position=$positionMs duration=$durationMs " +
                 "segment=${segment.startMs}-${segment.endMs} category=${segment.category}",
         )
+    }
+
+    private fun getCategoryDisplayName(category: String): String {
+        return when (category) {
+            "sponsor" -> "赞助/恰饭"
+            "selfpromo" -> "自我推广"
+            "interaction" -> "互动提醒"
+            "intro" -> "开场动画"
+            "outro" -> "结束画面"
+            "preview" -> "回顾/概要"
+            "music_offtopic" -> "非音乐片段"
+            "filler" -> "填充内容"
+            "poi_highlight" -> "精彩时刻"
+            else -> category
+        }
     }
 }

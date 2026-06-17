@@ -1,5 +1,6 @@
 package com.ctf.bilisb.net
 
+import android.util.Log
 import com.ctf.bilisb.model.SponsorBlockConfig
 import com.ctf.bilisb.model.SponsorBlockQuery
 import com.ctf.bilisb.model.SponsorBlockSubmission
@@ -9,6 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,12 +28,51 @@ class SponsorBlockClient(
         val body: String?,
     )
 
+    // 简单的内存缓存
+    private val segmentCache = ConcurrentHashMap<String, CacheEntry>()
+    private data class CacheEntry(
+        val segments: List<SponsorSegment>,
+        val timestamp: Long,
+        val ttlMs: Long = 5 * 60 * 1000, // 5分钟过期
+    ) {
+        fun isExpired(): Boolean = System.currentTimeMillis() - timestamp > ttlMs
+    }
+
     fun endpointForBvid(bvid: String): String {
         val prefix = HashUtils.videoIdHashPrefix(bvid)
         return "${config.serverAddress.trimEnd('/')}/api/skipSegments/$prefix"
     }
 
     fun fetchSkipSegments(query: SponsorBlockQuery, ignoreCache: Boolean = false): FetchResult {
+        val cacheKey = "${query.bvid}:${query.cid}"
+
+        // 检查缓存
+        if (!ignoreCache) {
+            segmentCache[cacheKey]?.let { entry ->
+                if (!entry.isExpired()) {
+                    Log.d(TAG, "Using cached segments for $cacheKey")
+                    return FetchResult(200, null, entry.segments)
+                } else {
+                    segmentCache.remove(cacheKey)
+                }
+            }
+        }
+
+        // 带重试的网络请求
+        val result = retryRequest(maxRetries = 3) {
+            fetchSegmentsInternal(query, ignoreCache)
+        }
+
+        // 缓存成功结果
+        if (result.statusCode in 200..299 && result.segments.isNotEmpty()) {
+            segmentCache[cacheKey] = CacheEntry(result.segments, System.currentTimeMillis())
+            Log.d(TAG, "Cached ${result.segments.size} segments for $cacheKey")
+        }
+
+        return result
+    }
+
+    private fun fetchSegmentsInternal(query: SponsorBlockQuery, ignoreCache: Boolean): FetchResult {
         val url = URL(endpointForBvid(query.bvid) + buildQuery(query))
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -50,7 +91,8 @@ class SponsorBlockClient(
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }
             FetchResult(status, body, parseSegmentsForVideo(query.bvid, body))
-        }.getOrElse {
+        }.getOrElse { e ->
+            Log.w(TAG, "Network request failed: ${e.message}")
             FetchResult(-1, null, emptyList())
         }.also {
             conn.disconnect()
@@ -62,6 +104,13 @@ class SponsorBlockClient(
     }
 
     fun submitSegment(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SubmitResult {
+        // 提交也带重试
+        return retryRequest(maxRetries = 2) {
+            submitSegmentInternal(submission, ignoreCache)
+        }
+    }
+
+    private fun submitSegmentInternal(submission: SponsorBlockSubmission, ignoreCache: Boolean): SubmitResult {
         val url = URL(buildSubmitUrl(submission))
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -81,12 +130,40 @@ class SponsorBlockClient(
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }
             SubmitResult(status, body)
-        }.getOrElse {
+        }.getOrElse { e ->
+            Log.w(TAG, "Submit request failed: ${e.message}")
             SubmitResult(-1, null)
         }.also {
             conn.disconnect()
         }
     }
+
+    private fun <T> retryRequest(maxRetries: Int, block: () -> T): T {
+        var lastException: Exception? = null
+        repeat(maxRetries) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < maxRetries - 1) {
+                    val delayMs = (attempt + 1) * 500L
+                    Log.d(TAG, "Retry ${attempt + 1}/$maxRetries after ${delayMs}ms")
+                    Thread.sleep(delayMs)
+                }
+            }
+        }
+        throw lastException ?: Exception("Retry failed")
+    }
+
+    fun clearCache() {
+        segmentCache.clear()
+        Log.d(TAG, "Cache cleared")
+    }
+
+    companion object {
+        private const val TAG = "SponsorBlockClient"
+    }
+
 
     fun parseSegments(raw: String): List<SponsorSegment> {
         return parseSegmentsForVideo(null, raw)
