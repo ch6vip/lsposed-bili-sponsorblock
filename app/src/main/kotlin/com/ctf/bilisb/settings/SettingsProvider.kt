@@ -37,7 +37,9 @@ class SettingsProvider : ContentProvider() {
             putBoolean(SettingsKeys.ENABLED, prefs.getBoolean(SettingsKeys.ENABLED, true))
             putBoolean(SettingsKeys.AUTO_SKIP, prefs.getBoolean(SettingsKeys.AUTO_SKIP, true))
             putBoolean(SettingsKeys.MANUAL_SKIP, prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false))
+            putBoolean(SettingsKeys.MUTE_SEGMENTS, prefs.getBoolean(SettingsKeys.MUTE_SEGMENTS, false))
             putString(SettingsKeys.MIN_SKIP_DURATION, prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
+            putString(SettingsKeys.SKIP_COUNTDOWN, prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"))
             putString(SettingsKeys.SERVER_ADDRESS, prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
 
             SettingsKeys.CATEGORY_MAP.keys.forEach { key ->

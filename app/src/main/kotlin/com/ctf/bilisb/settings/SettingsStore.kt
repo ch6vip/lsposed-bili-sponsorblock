@@ -27,6 +27,10 @@ object SettingsKeys {
     const val MANUAL_SKIP = "manual_skip"
     // min_skip_duration: 最小片段时长(秒,可带小数)。短于此值的片段不跳过/不显示按钮。"0" = 不过滤。
     const val MIN_SKIP_DURATION = "min_skip_duration"
+    // mute_segments: 对 actionType=mute 的片段静音(而非跳过)。默认关闭(对齐原 APK 未实现 mute)。
+    const val MUTE_SEGMENTS = "mute_segments"
+    // skip_countdown: 自动跳过倒计时(秒)。>0 时进入片段先显示"N秒后跳过 [取消]",倒计时结束才跳。"0" = 立即跳。
+    const val SKIP_COUNTDOWN = "skip_countdown"
 
     // 服务器
     const val SERVER_ADDRESS = "server_address"
@@ -64,16 +68,16 @@ object SettingsKeys {
 
     /** 所有 bool 类型 key */
     val BOOL_KEYS = listOf(
-        ENABLED, AUTO_SKIP, MANUAL_SKIP,
+        ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SUBMIT_BUTTON,
     ) + CATEGORY_MAP.keys.toList()
 
     /** 所有 string 类型 key */
-    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION)
+    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION, SKIP_COUNTDOWN)
 
     /** Bool key 默认值 */
     val BOOL_DEFAULTS = mapOf(
-        ENABLED to true, AUTO_SKIP to true, MANUAL_SKIP to false,
+        ENABLED to true, AUTO_SKIP to true, MANUAL_SKIP to false, MUTE_SEGMENTS to false,
         SHOW_TOAST to true, SHOW_SEEKBAR_MARKER to true,
         SHOW_TIME_DEDUCTION to true, SHOW_SUBMIT_BUTTON to true,
     ) + CATEGORY_MAP.keys.associateWith { true }
@@ -82,6 +86,7 @@ object SettingsKeys {
     val STRING_DEFAULTS = mapOf(
         SERVER_ADDRESS to DEFAULT_SERVER,
         MIN_SKIP_DURATION to "0",
+        SKIP_COUNTDOWN to "0",
     )
 }
 

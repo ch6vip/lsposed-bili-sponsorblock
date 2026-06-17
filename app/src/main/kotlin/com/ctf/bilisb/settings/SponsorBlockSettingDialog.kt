@@ -86,29 +86,47 @@ object SponsorBlockSettingDialog {
             false
         ))
 
-        val durationLayout = LinearLayout(activity).apply {
+        parent.addView(createCheckBox(
+            activity, prefs,
+            SettingsKeys.MUTE_SEGMENTS,
+            "片段静音",
+            "对 mute 类片段静音而非跳过",
+            false
+        ))
+
+        parent.addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)："))
+        parent.addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)："))
+    }
+
+    /** 数字(秒)输入行:失焦时规整为非负数并存回。 */
+    private fun numberRow(
+        activity: Activity,
+        prefs: SharedPreferences,
+        key: String,
+        label: String,
+    ): LinearLayout {
+        return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 10, 0, 10)
             gravity = Gravity.CENTER_VERTICAL
-        }
-        durationLayout.addView(TextView(activity).apply {
-            text = "最小片段时长(秒)："
-            textSize = 14f
-        })
-        durationLayout.addView(EditText(activity).apply {
-            setText(prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
-            hint = "0"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    val normalized = (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: 0f).toString()
-                    setText(normalized)
-                    prefs.edit().putString(SettingsKeys.MIN_SKIP_DURATION, normalized).apply()
+            addView(TextView(activity).apply {
+                text = label
+                textSize = 14f
+            })
+            addView(EditText(activity).apply {
+                setText(prefs.getString(key, "0"))
+                hint = "0"
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        val normalized = (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: 0f).toString()
+                        setText(normalized)
+                        prefs.edit().putString(key, normalized).apply()
+                    }
                 }
-            }
-        })
-        parent.addView(durationLayout)
+            })
+        }
     }
 
     private fun addCategorySettings(activity: Activity, parent: LinearLayout, prefs: SharedPreferences) {
