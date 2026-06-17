@@ -2,6 +2,9 @@ package com.ctf.bilisb.settings
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
@@ -16,6 +19,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.ctf.bilisb.model.SponsorCategories
+import com.ctf.bilisb.sponsor.UserIdentityStore
 
 /**
  * Bili2233 设置界面。
@@ -59,6 +63,7 @@ class SettingsActivity : Activity() {
 
         // ===== 提交配置 =====
         root.addView(sectionTitle("提交配置"))
+        root.addView(userIdItem())
         root.addView(defaultSubmitCategoryItem())
 
         // ===== 服务器地址 =====
@@ -273,5 +278,85 @@ class SettingsActivity : Activity() {
                     .show()
             }
         }
+    }
+
+    private fun userIdItem(): View {
+        fun currentUserId(): String {
+            val saved = writer.getString(SettingsKeys.USER_ID, "")
+            if (UserIdentityStore.isValidUserId(saved)) return saved
+            val generated = UserIdentityStore.generateUserId()
+            writer.sharedPreferences.edit().putString(SettingsKeys.USER_ID, generated).apply()
+            return generated
+        }
+
+        val value = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.GRAY)
+        }
+        fun refresh() {
+            value.text = currentUserId()
+        }
+        refresh()
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            addView(TextView(this@SettingsActivity).apply {
+                text = "用户 ID"
+                textSize = 16f
+                setTextColor(Color.parseColor("#212121"))
+            })
+            addView(value)
+            addView(LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Button(this@SettingsActivity).apply {
+                    text = "复制"
+                    setOnClickListener {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Bili2233 userId", currentUserId()))
+                        Toast.makeText(this@SettingsActivity, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                })
+                addView(Button(this@SettingsActivity).apply {
+                    text = "重置"
+                    setOnClickListener {
+                        writer.sharedPreferences.edit()
+                            .putString(SettingsKeys.USER_ID, UserIdentityStore.generateUserId())
+                            .apply()
+                        refresh()
+                        Toast.makeText(this@SettingsActivity, "已重置", Toast.LENGTH_SHORT).show()
+                    }
+                })
+                addView(Button(this@SettingsActivity).apply {
+                    text = "导入"
+                    setOnClickListener {
+                        showUserIdImportDialog(::refresh)
+                    }
+                })
+            })
+        }
+    }
+
+    private fun showUserIdImportDialog(onSaved: () -> Unit) {
+        val edit = EditText(this).apply {
+            setText(writer.getString(SettingsKeys.USER_ID, ""))
+            inputType = InputType.TYPE_CLASS_TEXT
+            textSize = 14f
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("导入用户 ID")
+            .setView(edit)
+            .setPositiveButton("保存") { _, _ ->
+                val userId = edit.text.toString().trim()
+                if (!UserIdentityStore.isValidUserId(userId)) {
+                    Toast.makeText(this, "用户 ID 必须是 32 位十六进制", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                writer.sharedPreferences.edit().putString(SettingsKeys.USER_ID, userId).apply()
+                onSaved()
+                Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 }
