@@ -15,7 +15,6 @@ import com.ctf.bilisb.ui.ProgressMarkerPainter
 import com.ctf.bilisb.ui.RemainingTimeFormatter
 import com.ctf.bilisb.ui.SubmissionButtonInjector
 import com.ctf.bilisb.util.info
-import com.ctf.bilisb.util.ProbeLogger
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
@@ -72,7 +71,6 @@ object BiliSponsorBlockHooks {
             Bundle::class.java,
         ) { chain ->
             val container = chain.getThisObject()
-            ProbeLogger.dumpClassOnce(module, "player-container", container)
 
             // 延迟加载设置:此时 Application 已创建,通过反射获取 Context
             val hostContext = runCatching {
@@ -137,7 +135,6 @@ object BiliSponsorBlockHooks {
             val container = chain.getThisObject()
             // 播放器销毁时取消我们触发的静音,避免静音泄漏到其它媒体。
             sponsorBlockController?.onPlayerDestroyed(container)
-            ProbeLogger.dumpClassOnce(module, "player-destroy", container)
             module.info("player container destroyed")
         }
     }
@@ -318,8 +315,6 @@ object BiliSponsorBlockHooks {
         "com.bilibili.playerbizcommonv2.widget.seek.v3.q",
         "com.bilibili.playerbizcommonv2.widget.seek.v3.e",
     )
-    private val markerHookLogged = ConcurrentHashMap.newKeySet<String>()
-
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {
         seekbarTrackClasses.forEach { className ->
             hookAfter(
@@ -342,10 +337,6 @@ object BiliSponsorBlockHooks {
                     return@hookAfter
                 }
 
-                if (markerHookLogged.add(className)) {
-                    val b = drawable.bounds
-                    module.info("marker-hook fired on $className bounds=$b h=${b.height()}")
-                }
                 ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments, settings.categoryColors)
             }
         }
