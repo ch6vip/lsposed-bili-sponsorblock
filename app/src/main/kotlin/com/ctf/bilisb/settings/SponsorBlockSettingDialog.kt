@@ -135,6 +135,10 @@ object SponsorBlockSettingDialog {
         root.addView(sectionTitle(activity, "统计"))
         buildStats(activity, root)
 
+        // 提交配置
+        root.addView(sectionTitle(activity, "提交配置"))
+        root.addView(defaultSubmitCategoryRow(activity, p))
+
         // 服务器
         root.addView(sectionTitle(activity, "服务器"))
         root.addView(serverRow(activity, p))
@@ -288,6 +292,62 @@ object SponsorBlockSettingDialog {
                     }
                 }
             })
+        }
+    }
+
+    private fun defaultSubmitCategoryRow(activity: Activity, prefs: SharedPreferences): View {
+        fun currentCategory(): String {
+            val saved = prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)
+            return if (saved in SponsorCategories.displayNames) saved ?: SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE else SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
+        }
+
+        val valueView = TextView(activity).apply {
+            textSize = 13f
+            setTextColor(Color.GRAY)
+            setPadding(0, dp(activity, 2), 0, 0)
+        }
+        fun refresh() {
+            valueView.text = SponsorCategories.displayName(currentCategory())
+        }
+        refresh()
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(activity, 10), 0, dp(activity, 10))
+            isClickable = true
+            background = selectableItemBackground(activity)
+
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(TextView(activity).apply {
+                    text = "默认标记类别"
+                    textSize = 16f
+                    setTextColor(Color.parseColor("#212121"))
+                    setTypeface(typeface, Typeface.BOLD)
+                })
+                addView(valueView)
+            })
+            addView(TextView(activity).apply {
+                text = "›"
+                textSize = 24f
+                setTextColor(Color.GRAY)
+            })
+            setOnClickListener {
+                val categories = SponsorCategories.displayNames.keys.toList()
+                val labels = categories.map { SponsorCategories.displayName(it) }.toTypedArray()
+                val index = categories.indexOf(currentCategory()).coerceAtLeast(0)
+                AlertDialog.Builder(activity)
+                    .setTitle("默认标记类别")
+                    .setSingleChoiceItems(labels, index) { dialog, which ->
+                        prefs.edit().putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, categories[which]).apply()
+                        refresh()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
         }
     }
 

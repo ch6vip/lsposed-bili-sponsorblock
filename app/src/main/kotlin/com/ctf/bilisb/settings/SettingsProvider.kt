@@ -41,6 +41,10 @@ class SettingsProvider : ContentProvider() {
             putString(SettingsKeys.MIN_SKIP_DURATION, prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
             putString(SettingsKeys.SKIP_COUNTDOWN, prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"))
             putString(SettingsKeys.SERVER_ADDRESS, prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
+            putString(
+                SettingsKeys.DEFAULT_SUBMIT_CATEGORY,
+                prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
+            )
 
             SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
                 putBoolean(key, prefs.getBoolean(key, true))

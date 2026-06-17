@@ -103,6 +103,9 @@ object ModuleSettings {
             minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
             skipCountdownSec = parseDuration(bundle.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
             serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            defaultSubmitCategory = sanitizeCategory(
+                bundle.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
+            ),
             enabledCategories = enabledCategories,
             showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
             showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
@@ -134,6 +137,7 @@ object ModuleSettings {
             minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
             skipCountdownSec = parseDuration(str(SettingsKeys.SKIP_COUNTDOWN, "0")),
             serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            defaultSubmitCategory = sanitizeCategory(str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)),
             enabledCategories = enabledCategories,
             showToast = bool(SettingsKeys.SHOW_TOAST, true),
             showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
@@ -154,6 +158,15 @@ object ModuleSettings {
     /** 把秒字符串解析成非负 Float,解析失败或负数按 0(不过滤)处理。 */
     private fun parseDuration(raw: String?): Float =
         raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+
+    private fun sanitizeCategory(raw: String?): String {
+        val category = raw?.trim().orEmpty()
+        return if (category in com.ctf.bilisb.model.SponsorCategories.displayNames) {
+            category
+        } else {
+            SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
+        }
+    }
 }
 
 /**
@@ -167,6 +180,7 @@ data class SettingsSnapshot(
     val minSkipDurationSec: Float,
     val skipCountdownSec: Float,
     val serverAddress: String,
+    val defaultSubmitCategory: String,
     val enabledCategories: Set<String>,
     val showToast: Boolean,
     val showSeekbarMarker: Boolean,
@@ -184,6 +198,7 @@ data class SettingsSnapshot(
             minSkipDurationSec = 0f,
             skipCountdownSec = 0f,
             serverAddress = SettingsKeys.DEFAULT_SERVER,
+            defaultSubmitCategory = SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
             enabledCategories = setOf(
                 "sponsor", "selfpromo", "interaction", "intro",
                 "outro", "preview", "music_offtopic", "filler", "poi_highlight"

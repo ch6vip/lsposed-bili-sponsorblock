@@ -101,7 +101,7 @@ object BiliSponsorBlockHooks {
                 sponsorBlockController?.bindPlayerHandle(handle)
                 if (settings.showSubmitButton) {
                     sponsorBlockController?.let { controller ->
-                        SubmissionButtonInjector.attach(module, container, controller, contextHash)
+                        SubmissionButtonInjector.attach(module, container, controller, contextHash, settings.defaultSubmitCategory)
                     }
                 }
             } else {
