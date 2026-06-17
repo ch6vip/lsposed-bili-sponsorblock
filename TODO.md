@@ -34,7 +34,8 @@
 - [x] 基础存储与 Hook 端读取
 
 ### 1.1 设置入口稳定性
-- [ ] 缩窄 `MineMenuInjector` 的 hook 面，减少对 `RecyclerView.Adapter.notifyDataSetChanged` 的依赖
+- [x] 缩窄 `MineMenuInjector` 的 hook 面 — 从全局 `RecyclerView.Adapter.notifyDataSetChanged` 收窄到 `HomeUserCenterAdapter`（commit 912bd4d）
+- [x] 数据字段按内容定位 — 取元素为 `MenuGroup` 的 List，不再假设“第一个 List 字段”，兼容字段重排
 - [ ] 记录不同 B 站页面布局下设置入口是否稳定出现
 
 ### 2. 跳过策略优化
