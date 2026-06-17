@@ -10,6 +10,8 @@ import com.ctf.bilisb.R
  */
 @Suppress("DEPRECATION")
 class LauncherActivity : PreferenceActivity() {
+    private lateinit var settingsWriter: SettingsWriter
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -18,5 +20,8 @@ class LauncherActivity : PreferenceActivity() {
 
         // 直接加载设置 XML
         addPreferencesFromResource(R.xml.sponsorblock_settings)
+
+        // 创建 SettingsWriter 以注册变更监听 + 写入初始镜像文件
+        settingsWriter = SettingsWriter(this)
     }
 }

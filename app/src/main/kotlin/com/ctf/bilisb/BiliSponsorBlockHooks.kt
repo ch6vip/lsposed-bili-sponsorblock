@@ -33,40 +33,33 @@ object BiliSponsorBlockHooks {
         val cl = param.defaultClassLoader
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
 
-        // 获取宿主 App 的 Context,用于通过 ContentResolver 跨进程读取模块设置
-        val hostContext = runCatching {
-            val at = Class.forName("android.app.ActivityThread")
-                .getMethod("currentApplication")
-                .invoke(null) as? android.content.Context
-            at
-        }.getOrNull()
-        if (hostContext == null) {
-            module.info("Failed to get host Application context, settings will use defaults")
-        }
-
-        // 加载用户设置(通过 ContentProvider IPC 跨进程读取)
-        settings = if (hostContext != null) {
-            com.ctf.bilisb.settings.ModuleSettings.load(module, hostContext)
-        } else {
-            com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
-        }
-        if (!settings.enabled) {
-            module.info("SponsorBlock disabled in settings, skipping hooks")
-            return
-        }
-
-        sponsorBlockController = SponsorBlockController(module, settings)
-
+        // 注意:此时 Application 尚未创建,无法获取 Context 读取设置。
+        // 设置加载延迟到 hookPlayerContainer 里的 be1.j.onCreate(),
+        // 那时容器是 View,可以通过 getContext() 拿到 Context 进行 ContentProvider IPC。
         hookPlayerContainer(module, cl)
-        if (settings.showSeekbarMarker) {
-            hookProgressDrawable(module, cl)
-        }
-        if (settings.showTimeDeduction) {
-            hookProgressText(module, cl)
-        }
+        hookProgressDrawable(module, cl)
+        hookProgressText(module, cl)
 
         // 注入"我的"页面菜单设置入口
         com.ctf.bilisb.hook.MineMenuInjector.install(module, cl)
+    }
+
+    private val settingsLoaded = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun ensureSettingsLoaded(module: XposedModule, containerContext: android.content.Context) {
+        if (settingsLoaded.compareAndSet(false, true)) {
+            settings = runCatching {
+                com.ctf.bilisb.settings.ModuleSettings.load(module, containerContext)
+            }.getOrElse {
+                module.info("ModuleSettings load failed, using defaults: ${it.message}")
+                com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
+            }
+            if (!settings.enabled) {
+                module.info("SponsorBlock disabled in settings")
+                return
+            }
+            sponsorBlockController = SponsorBlockController(module, settings)
+        }
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
@@ -81,6 +74,24 @@ object BiliSponsorBlockHooks {
         ) { chain ->
             val container = chain.getThisObject()
             ProbeLogger.dumpClassOnce(module, "player-container", container)
+
+            // 延迟加载设置:此时 Application 已创建,通过反射获取 Context
+            val hostContext = runCatching {
+                Class.forName("android.app.ActivityThread")
+                    .getMethod("currentApplication")
+                    .invoke(null) as? android.content.Context
+            }.getOrNull() ?: runCatching {
+                // 兜底:从容器对象的字段里找 Context(探针显示 be1.j 有 b:Context 字段)
+                container.javaClass.declaredFields.firstOrNull {
+                    android.content.Context::class.java.isAssignableFrom(it.type)
+                }?.apply { isAccessible = true }?.get(container) as? android.content.Context
+            }.getOrNull()
+
+            if (hostContext != null) {
+                ensureSettingsLoaded(module, hostContext)
+            } else {
+                module.info("Cannot obtain Context for settings, using defaults")
+            }
 
             // 容器创建时:绑定 core/context handle。director service 在 onCreate 时还是 null,
             // 需要在 onStart 时再注册 listener。
