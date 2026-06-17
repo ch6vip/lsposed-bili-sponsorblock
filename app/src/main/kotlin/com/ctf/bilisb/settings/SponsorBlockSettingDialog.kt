@@ -147,6 +147,7 @@ object SponsorBlockSettingDialog {
         // 服务器
         root.addView(sectionTitle(activity, "服务器"))
         root.addView(serverRow(activity, p))
+        root.addView(numberRow(activity, p, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)："))
 
         val dialogRef = arrayOfNulls<AlertDialog>(1)
         fun back() {

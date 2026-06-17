@@ -33,9 +33,9 @@ class SponsorBlockClient(
     private data class CacheEntry(
         val segments: List<SponsorSegment>,
         val timestamp: Long,
-        val ttlMs: Long = 5 * 60 * 1000, // 5分钟过期
+        val ttlMs: Long,
     ) {
-        fun isExpired(): Boolean = System.currentTimeMillis() - timestamp > ttlMs
+        fun isExpired(): Boolean = ttlMs <= 0 || System.currentTimeMillis() - timestamp > ttlMs
     }
 
     fun endpointForBvid(bvid: String): String {
@@ -47,7 +47,7 @@ class SponsorBlockClient(
         val cacheKey = "${query.bvid}:${query.cid}"
 
         // 检查缓存
-        if (!ignoreCache) {
+        if (!ignoreCache && config.cacheTtlMs > 0) {
             segmentCache[cacheKey]?.let { entry ->
                 if (!entry.isExpired()) {
                     Log.d(TAG, "Using cached segments for $cacheKey")
@@ -64,8 +64,8 @@ class SponsorBlockClient(
         }
 
         // 缓存成功结果
-        if (result.statusCode in 200..299 && result.segments.isNotEmpty()) {
-            segmentCache[cacheKey] = CacheEntry(result.segments, System.currentTimeMillis())
+        if (config.cacheTtlMs > 0 && result.statusCode in 200..299 && result.segments.isNotEmpty()) {
+            segmentCache[cacheKey] = CacheEntry(result.segments, System.currentTimeMillis(), config.cacheTtlMs)
             Log.d(TAG, "Cached ${result.segments.size} segments for $cacheKey")
         }
 
