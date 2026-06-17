@@ -17,7 +17,8 @@ import android.widget.*
  */
 object SponsorBlockSettingDialog {
     fun show(activity: Activity, onDismiss: (() -> Unit)? = null) {
-        val prefs = activity.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+        val writer = SettingsWriter(activity)
+        val prefs = writer.sharedPreferences
 
         // 创建滚动容器
         val scrollView = ScrollView(activity).apply {

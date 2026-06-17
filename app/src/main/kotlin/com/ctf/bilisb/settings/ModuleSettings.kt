@@ -22,7 +22,10 @@ object ModuleSettings {
     private var cached: SettingsSnapshot? = null
 
     /**
-     * 加载设置。优先通过 ContentProvider IPC 读取,失败时 fallback 到默认值。
+     * 加载设置。三级 fallback:
+     *   1) ContentProvider IPC (模块进程存活时)
+     *   2) JSON 镜像文件 (模块进程已退出时)
+     *   3) 默认值
      *
      * @param module XposedModule 实例(用于日志)
      * @param hostContext 宿主 App 的 Context(用于获取 ContentResolver)
@@ -30,12 +33,13 @@ object ModuleSettings {
     fun load(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached?.let { return it }
 
-        val snapshot = runCatching {
-            readViaContentProvider(module, hostContext)
-        }.getOrElse {
-            module.info("ModuleSettings: IPC failed, using defaults: ${it.message}")
-            SettingsSnapshot.DEFAULT
-        }
+        val snapshot = tryIpc(module, hostContext)
+            ?: tryFileFallback(module)
+            ?: run {
+                module.info("ModuleSettings: all sources failed, using defaults")
+                SettingsSnapshot.DEFAULT
+            }
+
         cached = snapshot
         module.info("ModuleSettings loaded: $snapshot")
         return snapshot
@@ -47,17 +51,45 @@ object ModuleSettings {
         return load(module, hostContext)
     }
 
-    private fun readViaContentProvider(module: XposedModule, hostContext: Context): SettingsSnapshot {
-        val uri = Uri.parse("content://$AUTHORITY")
-        val bundle = hostContext.contentResolver.call(uri, "getSettings", null, null)
+    /** Level 1: ContentProvider IPC */
+    private fun tryIpc(module: XposedModule, hostContext: Context): SettingsSnapshot? {
+        return runCatching {
+            val uri = Uri.parse("content://$AUTHORITY")
+            val bundle = hostContext.contentResolver.call(uri, "getSettings", null, null)
+                ?: return@runCatching null
 
-        if (bundle == null) {
-            module.info("ModuleSettings: ContentProvider returned null, using defaults")
-            return SettingsSnapshot.DEFAULT
+            module.info("ModuleSettings: read from ContentProvider IPC")
+            parseFromBundle(bundle)
+        }.getOrElse {
+            module.info("ModuleSettings: IPC failed: ${it.message}")
+            null
+        }
+    }
+
+    /** Level 2: JSON 镜像文件 */
+    private fun tryFileFallback(module: XposedModule): SettingsSnapshot? {
+        val candidates = listOf(
+            java.io.File("/data/data/com.ctf.bilisb/files", SettingsKeys.MIRROR_FILE),
+            java.io.File("/data/data/tv.danmaku.bili", SettingsKeys.MIRROR_FILE),
+            java.io.File("/data/user/0/tv.danmaku.bili", SettingsKeys.MIRROR_FILE),
+        )
+
+        for (file in candidates) {
+            val snapshot = runCatching {
+                if (!file.exists() || !file.canRead()) return@runCatching null
+                val json = org.json.JSONObject(file.readText())
+                module.info("ModuleSettings: read from file ${file.absolutePath}")
+                parseFromJson(json)
+            }.getOrNull()
+            if (snapshot != null) return snapshot
         }
 
-        module.info("ModuleSettings: read from ContentProvider IPC")
+        module.info("ModuleSettings: no mirror file readable")
+        return null
+    }
 
+    /** 从 Bundle (ContentProvider 返回) 解析 */
+    private fun parseFromBundle(bundle: android.os.Bundle): SettingsSnapshot {
         val enabledCategories = SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
             bundle.getBoolean(key, true)
         }.values.toSet()
@@ -71,6 +103,30 @@ object ModuleSettings {
             showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
             showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
             showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+        )
+    }
+
+    /** 从 JSON 镜像文件解析 */
+    private fun parseFromJson(json: org.json.JSONObject): SettingsSnapshot {
+        fun bool(key: String, default: Boolean) =
+            if (json.has(key)) json.getBoolean(key) else default
+
+        fun str(key: String, default: String) =
+            if (json.has(key)) json.getString(key) else default
+
+        val enabledCategories = SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
+            bool(key, true)
+        }.values.toSet()
+
+        return SettingsSnapshot(
+            enabled = bool(SettingsKeys.ENABLED, true),
+            autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
+            serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            enabledCategories = enabledCategories,
+            showToast = bool(SettingsKeys.SHOW_TOAST, true),
+            showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
+            showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
         )
     }
 }
