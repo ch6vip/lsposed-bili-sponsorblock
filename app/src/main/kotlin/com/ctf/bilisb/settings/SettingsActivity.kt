@@ -52,7 +52,9 @@ class SettingsActivity : Activity() {
         // ===== 跳过策略 =====
         root.addView(sectionTitle("跳过策略"))
         root.addView(switchItem(SettingsKeys.MANUAL_SKIP, "手动跳过", "片段内显示跳过按钮,点按才跳(覆盖自动跳过)", false))
-        root.addView(minDurationItem())
+        root.addView(switchItem(SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过(用 AudioManager)", false))
+        root.addView(numberItem(SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)", "短于此值的片段不跳过。0 = 不过滤"))
+        root.addView(numberItem(SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)", "进入片段先显示\"N秒后跳过 [取消]\"。0 = 立即跳"))
 
         // ===== 服务器地址 =====
         root.addView(sectionTitle("服务器"))
@@ -134,38 +136,38 @@ class SettingsActivity : Activity() {
         return container
     }
 
-    private fun minDurationItem(): View {
+    /** 通用数字(秒)设置项:标题 + 说明 + 数字输入框 + 保存按钮。非法输入按 0 规整。 */
+    private fun numberItem(key: String, title: String, summary: String): View {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(10), dp(8), dp(10))
         }
         container.addView(TextView(this).apply {
-            text = "最小片段时长(秒)"
+            text = title
             textSize = 16f
             setTextColor(Color.parseColor("#212121"))
         })
         container.addView(TextView(this).apply {
-            text = "短于此值的片段不跳过。0 = 不过滤"
+            text = summary
             textSize = 12f
             setTextColor(Color.GRAY)
         })
 
         val edit = EditText(this).apply {
-            setText(writer.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
+            setText(writer.getString(key, "0"))
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             textSize = 14f
         }
         container.addView(edit)
 
         val saveBtn = Button(this).apply {
-            text = "保存时长"
+            text = "保存"
             setOnClickListener {
-                // 规整成非负数字字符串再存,非法输入按 0 处理
                 val value = edit.text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
                 val normalized = value.toString()
                 edit.setText(normalized)
-                writer.sharedPreferences.edit().putString(SettingsKeys.MIN_SKIP_DURATION, normalized).apply()
-                Toast.makeText(this@SettingsActivity, "已保存: ${normalized}秒", Toast.LENGTH_SHORT).show()
+                writer.sharedPreferences.edit().putString(key, normalized).apply()
+                Toast.makeText(this@SettingsActivity, "已保存: $normalized", Toast.LENGTH_SHORT).show()
             }
         }
         container.addView(saveBtn)

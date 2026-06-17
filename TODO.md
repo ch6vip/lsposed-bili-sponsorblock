@@ -40,12 +40,12 @@
 
 ### 2. 跳过策略优化
 - [x] 支持 manual skip (片段内浮出"跳过"按钮,点按才跳,设置项 `manual_skip` 覆盖自动跳过)
-- [ ] 支持 mute (静音而非跳过)
+- [x] 支持 mute (设置项 `mute_segments`,对 actionType=mute 片段用 AudioManager 静音/取消静音;core 无保留名音量方法故走系统音频流)
 - [x] 最小片段时长过滤 (设置项 `min_skip_duration` 秒,短于阈值不跳过/不显示按钮)
 
 ### 3. UI 优化
 - [x] 跳过按钮 (手动模式下播放器右下角浮出胶囊按钮 `ManualSkipButton`)
-- [ ] 倒计时取消 (显示 "3秒后跳过 [取消]")
+- [x] 倒计时取消 (设置项 `skip_countdown` 秒,进入片段显示 "N秒后跳过 [取消]",`SkipCountdownOverlay`)
 - [ ] 片段统计 (已跳过时长累计)
 
 ### 4. 性能优化

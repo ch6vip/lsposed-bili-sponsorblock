@@ -134,7 +134,10 @@ object BiliSponsorBlockHooks {
             "be1.j",
             "onDestroy",
         ) { chain ->
-            ProbeLogger.dumpClassOnce(module, "player-destroy", chain.getThisObject())
+            val container = chain.getThisObject()
+            // 播放器销毁时取消我们触发的静音,避免静音泄漏到其它媒体。
+            sponsorBlockController?.onPlayerDestroyed(container)
+            ProbeLogger.dumpClassOnce(module, "player-destroy", container)
             module.info("player container destroyed")
         }
     }

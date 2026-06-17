@@ -28,5 +28,23 @@ object SkipDecision {
                 positionMs < segment.endMs
         }
     }
+
+    /**
+     * 找当前位置命中的、需要静音(actionType=mute)的片段。
+     *
+     * 与 skip 不同,mute 片段不跳转,只在区间内静音。同样应用 [minDurationMs] 过滤。
+     */
+    fun findActiveMuteSegment(
+        positionMs: Long,
+        segments: List<SponsorSegment>,
+        minDurationMs: Long = 0L,
+    ): SponsorSegment? {
+        return segments.firstOrNull { segment ->
+            segment.actionType == "mute" &&
+                (segment.endMs - segment.startMs) >= minDurationMs &&
+                positionMs >= segment.startMs - LOOKAHEAD_MS &&
+                positionMs < segment.endMs
+        }
+    }
 }
 

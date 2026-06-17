@@ -6,12 +6,14 @@ import com.ctf.bilisb.model.SponsorBlockConfig
 import com.ctf.bilisb.model.SponsorSegment
 import com.ctf.bilisb.net.SponsorBlockClient
 import com.ctf.bilisb.player.PlayerActions
+import com.ctf.bilisb.player.AudioMuteController
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.PlayerState
 import com.ctf.bilisb.settings.SettingsSnapshot
 import com.ctf.bilisb.ui.PlayerToastBridge
 import com.ctf.bilisb.ui.ManualSkipButton
+import com.ctf.bilisb.ui.SkipCountdownOverlay
 import com.ctf.bilisb.util.AidBvidConverter
 import com.ctf.bilisb.util.info
 import android.content.Context
@@ -47,6 +49,8 @@ class SponsorBlockController(
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
     // 手动模式下当前正在展示跳过按钮的片段 key,用于避免每个进度回调都重设按钮。
     @Volatile private var manualButtonSegmentKey: String? = null
+    // 当前正在倒计时的片段 key(自动跳过倒计时模式),用于离开片段时取消。
+    @Volatile private var countdownSegmentKey: String? = null
     @Volatile var latestContextHash: Int = 0
 
     /**
@@ -229,10 +233,10 @@ class SponsorBlockController(
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
-        // 手动模式也需要进度回调来显示/隐藏按钮,所以这里不再因 autoSkip 关闭而早退,
-        // 改在拿到命中片段后按 manualSkip / autoSkip 分流。
-        if (!settings.autoSkip && !settings.manualSkip) {
-            return // 自动跳过与手动跳过都关闭,无需处理
+        // 手动模式 / 静音模式也需要进度回调,所以这里不再因 autoSkip 关闭而早退,
+        // 改在拿到命中片段后按 manualSkip / autoSkip / muteSegments 分流。
+        if (!settings.autoSkip && !settings.manualSkip && !settings.muteSegments) {
+            return // 所有片段策略都关闭,无需处理
         }
 
         val state = latestStateByContext[contextHash] ?: return
@@ -244,8 +248,19 @@ class SponsorBlockController(
         val handle = playerHandles[contextHash] ?: return
         val query = SponsorBlockQuery(state.bvid, state.cid)
         val segments = repository.getCached(query) ?: return
-        // 最小片段时长过滤:短于阈值的片段不跳过、不显示按钮(避免微小片段跳转抖动)。
+        // 最小片段时长过滤:短于阈值的片段不跳过、不静音、不显示按钮(避免微小片段抖动)。
         val minDurationMs = (settings.minSkipDurationSec * 1000).toLong()
+
+        // 静音策略(与跳过正交):命中 mute 片段就静音,离开就取消静音。
+        if (settings.muteSegments) {
+            val muteSeg = SkipDecision.findActiveMuteSegment(positionMs, segments, minDurationMs)
+            if (muteSeg != null) {
+                AudioMuteController.mute(module, handle.container)
+            } else {
+                AudioMuteController.unmute(module, handle.container)
+            }
+        }
+
         val segment = SkipDecision.findActiveSkipSegment(positionMs, segments, minDurationMs)
 
         // 手动跳过优先:命中片段时浮出按钮,由用户点按跳过;离开片段时收起。
@@ -280,8 +295,59 @@ class SponsorBlockController(
             return
         }
 
-        if (segment == null) return
+        // 以下为自动跳过(立即 / 倒计时)。autoSkip 关闭则只剩静音生效,直接返回。
+        if (!settings.autoSkip) {
+            return
+        }
+
+        if (segment == null) {
+            // 离开片段:取消尚在进行的倒计时浮层。
+            if (countdownSegmentKey != null) {
+                countdownSegmentKey = null
+                SkipCountdownOverlay.cancel(module, handle.container)
+            }
+            return
+        }
         val skipKey = "${state.bvid}:${state.cid}:${segment.uuid}:${segment.startMs}-${segment.endMs}"
+
+        // 倒计时模式:进入片段先显示"N秒后跳过 [取消]",倒计时结束才跳。
+        if (settings.skipCountdownSec > 0) {
+            // skippedSegments 去重:倒计时启动即标记,避免每个进度回调重复启动;
+            // 用户取消后保留标记(本片段不再触发),自然结束时也已标记。
+            if (!skippedSegments.add(skipKey)) {
+                return
+            }
+            countdownSegmentKey = skipKey
+            val categoryName = getCategoryDisplayName(segment.category)
+            val endMs = segment.endMs
+            val startMs = segment.startMs
+            SkipCountdownOverlay.start(
+                module = module,
+                host = handle.container,
+                label = categoryName,
+                totalMs = (settings.skipCountdownSec * 1000).toLong(),
+                onComplete = {
+                    countdownSegmentKey = null
+                    PlayerActions.seekTo(module, handle.core, endMs)
+                    if (settings.showToast) {
+                        val durationSec = (endMs - startMs) / 1000.0
+                        PlayerToastBridge.showSkipToast(
+                            module, handle.container, String.format("%s (%.1f秒)", categoryName, durationSec),
+                        )
+                    }
+                },
+                onCancel = {
+                    countdownSegmentKey = null
+                },
+            )
+            module.info(
+                "auto-skip countdown started video=${state.bvid} cid=${state.cid} " +
+                    "segment=$startMs-$endMs category=${segment.category} countdown=${settings.skipCountdownSec}s",
+            )
+            return
+        }
+
+        // 立即自动跳过。
         if (!skippedSegments.add(skipKey)) {
             return
         }
@@ -301,6 +367,11 @@ class SponsorBlockController(
                 "position=$positionMs duration=$durationMs " +
                 "segment=${segment.startMs}-${segment.endMs} category=${segment.category}",
         )
+    }
+
+    /** 播放器销毁时调用:确保静音被取消,避免静音状态泄漏到其它媒体。 */
+    fun onPlayerDestroyed(host: Any) {
+        AudioMuteController.unmute(module, host)
     }
 
     private fun getCategoryDisplayName(category: String): String {
