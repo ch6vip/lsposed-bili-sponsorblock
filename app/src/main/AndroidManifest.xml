@@ -17,5 +17,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name=".settings.SettingsProvider"
+            android:authorities="com.ctf.bilisb.settings"
+            android:exported="true" />
     </application>
 </manifest>

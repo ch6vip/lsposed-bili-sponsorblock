@@ -1,38 +1,39 @@
 package com.ctf.bilisb.settings
 
+import android.content.Context
+import android.net.Uri
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
-import org.json.JSONObject
-import java.io.File
 
 /**
  * 模块 Hook 端的配置读取器。
  *
- * LSPosed 模块进程运行在目标 App(tv.danmaku.bili)里,无法直接访问模块自己 APK 的
- * SharedPreferences。这里通过读取模块 APK 包目录下的 prefs XML 文件来获取设置。
+ * LSPosed 模块的 Hook 代码运行在目标 App(tv.danmaku.bili)进程里,
+ * 无法直接访问模块 APK 的 SharedPreferences(应用沙箱隔离)。
  *
- * 设置 Activity 用 MODE_WORLD_READABLE 写入 prefs,文件路径:
- *   /data/data/com.ctf.bilisb/shared_prefs/sponsorblock_settings.xml
- *
- * 模块进程有权限读取该文件(world-readable)。
- *
- * 当前为简化实现:每次读取时重新解析文件。配置变化无需重启目标 App,但需要
- * 重新进入播放器才生效(因为 config 在 onPackageLoaded 时加载)。
+ * 解决方案:模块 APK 声明了一个 exported=true 的 SettingsProvider(ContentProvider),
+ * Hook 端通过 ContentResolver.call() 跨进程 IPC 读取设置。
+ * 底层走 Binder,不需要特殊权限。
  */
 object ModuleSettings {
-    private const val MODULE_PACKAGE = "com.ctf.bilisb"
-    private const val PREFS_FILE = "sponsorblock_settings.xml"
+    private const val AUTHORITY = "com.ctf.bilisb.settings"
 
     @Volatile
     private var cached: SettingsSnapshot? = null
 
-    fun load(module: XposedModule): SettingsSnapshot {
+    /**
+     * 加载设置。优先通过 ContentProvider IPC 读取,失败时 fallback 到默认值。
+     *
+     * @param module XposedModule 实例(用于日志)
+     * @param hostContext 宿主 App 的 Context(用于获取 ContentResolver)
+     */
+    fun load(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached?.let { return it }
 
         val snapshot = runCatching {
-            readFromPrefsFile(module)
+            readViaContentProvider(module, hostContext)
         }.getOrElse {
-            module.info("ModuleSettings: failed to read prefs, using defaults: ${it.message}")
+            module.info("ModuleSettings: IPC failed, using defaults: ${it.message}")
             SettingsSnapshot.DEFAULT
         }
         cached = snapshot
@@ -41,62 +42,35 @@ object ModuleSettings {
     }
 
     /** 强制重新加载(配置变化后调用) */
-    fun reload(module: XposedModule): SettingsSnapshot {
+    fun reload(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached = null
-        return load(module)
+        return load(module, hostContext)
     }
 
-    private fun readFromPrefsFile(module: XposedModule): SettingsSnapshot {
-        // 在B站进程中运行，读取B站进程自己的SharedPreferences
-        // 这样和设置对话框写入的位置一致
-        val targetPackage = "tv.danmaku.bili"
+    private fun readViaContentProvider(module: XposedModule, hostContext: Context): SettingsSnapshot {
+        val uri = Uri.parse("content://$AUTHORITY")
+        val bundle = hostContext.contentResolver.call(uri, "getSettings", null, null)
 
-        val candidates = listOf(
-            "/data/data/$targetPackage/shared_prefs/$PREFS_FILE",
-            "/data/user/0/$targetPackage/shared_prefs/$PREFS_FILE",
-            // 兜底：尝试模块自己的目录
-            "/data/data/$MODULE_PACKAGE/shared_prefs/$PREFS_FILE",
-            "/data/user/0/$MODULE_PACKAGE/shared_prefs/$PREFS_FILE",
-        )
-
-        val file = candidates.map { File(it) }.firstOrNull { it.exists() && it.canRead() }
-        if (file == null) {
-            module.info("ModuleSettings: prefs file not found in any location, using defaults")
+        if (bundle == null) {
+            module.info("ModuleSettings: ContentProvider returned null, using defaults")
             return SettingsSnapshot.DEFAULT
         }
 
-        module.info("ModuleSettings: reading from ${file.absolutePath}")
-        val xml = file.readText()
-        return parsePrefsXml(xml)
-    }
-
-    /**
-     * 解析 Android SharedPreferences XML 格式。
-     * 格式: <boolean name="key" value="true" /> 和 <string name="key">value</string>
-     */
-    private fun parsePrefsXml(xml: String): SettingsSnapshot {
-        fun bool(key: String, default: Boolean): Boolean {
-            val regex = Regex("""<boolean name="$key" value="(true|false)" ?/>""")
-            return regex.find(xml)?.groupValues?.get(1)?.toBoolean() ?: default
-        }
-        fun str(key: String, default: String): String {
-            val regex = Regex("""<string name="$key">(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
-            return regex.find(xml)?.groupValues?.get(1) ?: default
-        }
+        module.info("ModuleSettings: read from ContentProvider IPC")
 
         val enabledCategories = SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
-            bool(key, true) // 默认全开
+            bundle.getBoolean(key, true)
         }.values.toSet()
 
         return SettingsSnapshot(
-            enabled = bool(SettingsKeys.ENABLED, true),
-            autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
-            serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            enabled = bundle.getBoolean(SettingsKeys.ENABLED, true),
+            autoSkip = bundle.getBoolean(SettingsKeys.AUTO_SKIP, true),
+            serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
             enabledCategories = enabledCategories,
-            showToast = bool(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
+            showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
+            showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
         )
     }
 }

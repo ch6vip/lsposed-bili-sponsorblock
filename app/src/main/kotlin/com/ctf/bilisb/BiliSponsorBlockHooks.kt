@@ -33,8 +33,23 @@ object BiliSponsorBlockHooks {
         val cl = param.defaultClassLoader
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
 
-        // 加载用户设置
-        settings = com.ctf.bilisb.settings.ModuleSettings.load(module)
+        // 获取宿主 App 的 Context,用于通过 ContentResolver 跨进程读取模块设置
+        val hostContext = runCatching {
+            val at = Class.forName("android.app.ActivityThread")
+                .getMethod("currentApplication")
+                .invoke(null) as? android.content.Context
+            at
+        }.getOrNull()
+        if (hostContext == null) {
+            module.info("Failed to get host Application context, settings will use defaults")
+        }
+
+        // 加载用户设置(通过 ContentProvider IPC 跨进程读取)
+        settings = if (hostContext != null) {
+            com.ctf.bilisb.settings.ModuleSettings.load(module, hostContext)
+        } else {
+            com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
+        }
         if (!settings.enabled) {
             module.info("SponsorBlock disabled in settings, skipping hooks")
             return
