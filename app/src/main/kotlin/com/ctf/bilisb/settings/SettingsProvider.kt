@@ -50,6 +50,11 @@ class SettingsProvider : ContentProvider() {
             putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, prefs.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true))
             putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, prefs.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true))
             putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, prefs.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true))
+
+            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
+                val key = SettingsKeys.colorKey(category)
+                putString(key, prefs.getString(key, def))
+            }
         }
     }
 

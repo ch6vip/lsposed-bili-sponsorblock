@@ -9,6 +9,8 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.*
+import com.ctf.bilisb.model.SponsorCategories
+import com.ctf.bilisb.sponsor.SkipStatsStore
 
 /**
  * Bili2233 设置对话框。
@@ -35,9 +37,11 @@ object SponsorBlockSettingDialog {
         }
 
         // 添加所有设置项
+        addStatsSettings(activity, mainLayout)
         addBasicSettings(activity, mainLayout, prefs)
         addSkipStrategySettings(activity, mainLayout, prefs)
         addCategorySettings(activity, mainLayout, prefs)
+        addColorSettings(activity, mainLayout, prefs)
         addUISettings(activity, mainLayout, prefs)
         addServerSettings(activity, mainLayout, prefs)
 
@@ -53,6 +57,68 @@ object SponsorBlockSettingDialog {
             .setNegativeButton("取消", null)
             .setOnDismissListener { onDismiss?.invoke() }
             .show()
+    }
+
+    /** 统计区:总跳过数 / 节省时长 + 分类明细 + 重置。本对话框与跳过逻辑同进程,直接读单例。 */
+    private fun addStatsSettings(activity: Activity, parent: LinearLayout) {
+        parent.addView(createSectionTitle(activity, "统计"))
+
+        val summary = TextView(activity).apply {
+            textSize = 14f
+            setPadding(0, 4, 0, 4)
+        }
+        val detail = TextView(activity).apply {
+            textSize = 12f
+            setTextColor(Color.GRAY)
+            setPadding(0, 0, 0, 8)
+        }
+
+        fun refresh() {
+            val s = SkipStatsStore.snapshot()
+            summary.text = "已跳过 ${s.totalCount} 个片段 · 共节省 ${formatDuration(s.totalDurationMs)}"
+            detail.text = if (s.perCategory.isEmpty()) {
+                "暂无记录"
+            } else {
+                s.perCategory.entries.joinToString("\n") { (cat, st) ->
+                    "  ${SponsorCategories.displayName(cat)}：${st.count} 个 · ${formatDuration(st.durationMs)}"
+                }
+            }
+        }
+        refresh()
+
+        parent.addView(summary)
+        parent.addView(detail)
+        parent.addView(Button(activity).apply {
+            text = "重置统计"
+            setOnClickListener {
+                SkipStatsStore.reset()
+                refresh()
+                Toast.makeText(activity, "统计已重置", Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    /** 标记颜色区:每个分类一行色块,点击打开颜色选择器。 */
+    private fun addColorSettings(activity: Activity, parent: LinearLayout, prefs: SharedPreferences) {
+        parent.addView(createSectionTitle(activity, "标记颜色"))
+        parent.addView(TextView(activity).apply {
+            text = "点击色块自定义各分类在进度条上的标记颜色"
+            textSize = 12f
+            setTextColor(Color.GRAY)
+            setPadding(0, 0, 0, 4)
+        })
+        for ((category, name) in SponsorCategories.displayNames) {
+            parent.addView(ColorPickerDialog.colorRow(activity, prefs, category, name))
+        }
+    }
+
+    /** ms → "M:SS" 或 "H:MM:SS"。 */
+    private fun formatDuration(ms: Long): String {
+        val totalSec = ms / 1000
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
     }
 
     private fun addBasicSettings(activity: Activity, parent: LinearLayout, prefs: SharedPreferences) {

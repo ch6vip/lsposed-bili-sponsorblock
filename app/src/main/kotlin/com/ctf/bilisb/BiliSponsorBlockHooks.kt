@@ -332,6 +332,10 @@ object BiliSponsorBlockHooks {
                 val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
                 val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
 
+                if (!settings.showSeekbarMarker) {
+                    return@hookAfter
+                }
+
                 val markers = sponsorBlockController?.progressMarkers() ?: return@hookAfter
                 val (durationMs, segments) = markers
                 if (segments.isEmpty()) {
@@ -342,7 +346,7 @@ object BiliSponsorBlockHooks {
                     val b = drawable.bounds
                     module.info("marker-hook fired on $className bounds=$b h=${b.height()}")
                 }
-                ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
+                ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments, settings.categoryColors)
             }
         }
     }

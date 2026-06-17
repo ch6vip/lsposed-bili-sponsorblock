@@ -53,6 +53,27 @@ object SettingsKeys {
     const val SHOW_TIME_DEDUCTION = "show_time_deduction"
     const val SHOW_SUBMIT_BUTTON = "show_submit_button"
 
+    // 分类标记颜色:key 为 "color_<category>",值为 "#RRGGBB" hex 字符串。
+    const val COLOR_PREFIX = "color_"
+    fun colorKey(category: String): String = COLOR_PREFIX + category
+
+    /** 类别 → 默认标记颜色(hex)。与 ProgressMarkerPainter 内置配色一致。保序用于 UI 展示。 */
+    val CATEGORY_COLOR_DEFAULTS: Map<String, String> = linkedMapOf(
+        "sponsor" to "#00D200",         // 绿色
+        "selfpromo" to "#FFFF00",       // 黄色
+        "interaction" to "#AA00FF",     // 紫色
+        "intro" to "#00FFFF",           // 青色
+        "outro" to "#0064FF",           // 蓝色
+        "preview" to "#FF8000",         // 橙色
+        "music_offtopic" to "#FF00B4",  // 粉色
+        "filler" to "#7F00FF",          // 深紫
+        "poi_highlight" to "#FF1E1E",   // 红色
+    )
+
+    /** 所有颜色 key */
+    val COLOR_KEYS: List<String> = CATEGORY_COLOR_DEFAULTS.keys.map { colorKey(it) }
+
+
     /** 类别 key → SponsorBlock category 字符串 */
     val CATEGORY_MAP = mapOf(
         CAT_SPONSOR to "sponsor",
@@ -130,6 +151,10 @@ class SettingsWriter(context: Context) {
         }
         for (key in SettingsKeys.STRING_KEYS) {
             val def = SettingsKeys.STRING_DEFAULTS[key] ?: ""
+            json.put(key, prefs.getString(key, def) ?: def)
+        }
+        for ((category, def) in SettingsKeys.CATEGORY_COLOR_DEFAULTS) {
+            val key = SettingsKeys.colorKey(category)
             json.put(key, prefs.getString(key, def) ?: def)
         }
         val content = json.toString(2)
