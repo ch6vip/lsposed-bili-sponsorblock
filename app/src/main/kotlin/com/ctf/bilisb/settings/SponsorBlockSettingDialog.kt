@@ -2,15 +2,18 @@ package com.ctf.bilisb.settings
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import com.ctf.bilisb.BuildConfig
 import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SkipStatsStore
 
@@ -29,6 +32,17 @@ object SponsorBlockSettingDialog {
 
     @Volatile
     private var writer: SettingsWriter? = null
+
+    private const val REPO_URL = "https://github.com/ch6vip/lsposed-bili-sponsorblock"
+
+    /** 「关于」→「更新」展示的更新摘要(最新在上)。发版时手动维护。 */
+    private val CHANGELOG = listOf(
+        "新增「关于」页(版本 / 作者 / 更新)",
+        "设置界面改为单入口 + 详情页",
+        "新增 片段统计(已跳过时长累计)",
+        "新增 分类标记颜色自定义 + 颜色选择器",
+        "新增 片段静音 / 倒计时取消 / 手动跳过 / 最小片段时长过滤",
+    )
 
     fun show(activity: Activity, onDismiss: (() -> Unit)? = null) {
         writer = SettingsWriter(activity)
@@ -49,6 +63,14 @@ object SponsorBlockSettingDialog {
             navigating[0] = true
             dialogRef[0]?.dismiss()
             showDetail(activity, onDismiss)
+        })
+
+        // 关于(平铺在主页 SponsorBlock 入口下面)
+        root.addView(sectionTitle(activity, "关于"))
+        root.addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})"))
+        root.addView(aboutItem(activity, "作者", "ch6vip\ngithub.com/ch6vip/lsposed-bili-sponsorblock"))
+        root.addView(aboutItem(activity, "更新", CHANGELOG.joinToString("\n") { "· $it" }) {
+            openUrl(activity, REPO_URL)
         })
 
         val dialog = AlertDialog.Builder(activity)
@@ -309,6 +331,53 @@ object SponsorBlockSettingDialog {
         setTextColor(Color.parseColor("#FF6699"))
         setPadding(0, dp(activity, 24), 0, dp(activity, 8))
         setTypeface(typeface, Typeface.BOLD)
+    }
+
+    /**
+     * 「关于」里的条目:粗体标题 + 灰色多行内容(对齐参考图)。
+     * 传 [onClick] 则整行可点(带水波纹 + 右侧 "›"),用于「更新」跳转项目主页。
+     */
+    private fun aboutItem(activity: Activity, title: String, value: String, onClick: (() -> Unit)? = null): View {
+        val textCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(activity).apply {
+                text = title
+                textSize = 16f
+                setTextColor(Color.parseColor("#212121"))
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            addView(TextView(activity).apply {
+                text = value
+                textSize = 13f
+                setTextColor(Color.GRAY)
+                setPadding(0, dp(activity, 2), 0, 0)
+            })
+        }
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(activity, 10), 0, dp(activity, 10))
+            textCol.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            addView(textCol)
+            if (onClick != null) {
+                isClickable = true
+                background = selectableItemBackground(activity)
+                addView(TextView(activity).apply {
+                    text = "›"
+                    textSize = 24f
+                    setTextColor(Color.GRAY)
+                })
+                setOnClickListener { onClick() }
+            }
+        }
+    }
+
+    private fun openUrl(activity: Activity, url: String) {
+        runCatching {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(activity, "无法打开链接", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun column(activity: Activity): LinearLayout = LinearLayout(activity).apply {
