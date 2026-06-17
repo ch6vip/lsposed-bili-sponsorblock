@@ -1,4 +1,5 @@
 <resources>
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <style name="SettingsTheme" parent="android:style/Theme.Material.Light" />
 </resources>
 

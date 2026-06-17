@@ -1,6 +1,7 @@
 package com.ctf.bilisb.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
@@ -14,6 +15,22 @@ import io.github.libxposed.api.XposedModule
 
 object SubmissionButtonInjector {
     private const val BUTTON_TAG = "com.ctf.bilisb.sponsor_button"
+
+    // 当前选中的类别
+    private var currentCategory = "sponsor"
+
+    // 类别名称映射
+    private val categoryNames = mapOf(
+        "sponsor" to "赞助/恰饭",
+        "selfpromo" to "自我推广",
+        "interaction" to "互动提醒",
+        "intro" to "开场动画",
+        "outro" to "结束画面",
+        "preview" to "回顾/概要",
+        "music_offtopic" to "非音乐片段",
+        "filler" to "填充内容",
+        "poi_highlight" to "精彩时刻"
+    )
 
     fun attach(
         module: XposedModule,
@@ -30,7 +47,7 @@ object SubmissionButtonInjector {
             attachWhenLayoutReady(module, activity, host, controller, contextHash)
             return
         }
-        addButtonIfNeeded(module, host, actions, controller, contextHash)
+        addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
     }
 
     private fun attachWhenLayoutReady(
@@ -55,7 +72,7 @@ object SubmissionButtonInjector {
             ) {
                 val actions = findActionsContainer(activity) ?: return
                 view.removeOnLayoutChangeListener(this)
-                addButtonIfNeeded(module, host, actions, controller, contextHash)
+                addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
             }
         })
     }
@@ -66,16 +83,12 @@ object SubmissionButtonInjector {
         actions: LinearLayout,
         controller: SponsorBlockController,
         contextHash: Int,
+        activity: Activity,
     ) {
         if (actions.findViewWithTag<View>(BUTTON_TAG) != null) {
             return
         }
 
-        // APK injects a ControlWidgetLinearLayout with two ImageViews into
-        // actions_container_right. This LSPosed module cannot rely on the
-        // ReVanced-only widget/resources, so this is a lightweight inferred
-        // equivalent: one stable control that toggles mark-start/mark-end and
-        // long-press cancels the current draft.
         val button = TextView(actions.context).apply {
             tag = BUTTON_TAG
             text = "SB"
@@ -85,13 +98,16 @@ object SubmissionButtonInjector {
             setTextColor(Color.WHITE)
             setBackgroundColor(0x66000000)
             contentDescription = "SponsorBlock 标记"
+
+            // 短按：标记当前位置
             setOnClickListener {
-                controller.markOrSubmitCurrentPosition(contextHash)
-                PlayerToastBridge.showSkipToast(module, host, "SponsorBlock 标记")
+                controller.markOrSubmitCurrentPosition(contextHash, currentCategory)
+                PlayerToastBridge.showMarkToast(module, host, "标记 ${categoryNames[currentCategory]}")
             }
+
+            // 长按：选择类别
             setOnLongClickListener {
-                controller.cancelSubmissionDraft(contextHash)
-                PlayerToastBridge.showSkipToast(module, host, "SponsorBlock 已取消标记")
+                showCategorySelector(activity, module, host, controller, contextHash)
                 true
             }
         }
@@ -102,6 +118,32 @@ object SubmissionButtonInjector {
         }
         actions.addView(button, 0, params)
         module.info("submission button attached to actions_container_right")
+    }
+
+    private fun showCategorySelector(
+        activity: Activity,
+        module: XposedModule,
+        host: Any,
+        controller: SponsorBlockController,
+        contextHash: Int,
+    ) {
+        val categories = categoryNames.keys.toList()
+        val categoryDisplayNames = categories.map { categoryNames[it] ?: it }.toTypedArray()
+        val currentIndex = categories.indexOf(currentCategory).coerceAtLeast(0)
+
+        AlertDialog.Builder(activity)
+            .setTitle("选择片段类别")
+            .setSingleChoiceItems(categoryDisplayNames, currentIndex) { dialog, which ->
+                currentCategory = categories[which]
+                PlayerToastBridge.showMarkToast(module, host, "已选择: ${categoryNames[currentCategory]}")
+                dialog.dismiss()
+            }
+            .setNegativeButton("取消标记") { dialog, _ ->
+                controller.cancelSubmissionDraft(contextHash)
+                PlayerToastBridge.showMarkToast(module, host, "已取消标记")
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun findActionsContainer(activity: Activity): LinearLayout? {

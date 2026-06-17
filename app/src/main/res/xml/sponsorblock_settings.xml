@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory android:title="基本设置">
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="enabled"
+            android:summary="SponsorBlock 总开关"
+            android:title="启用 SponsorBlock" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="auto_skip"
+            android:summary="检测到片段时自动跳过"
+            android:title="自动跳过" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="跳过类别">
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_sponsor"
+            android:summary="sponsor"
+            android:title="赞助广告" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_selfpromo"
+            android:summary="selfpromo"
+            android:title="自我推广" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_interaction"
+            android:summary="interaction"
+            android:title="三连/互动提醒" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_intro"
+            android:summary="intro"
+            android:title="片头/开场" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_outro"
+            android:summary="outro"
+            android:title="片尾/结束" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_preview"
+            android:summary="preview"
+            android:title="预览/回顾" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_music_offtopic"
+            android:summary="music_offtopic"
+            android:title="非音乐部分" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_filler"
+            android:summary="filler"
+            android:title="填充/玩笑" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="cat_poi_highlight"
+            android:summary="poi_highlight (只标记)"
+            android:title="精彩时刻" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="界面显示">
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="show_toast"
+            android:summary="跳过时显示提示"
+            android:title="跳过提示" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="show_seekbar_marker"
+            android:summary="在进度条上标记片段"
+            android:title="进度条标记" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="show_time_deduction"
+            android:summary="时间显示扣除片段后的时长"
+            android:title="剩余时长扣减" />
+
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="show_submit_button"
+            android:summary="播放器内显示片段标记按钮"
+            android:title="标记按钮" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="服务器">
+        <EditTextPreference
+            android:defaultValue="https://bsbsb.top"
+            android:key="server_address"
+            android:summary="SponsorBlock API 服务器地址"
+            android:title="服务器地址" />
+    </PreferenceCategory>
+
+</PreferenceScreen>

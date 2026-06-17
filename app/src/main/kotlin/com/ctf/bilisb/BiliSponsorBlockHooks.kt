@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 object BiliSponsorBlockHooks {
     private val installed = ConcurrentHashMap.newKeySet<String>()
     private var sponsorBlockController: SponsorBlockController? = null
+    private var settings: com.ctf.bilisb.settings.SettingsSnapshot = com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
 
     fun install(module: XposedModule, param: PackageLoadedParam, processName: String) {
         val installKey = "${param.packageName}:$processName"
@@ -31,11 +32,26 @@ object BiliSponsorBlockHooks {
 
         val cl = param.defaultClassLoader
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
-        sponsorBlockController = SponsorBlockController(module)
+
+        // 加载用户设置
+        settings = com.ctf.bilisb.settings.ModuleSettings.load(module)
+        if (!settings.enabled) {
+            module.info("SponsorBlock disabled in settings, skipping hooks")
+            return
+        }
+
+        sponsorBlockController = SponsorBlockController(module, settings)
 
         hookPlayerContainer(module, cl)
-        hookProgressDrawable(module, cl)
-        hookProgressText(module, cl)
+        if (settings.showSeekbarMarker) {
+            hookProgressDrawable(module, cl)
+        }
+        if (settings.showTimeDeduction) {
+            hookProgressText(module, cl)
+        }
+
+        // 注入"我的"页面菜单设置入口
+        com.ctf.bilisb.hook.MineMenuInjector.install(module, cl)
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
@@ -58,8 +74,10 @@ object BiliSponsorBlockHooks {
             if (contextHash != 0 && core != null) {
                 val handle = PlayerHandle(contextHash, container, core)
                 sponsorBlockController?.bindPlayerHandle(handle)
-                sponsorBlockController?.let { controller ->
-                    SubmissionButtonInjector.attach(module, container, controller, contextHash)
+                if (settings.showSubmitButton) {
+                    sponsorBlockController?.let { controller ->
+                        SubmissionButtonInjector.attach(module, container, controller, contextHash)
+                    }
                 }
             } else {
                 module.info("player container missing core/context, skip binding context=$contextHash")
@@ -262,24 +280,42 @@ object BiliSponsorBlockHooks {
         }
     }
 
+    // 运行时探针实测（8.96.0 Gemini，PlayerSeekWidget3）得到的薄轨道 drawable：
+    //   mProgressDrawable / mCurrentDrawable = seek.v3.q（h=8，ProgressBar.onDraw 必然绘制）
+    //   manager i.B[0..2] = seek.v3.e ×3（h=8，背景/缓冲/进度三层）
+    //   而之前 hook 的 seek.v3.a 是 h=36 的高能热度曲线波形，画在它上面才会偏高。
+    // 把标记画在这些 h=8 的薄轨道 bounds 上 = 嵌入式，对齐官方 patch（patch 在 8.98.0 上对应的是 seek.v3.f）。
+    // 两个候选都挂：哪个类声明了 draw(Canvas) 就生效；都画同样的实色矩形（同像素，无副作用）。
+    private val seekbarTrackClasses = listOf(
+        "com.bilibili.playerbizcommonv2.widget.seek.v3.q",
+        "com.bilibili.playerbizcommonv2.widget.seek.v3.e",
+    )
+    private val markerHookLogged = ConcurrentHashMap.newKeySet<String>()
+
     private fun hookProgressDrawable(module: XposedModule, cl: ClassLoader) {
-        // 8.96.0 原版 seekbar process drawable 是 seek.v3.a(对应 8.98.0 patch 版的 seek.v3.f)。
-        hookAfter(
-            module,
-            cl,
-            "com.bilibili.playerbizcommonv2.widget.seek.v3.a",
-            "draw",
-            Canvas::class.java,
-        ) { chain ->
-            val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
-            val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
-            ProbeLogger.dumpClassOnce(module, "seekbar-draw", drawable)
-            val markers = sponsorBlockController?.progressMarkers()
-            if (markers == null) {
-                return@hookAfter
+        seekbarTrackClasses.forEach { className ->
+            hookAfter(
+                module,
+                cl,
+                className,
+                "draw",
+                Canvas::class.java,
+            ) { chain ->
+                val drawable = chain.getThisObject() as? android.graphics.drawable.Drawable ?: return@hookAfter
+                val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
+
+                val markers = sponsorBlockController?.progressMarkers() ?: return@hookAfter
+                val (durationMs, segments) = markers
+                if (segments.isEmpty()) {
+                    return@hookAfter
+                }
+
+                if (markerHookLogged.add(className)) {
+                    val b = drawable.bounds
+                    module.info("marker-hook fired on $className bounds=$b h=${b.height()}")
+                }
+                ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
             }
-            val (durationMs, segments) = markers
-            ProgressMarkerPainter.draw(drawable, canvas, durationMs, segments)
         }
     }
 

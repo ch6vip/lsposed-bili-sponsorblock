@@ -6,17 +6,45 @@ import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import com.ctf.bilisb.model.SponsorSegment
 
+/**
+ * 进度条片段标记绘制。
+ *
+ * 实现严格对齐官方 patch（Bili-v8.98.0 BiliRoamingX）的 `SponsorBlockPatch.b(zo, Drawable, Canvas)`：
+ *   - 画在**轨道 drawable 自己的 bounds 上**（薄轨道高度 top→bottom），而不是父 View 的整高，
+ *     这样标记和进度条等高、嵌在轨道里，而不是一根高 bar 浮在上面。
+ *   - 用**实色**分类画笔（不带 alpha），对应 patch 里的 `anVar.o`。
+ *   - 普通片段：`drawRect(xStart, bounds.top, xEnd, bounds.bottom)`。
+ *   - POI 高亮：`drawCircle(xStart, centerY, height/2)`，对应 patch `anVar.d()` 分支。
+ *
+ * 调用点是 `seek.v3.f#draw(Canvas)`（薄轨道 drawable），与 patch 注入点一致。
+ */
 object ProgressMarkerPainter {
-    // 对应 APK `an.o`(分类颜色 Paint)。APK 按分类上色,这里先用统一黄色,
-    // 分类颜色配置待设置页接入后对齐。
-    private val segmentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(180, 255, 196, 0)
+    // 分类配色（实色，无 alpha）。对齐 SponsorBlock/PiliPlus 常见配色。
+    private val categoryColors = mapOf(
+        "sponsor" to Color.rgb(0, 210, 0),           // 绿色
+        "selfpromo" to Color.rgb(255, 255, 0),       // 黄色
+        "interaction" to Color.rgb(170, 0, 255),     // 紫色
+        "intro" to Color.rgb(0, 255, 255),           // 青色
+        "outro" to Color.rgb(0, 100, 255),           // 蓝色
+        "preview" to Color.rgb(255, 128, 0),         // 橙色
+        "music_offtopic" to Color.rgb(255, 0, 180),  // 粉色
+        "filler" to Color.rgb(127, 0, 255),          // 深紫
+        "poi_highlight" to Color.rgb(255, 30, 30),   // 红色
+    )
+
+    private val defaultColor = Color.rgb(255, 196, 0)
+
+    // 复用单个 Paint，避免每帧 new。FILL + 抗锯齿（圆点更平滑）。
+    private val paint = Paint().apply {
         style = Paint.Style.FILL
+        isAntiAlias = true
     }
 
-    // 对应 APK `an.d()` = highlight/poi 分类,这类片段画圆点而非矩形。
-    private val highlightCategory = "poi_highlight"
-
+    /**
+     * 在轨道 drawable 上绘制标记。对应 patch 的 `b(...)`。
+     *
+     * @param drawable 轨道 drawable（seek.v3.f），用它的 bounds 决定标记的位置和高度
+     */
     fun draw(drawable: Drawable, canvas: Canvas, durationMs: Long, segments: List<SponsorSegment>) {
         if (durationMs <= 0 || segments.isEmpty()) {
             return
@@ -27,18 +55,33 @@ object ProgressMarkerPainter {
             return
         }
 
-        val pxPerMs = bounds.width().toFloat() / durationMs.toFloat()
-        val minWidth = bounds.height().coerceAtLeast(2) / 3f
+        val width = bounds.width()
+        val height = bounds.height()
+        // px per ms（patch: f = iWidth / zoVar.d）
+        val pxPerMs = width.toFloat() / durationMs.toFloat()
+
+        val left = bounds.left
+        val top = bounds.top.toFloat()
+        val bottom = bounds.bottom.toFloat()
+        val centerY = bounds.exactCenterY()
+        val radius = height / 2.0f
+
         segments.forEach { segment ->
-            // APK 画所有片段(skip 与 poi 都画),poi/highlight 用圆点。
-            val isHighlight = segment.category == highlightCategory
-            val left = bounds.left + segment.startMs.coerceAtLeast(0L) * pxPerMs
-            val right = bounds.left + segment.endMs.coerceAtMost(durationMs) * pxPerMs
-            if (isHighlight || right <= left) {
-                canvas.drawCircle(left, bounds.centerY().toFloat(), bounds.height() / 2.0f, segmentPaint)
+            paint.color = categoryColors[segment.category] ?: defaultColor
+
+            val xStart = left + segment.startMs * pxPerMs
+
+            if (isPoi(segment)) {
+                // POI 高亮：画圆点（对齐 patch anVar.d() 分支）
+                canvas.drawCircle(xStart, centerY, radius, paint)
             } else {
-                canvas.drawRect(left, bounds.top.toFloat(), right.coerceAtLeast(left + minWidth), bounds.bottom.toFloat(), segmentPaint)
+                val xEnd = left + segment.endMs * pxPerMs
+                canvas.drawRect(xStart, top, xEnd, bottom, paint)
             }
         }
+    }
+
+    private fun isPoi(segment: SponsorSegment): Boolean {
+        return segment.actionType == "poi" || segment.category == "poi_highlight"
     }
 }
