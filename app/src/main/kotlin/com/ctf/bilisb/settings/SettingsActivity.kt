@@ -17,7 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * SponsorBlock 设置界面。
+ * Bili2233 设置界面。
  *
  * 纯代码构建 UI(不依赖 AndroidX Preference,减小 APK 体积)。
  * 用 MODE_WORLD_READABLE 的 SharedPreferences 存储,供模块 Hook 端读取。
@@ -31,7 +31,7 @@ class SettingsActivity : Activity() {
     @SuppressLint("WorldReadableFiles")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "BiliSponsorBlock 设置"
+        title = "Bili2233 设置"
 
         writer = SettingsWriter(this)
 
@@ -74,7 +74,7 @@ class SettingsActivity : Activity() {
 
         // ===== 说明 =====
         root.addView(TextView(this).apply {
-            text = "提示:修改设置后,需要重新进入播放页面才能生效。"
+            text = "提示:修改设置后,重新进入播放页面即可生效，无需重启应用。"
             setTextColor(Color.GRAY)
             textSize = 12f
             setPadding(dp(8), dp(16), dp(8), dp(8))

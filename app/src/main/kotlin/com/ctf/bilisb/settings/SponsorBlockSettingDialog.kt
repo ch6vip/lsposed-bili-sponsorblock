@@ -11,7 +11,7 @@ import android.view.ViewGroup
 import android.widget.*
 
 /**
- * SponsorBlock 设置对话框。
+ * Bili2233 设置对话框。
  *
  * 纯代码构建设置界面，不依赖XML和PreferenceFragment。
  */
@@ -44,7 +44,7 @@ object SponsorBlockSettingDialog {
 
         // 显示对话框
         AlertDialog.Builder(activity)
-            .setTitle("SponsorBlock 设置")
+            .setTitle("Bili2233 设置")
             .setView(scrollView)
             .setPositiveButton("确定") { _, _ ->
                 // 设置已自动保存

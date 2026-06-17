@@ -1,6 +1,6 @@
 # LSPosed BiliSponsorBlock TODO
 
-## 已完成功能 (v0.3.0)
+## 已完成功能 (当前)
 - [x] 视频 aid/cid 识别 (PlayDirectorServiceV3 + PlayableParams)
 - [x] SponsorBlock API 片段获取
 - [x] 自动跳过赞助商片段
@@ -19,19 +19,23 @@
 ## 待实现功能
 
 ### 1. 设置界面 (高优先级)
-- [ ] 创建设置 Activity/Fragment
-- [ ] 功能开关:
-  - [ ] 自动跳过总开关
-  - [ ] 各类别片段开关 (sponsor/intro/outro/interaction/selfpromo/music_offtopic/poi_highlight)
-  - [ ] 进度条标记开关
-  - [ ] 剩余时长扣减开关
+- [x] 基础设置页
+- [x] 功能开关:
+  - [x] 自动跳过总开关
+  - [x] 各类别片段开关 (sponsor/intro/outro/interaction/selfpromo/music_offtopic/poi_highlight)
+  - [x] 进度条标记开关
+  - [x] 剩余时长扣减开关
 - [ ] 标记颜色配置:
   - [ ] 每个类别可自定义颜色
   - [ ] 颜色选择器
 - [ ] 提交配置:
   - [ ] 用户 ID 管理
   - [ ] 默认标记类别
-- [ ] 存储: SharedPreferences
+- [x] 基础存储与 Hook 端读取
+
+### 1.1 设置入口稳定性
+- [ ] 缩窄 `MineMenuInjector` 的 hook 面，减少对 `RecyclerView.Adapter.notifyDataSetChanged` 的依赖
+- [ ] 记录不同 B 站页面布局下设置入口是否稳定出现
 
 ### 2. 跳过策略优化
 - [ ] 支持 manual skip (显示跳过按钮而非自动跳过)
@@ -45,7 +49,7 @@
 
 ### 4. 性能优化
 - [ ] 片段缓存 TTL 可配置
-- [ ] 重复请求去重
+- [x] 基础重复请求去重
 - [ ] 内存占用优化
 
 ## 技术债务
