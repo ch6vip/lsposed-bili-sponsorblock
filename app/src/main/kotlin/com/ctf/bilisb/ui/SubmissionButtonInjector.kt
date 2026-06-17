@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
@@ -37,14 +38,16 @@ object SubmissionButtonInjector {
         host: Any,
         controller: SponsorBlockController,
         contextHash: Int,
+        defaultCategory: String = "sponsor",
     ) {
+        currentCategory = sanitizeCategory(defaultCategory)
         val activity = playerActivity(host) ?: run {
             module.info("submission button skipped: player context is not Activity")
             return
         }
         val actions = findActionsContainer(activity) ?: run {
             module.info("submission button pending: actions_container_right not found")
-            attachWhenLayoutReady(module, activity, host, controller, contextHash)
+            attachWhenLayoutReady(module, activity, host, controller, contextHash, currentCategory)
             return
         }
         addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
@@ -56,6 +59,7 @@ object SubmissionButtonInjector {
         host: Any,
         controller: SponsorBlockController,
         contextHash: Int,
+        defaultCategory: String,
     ) {
         val root = activity.window?.decorView ?: return
         root.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
@@ -71,6 +75,7 @@ object SubmissionButtonInjector {
                 oldBottom: Int,
             ) {
                 val actions = findActionsContainer(activity) ?: return
+                currentCategory = sanitizeCategory(defaultCategory)
                 view.removeOnLayoutChangeListener(this)
                 addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
             }
@@ -188,4 +193,7 @@ object SubmissionButtonInjector {
     private fun dp(view: View, value: Int): Int {
         return (value * view.resources.displayMetrics.density).toInt()
     }
+
+    private fun sanitizeCategory(category: String): String =
+        if (category in SponsorCategories.displayNames) category else "sponsor"
 }

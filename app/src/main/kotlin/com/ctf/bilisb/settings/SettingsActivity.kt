@@ -15,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.ctf.bilisb.model.SponsorCategories
 
 /**
  * Bili2233 设置界面。
@@ -55,6 +56,10 @@ class SettingsActivity : Activity() {
         root.addView(switchItem(SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过(用 AudioManager)", false))
         root.addView(numberItem(SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)", "短于此值的片段不跳过。0 = 不过滤"))
         root.addView(numberItem(SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)", "进入片段先显示\"N秒后跳过 [取消]\"。0 = 立即跳"))
+
+        // ===== 提交配置 =====
+        root.addView(sectionTitle("提交配置"))
+        root.addView(defaultSubmitCategoryItem())
 
         // ===== 服务器地址 =====
         root.addView(sectionTitle("服务器"))
@@ -224,5 +229,49 @@ class SettingsActivity : Activity() {
         }
         container.addView(saveBtn)
         return container
+    }
+
+    private fun defaultSubmitCategoryItem(): View {
+        fun currentCategory(): String {
+            val saved = writer.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)
+            return if (saved in SponsorCategories.displayNames) saved else SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
+        }
+
+        val value = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.GRAY)
+        }
+        fun refresh() {
+            value.text = SponsorCategories.displayName(currentCategory())
+        }
+        refresh()
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            isClickable = true
+            addView(TextView(this@SettingsActivity).apply {
+                text = "默认标记类别"
+                textSize = 16f
+                setTextColor(Color.parseColor("#212121"))
+            })
+            addView(value)
+            setOnClickListener {
+                val categories = SponsorCategories.displayNames.keys.toList()
+                val labels = categories.map { SponsorCategories.displayName(it) }.toTypedArray()
+                val index = categories.indexOf(currentCategory()).coerceAtLeast(0)
+                android.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("默认标记类别")
+                    .setSingleChoiceItems(labels, index) { dialog, which ->
+                        writer.sharedPreferences.edit()
+                            .putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, categories[which])
+                            .apply()
+                        refresh()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        }
     }
 }
