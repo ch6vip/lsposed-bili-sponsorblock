@@ -67,6 +67,7 @@
 - [ ] T8 提交体验增强:分类选择、手动时间编辑、预览后确认、投票/反馈按实际需求拆分实现
 
 ## 架构与稳定性重构任务
+- 详细执行计划见 `docs/OPTIMIZATION_PLAN.md`
 - [ ] R1 设置存储收敛:抽出统一的 SettingsRepository / SettingsSchema,集中处理默认值、校验、迁移和序列化,移除 UI 和 Hook 两侧重复逻辑
 - [ ] R2 设置通道收口:收紧 exported Provider 的暴露面,补调用方校验与敏感字段分级,减少对目标 App 私有目录直写依赖
 - [ ] R3 设置 UI 共用:让 SettingsActivity 和 SponsorBlockSettingDialog 共用同一套设置描述与行构建器,避免双实现漂移
