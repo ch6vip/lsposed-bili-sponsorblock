@@ -377,6 +377,34 @@ class SponsorBlockController(
     /** 播放器销毁时调用:确保静音被取消,避免静音状态泄漏到其它媒体。 */
     fun onPlayerDestroyed(host: Any) {
         AudioMuteController.unmute(module, host)
+        ManualSkipButton.hide(module, host)
+        SkipCountdownOverlay.cancel(module, host)
+
+        val contextHash = PlayerBridge.contextHash(host)
+        if (contextHash != 0) {
+            latestStateByContext.remove(contextHash)
+            latestContainerByContext.remove(contextHash)
+            playerHandles.remove(contextHash)
+            if (latestContextHash == contextHash) {
+                latestContextHash = latestStateByContext.keys.firstOrNull() ?: 0
+            }
+        } else {
+            val staleKeys = latestContainerByContext
+                .filterValues { it === host }
+                .keys
+                .toList()
+            for (key in staleKeys) {
+                latestStateByContext.remove(key)
+                latestContainerByContext.remove(key)
+                playerHandles.remove(key)
+            }
+            if (latestContextHash in staleKeys) {
+                latestContextHash = latestStateByContext.keys.firstOrNull() ?: 0
+            }
+        }
+
+        manualButtonSegmentKey = null
+        countdownSegmentKey = null
     }
 
     private fun getCategoryDisplayName(category: String): String =
