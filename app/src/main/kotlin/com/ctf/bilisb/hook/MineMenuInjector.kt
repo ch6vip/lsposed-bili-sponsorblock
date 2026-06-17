@@ -11,19 +11,15 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Field
 
 /**
- * 在B站"我的"页面菜单注入SponsorBlock设置入口。
- *
- * 参考 BiliRoaming 的实现：
- * 1. Hook 适配器的 notifyDataSetChanged，注入设置项
- * 2. Hook ViewHolder绑定，添加点击监听
+ * 在B站"我的"页面菜单注入设置入口。
  */
 object MineMenuInjector {
 
-    private const val SETTING_ID = 0x5B5B5B5BL // SponsorBlock设置项ID
+    private const val SETTING_ID = 0x5B5B5B5BL
     private const val SETTING_URI = "bilisb://settings"
-    private const val SETTING_TITLE = "SponsorBlock"
-    // 使用B站的设置图标（更统一美观）
-    private const val SETTING_ICON = "https://i0.hdslb.com/bfs/app/0e6a471066f0f57f0a9a8b24ab8cfb8c7d8c4e3e.png"
+    private const val SETTING_TITLE = "Bili2233"
+    // 宿主“我的”页按钮图标链路实际接受远程图片 URL。
+    private const val SETTING_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         try {
@@ -35,7 +31,6 @@ object MineMenuInjector {
                 return
             }
 
-            // Hook适配器注入菜单项
             hookMineAdapter(module, classLoader, menuItemClass)
 
             // Hook URI路由器拦截点击
@@ -56,18 +51,17 @@ object MineMenuInjector {
     }
 
     private fun hookMineAdapter(module: XposedModule, classLoader: ClassLoader, menuItemClass: Class<*>) {
-        // Hook RecyclerView.Adapter的notifyDataSetChanged注入数据
         val adapterClass = try {
-            classLoader.loadClass("androidx.recyclerview.widget.RecyclerView\$Adapter")
+            classLoader.loadClass("tv.danmaku.bili.ui.main2.mine.HomeUserCenterAdapter")
         } catch (e: Throwable) {
-            module.warn("RecyclerView.Adapter not found")
+            module.warn("HomeUserCenterAdapter not found")
             return
         }
 
         val notifyMethod = try {
-            adapterClass.getDeclaredMethod("notifyDataSetChanged")
+            adapterClass.getMethod("notifyDataSetChanged")
         } catch (e: Throwable) {
-            module.warn("notifyDataSetChanged method not found")
+            module.warn("Failed to resolve notifyDataSetChanged: ${e.message}")
             return
         }
 
@@ -75,7 +69,6 @@ object MineMenuInjector {
             .setPriority(XposedInterface.PRIORITY_DEFAULT)
             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
             .intercept { chain ->
-                // 在notifyDataSetChanged之前注入设置项
                 try {
                     val adapter = chain.getThisObject()
                     injectSettingItemIfMineAdapter(module, adapter, menuItemClass)
@@ -85,7 +78,7 @@ object MineMenuInjector {
                 chain.proceed()
             }
 
-        module.info("Hooked RecyclerView.Adapter.notifyDataSetChanged")
+        module.info("Hooked HomeUserCenterAdapter.notifyDataSetChanged")
 
         // Hook HomeUserCenterAdapter的onBindViewHolder添加点击监听
         hookAdapterClickListener(module, classLoader)
@@ -170,7 +163,7 @@ object MineMenuInjector {
     }
 
     private fun injectSettingItem(module: XposedModule, data: MutableList<Any>, menuItemClass: Class<*>) {
-        // 检查是否已存在SponsorBlock设置项
+        // 检查是否已存在设置项
         for (group in data) {
             val itemListField = try {
                 group.javaClass.getDeclaredField("itemList").apply { isAccessible = true }
@@ -225,7 +218,7 @@ object MineMenuInjector {
         }
 
         itemList.add(insertIndex, settingItem)
-        module.info("Injected SponsorBlock setting item at position $insertIndex")
+        module.info("Injected Bili2233 setting item at position $insertIndex")
     }
 
     private fun createSettingItem(module: XposedModule, menuItemClass: Class<*>): Any? {
@@ -352,13 +345,13 @@ object MineMenuInjector {
                         val context = it.context as? Activity
                         if (context != null) {
                             SponsorBlockSettingDialog.show(context)
-                            module.info("Showing SponsorBlock settings dialog")
+                            module.info("Showing Bili2233 settings dialog")
                         } else {
                             module.warn("Context is not Activity: ${it.context.javaClass.name}")
                         }
                     }
 
-                    module.info("Attached click listener to SponsorBlock setting item")
+                    module.info("Attached click listener to Bili2233 setting item")
                 }
             } catch (e: Throwable) {
                 module.warn("Failed to attach click: ${e.message}")

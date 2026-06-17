@@ -49,14 +49,15 @@
 - [x] 画进度条片段标记
 - [x] 显示跳过提示
 - [x] 显示剩余时间扣减
-- [ ] 做设置页
+- [x] 做基础设置页
+- [ ] 对齐 APK 的完整设置体验（分类颜色、用户 ID 管理、更多高级项）
 
 ### 6. 提交与统计
 - [x] 片段提交协议入口
 - [x] 播放器标记按钮入口（轻量推测实现）
 - [ ] 投票和反馈
 - [ ] 用户统计
-- [ ] 服务器地址和分类配置
+- [x] 服务器地址和基础分类配置
 - [x] 本地 `userID` 持久化（按目标 App 私有 `SharedPreferences` 存储，属于推测实现）
 - [x] 草稿式标记控制器（第一次标起点，第二次提交）
 - [ ] APK 对齐的分类选择、手动时间编辑、预览后确认
@@ -68,51 +69,36 @@
 2. 拉取片段
 3. 在播放时 seek
 
-后续先做 `2 + 3`，再补 UI。
+当前阶段重点已转向：
+1. 收口设置入口和文档
+2. 验证小窗/切集
+3. 补投票、统计和更完整的设置能力
 
 ## 当前实现状态
 
 - 入口采用 `libxposed` API 102 的 `XposedModule`。
 - 当前兼容线已降到 `libxposed` API 101，避免 LSPosed API 102 激活失败。
 - 模块元数据位于 `app/src/main/resources/META-INF/xposed/`。
-- 当前 hook 是低风险探针版，目标：
-  - `Ch1.g#onCreate(Bundle)`
-  - `Ch1.g#onDestroy()`
-  - `com.bilibili.playerbizcommonv2.widget.seek.v3.f#draw(Canvas)`
-- `SponsorBlockClient` 已按 APK 行为生成 `/api/skipSegments/{sha256Prefix}` 请求 URL，但 JSON 解析和播放 seek 仍未实现。
-- `SponsorBlockClient` 已补齐 APK 对齐的提交 URL：`GET /api/skipSegments?userID=...&videoID=...&cid=...&category=...&startTime=...&endTime=...&videoDuration=...`
-- `userID` 按 APK 规则生成 32 位无连字符 UUID 字符串；存储位置采用目标 App 私有 `SharedPreferences`，这一点属于推测实现。
-- `SubmissionDraftController` 已加入，用于后续挂接播放器按钮的“标记起点/终点”交互。
-- 播放器标记入口已通过 `SubmissionButtonInjector` 注入到 `actions_container_right`，点击执行“标起点/标终点提交”，长按取消草稿。
-- APK 原始实现注入 `ControlWidgetLinearLayout` + 两个 `ImageView`，并提供标记、预览、分类确认、手动编辑等完整弹窗流程；当前 LSPosed 版本使用普通 `TextView` 控件替代 ReVanced 资源，属于推测实现。
-- 播放器桥接只负责取 core / context（用于 seek 与 toast），不再反射 `PlayerParamsV2`。
-- **8.96.0 原版适配**（真机装的是原版官方 8.96.0，不是 8.98.0 patch 版；之前对 patch 版 dex 找的类名全错位）：
-  - 播放器容器：`be1.j#onCreate(Bundle)` / `onDestroy()`（对应 patch 版 `Ch1.g`；注意 smali 真实类名小写 `be1`，非 jadx 显示的 `Be1`）。
-  - 进度文本：`onPlayerProgressChange(int,int)`（v2 / Gemini），v1 仍用 `updateTime(int,int)`。参数是 `int,int` 不是 patch 版的 `long,long`。
-  - seekbar drawable：`seek.v3.a#draw(Canvas)`（对应 patch 版 `seek.v3.f`）。
-- **video id 获取：8.96.0 原版与 patch 版链路不同，当前为探针实现**：
-  - patch 版 `VideoDirectorObserver.onStart + getLogDescription` 在 8.96.0 不成立：原版接口方法是 `onItemStart`/`onItemWillChange`，director service 用 `addVideoPlayEventListener` 而非 `addVideoDirectorObserver`；`Video` 对象 `getId()` 返回对象 hash、`getDescription()` 返回 "video"，不含 aid/cid；`getLogDescription()` 在 `*PlayableParams` 类上。
-  - 当前 `VideoIdProbe` 在容器创建时取 `getPlayerParams()` 拿 `PlayerParamsV2`，递归 dump 字段树按名匹配 `aid/avid/cid`，命中即回调。
-  - **aid/cid 的精确字段路径待运行时确认**（探针日志会打印 `videoIdProbe:` 开头的字段 dump）。
+- 当前实现已经不是探针版，主链路已落到真实 hook：
+  - 播放器容器：`be1.j#onCreate(Bundle)` / `onStart()` / `onDestroy()`
+  - 视频 ID：`VideoDirectorListener` 通过 `getPlayDirectorServiceV3()` + `addVideoDirectorObserver()`
+  - 进度文本：`onPlayerProgressChange(int,int)` / `updateTime(int,int)`
+  - 进度条：`seek.v3.e#draw(Canvas)` 命中
+- `SponsorBlockClient` 已实现片段拉取、缓存、解析和提交 URL。
+- `SponsorBlockController` 已实现自动跳过、去重、Toast、标记提交入口。
+- `SettingsActivity` 已实现。
 - `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
 - `sponsor/` 模块已独立出来，用于承载协议请求、缓存和后续自动跳过决策。
-- 进度文本 hook 已覆盖（8.96.0 原版类名/方法名）：
-  - `com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget#onPlayerProgressChange(int,int)`
-  - `com.bilibili.app.gemini.player.widget.progress.GeminiProgressTextWidget#onPlayerProgressChange(int,int)`
-  - `com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget#updateTime(int,int)`
-- 自动跳过已按 APK 行为调用 `IPlayerCoreService#seekTo(endMs, true)`。
-- 已加按 `video/cid/uuid/start-end` 的防重复跳过记录，避免同一片段被进度回调重复触发。
-- 播放器 toast 提示已通过 `PlayerToastBridge` 接入，反射构造 `PlayerToast` 并调用 `getToastService().showToast(...)`。
-- 当前提示文案为简化直出：`已跳过 <category>`；APK 的分类本地化文案仍待对齐。
-- 进度条标记已通过 `ProgressMarkerPainter` 接入 `seek.v3.a#draw(Canvas)`，按 `start/end/duration` 在 drawable bounds 上绘制片段区间。
-- 当前进度条标记使用最近活动播放器 context 和固定黄色；APK 中按分类颜色绘制，后续需要对齐分类颜色配置。
-- 剩余时间扣减已通过 `RemainingTimeFormatter` + `ProgressTextDecorator` 接入进度文本 hook，当前效果是文本后追加 `(<扣减后时长>)`。
-- 这是按 APK `onPlayerUpdateProgressTextLong` 行为做的文本层复刻，具体文案和去重策略仍属于推测实现。
+- 已验证日志包含：
+  - `ModuleSettings loaded`
+  - `marker-hook fired`
+  - `showToast: 跳过: ...`
+  - 主进程加载与子进程跳过
 
 ## 下一步验收
 
 1. [x] 让仓库能执行 `gradlew.bat :app:assembleDebug`（已补 gradle wrapper 8.12，本地 `BUILD SUCCESSFUL`，产物 `app-debug.apk`）。
 2. [x] 修完所有 Kotlin / `libxposed` API 编译问题（首次构建即通过，无编译错误）。
 3. [x] 安装 debug APK，确认 LSPosed 识别模块并只作用域到 `tv.danmaku.bili`（日志确认主进程加载、子进程跳过）。
-4. [ ] 打开 B 站播放页，抓 LSPosed 日志，确认至少命中一个播放器探针（首轮日志显示 5 个 hook 点全 ClassNotFoundException/NoSuchMethod —— 因对着 8.98.0 patch 版类名；已改 8.96.0 原版类名，待重测）。
-5. [ ] 装机看 `videoIdProbe:` 日志，确认 aid/cid 字段路径，把探针换成确定读取。
+4. [x] 打开 B 站播放页，抓 LSPosed 日志，确认命中播放器 hook 和进度条标记。
+5. [x] 确认 aid/cid 获取链路已从探针切换到 `VideoDirectorListener`。

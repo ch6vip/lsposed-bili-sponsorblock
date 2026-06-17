@@ -23,8 +23,8 @@ object ModuleSettings {
 
     /**
      * 加载设置。三级 fallback:
-     *   1) ContentProvider IPC (模块进程存活时)
-     *   2) JSON 镜像文件 (模块进程已退出时)
+     *   1) JSON 镜像文件 (宿主进程内最稳定，避免 MIUI 拦截 provider 拉起)
+     *   2) ContentProvider IPC (镜像缺失时兜底)
      *   3) 默认值
      *
      * @param module XposedModule 实例(用于日志)
@@ -33,8 +33,8 @@ object ModuleSettings {
     fun load(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached?.let { return it }
 
-        val snapshot = tryIpc(module, hostContext)
-            ?: tryFileFallback(module)
+        val snapshot = tryFileFallback(module)
+            ?: tryIpc(module, hostContext)
             ?: run {
                 module.info("ModuleSettings: all sources failed, using defaults")
                 SettingsSnapshot.DEFAULT

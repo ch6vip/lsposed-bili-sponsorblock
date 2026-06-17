@@ -3,7 +3,7 @@ package com.ctf.bilisb.util
 import android.util.Log
 import io.github.libxposed.api.XposedInterface
 
-private const val TAG = "BiliSponsorBlock"
+private const val TAG = "Bili2233"
 
 fun XposedInterface.info(message: String) {
     log(Log.INFO, TAG, message)

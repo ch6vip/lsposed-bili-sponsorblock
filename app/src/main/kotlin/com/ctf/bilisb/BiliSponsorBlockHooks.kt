@@ -44,22 +44,21 @@ object BiliSponsorBlockHooks {
         com.ctf.bilisb.hook.MineMenuInjector.install(module, cl)
     }
 
-    private val settingsLoaded = java.util.concurrent.atomic.AtomicBoolean(false)
-
     private fun ensureSettingsLoaded(module: XposedModule, containerContext: android.content.Context) {
-        if (settingsLoaded.compareAndSet(false, true)) {
-            settings = runCatching {
-                com.ctf.bilisb.settings.ModuleSettings.load(module, containerContext)
-            }.getOrElse {
-                module.info("ModuleSettings load failed, using defaults: ${it.message}")
-                com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
-            }
-            if (!settings.enabled) {
-                module.info("SponsorBlock disabled in settings")
-                return
-            }
-            sponsorBlockController = SponsorBlockController(module, settings)
+        val freshSettings = runCatching {
+            com.ctf.bilisb.settings.ModuleSettings.reload(module, containerContext)
+        }.getOrElse {
+            module.info("ModuleSettings reload failed, using defaults: ${it.message}")
+            com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
         }
+        settings = freshSettings
+        module.info("Settings snapshot on player enter: $freshSettings")
+        if (!freshSettings.enabled) {
+            sponsorBlockController = null
+            module.info("SponsorBlock disabled in settings")
+            return
+        }
+        sponsorBlockController = SponsorBlockController(module, freshSettings)
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
@@ -220,7 +219,7 @@ object BiliSponsorBlockHooks {
                 val result = chain.proceed()
 
                 // 防递归:如果是我们触发的 setText,跳过
-                if (isAdjusting.get()) {
+                if (isAdjusting.get() == true) {
                     return@intercept result
                 }
 
