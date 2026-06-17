@@ -41,6 +41,10 @@ class SettingsProvider : ContentProvider() {
             putString(SettingsKeys.MIN_SKIP_DURATION, prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
             putString(SettingsKeys.SKIP_COUNTDOWN, prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"))
             putString(SettingsKeys.SERVER_ADDRESS, prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
+            putString(
+                SettingsKeys.CACHE_TTL_MINUTES,
+                prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
+            )
             putString(SettingsKeys.USER_ID, prefs.getString(SettingsKeys.USER_ID, ""))
             putString(
                 SettingsKeys.DEFAULT_SUBMIT_CATEGORY,

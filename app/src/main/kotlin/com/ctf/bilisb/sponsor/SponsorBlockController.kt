@@ -32,11 +32,13 @@ class SponsorBlockController(
         client = SponsorBlockClient(
             config = SponsorBlockConfig(
                 serverAddress = settings.serverAddress,
+                cacheTtlMs = settings.cacheTtlMs,
                 enabled = settings.enabled,
                 autoSkip = settings.autoSkip,
                 enabledCategories = settings.enabledCategories,
             )
-        )
+        ),
+        cacheTtlMs = settings.cacheTtlMs,
     )
 
     private val executor = Executors.newSingleThreadExecutor()

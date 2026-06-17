@@ -103,6 +103,9 @@ object ModuleSettings {
             minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
             skipCountdownSec = parseDuration(bundle.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
             serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            cacheTtlMs = parseCacheTtlMs(
+                bundle.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
+            ),
             defaultSubmitCategory = sanitizeCategory(
                 bundle.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
             ),
@@ -137,6 +140,7 @@ object ModuleSettings {
             minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
             skipCountdownSec = parseDuration(str(SettingsKeys.SKIP_COUNTDOWN, "0")),
             serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
             defaultSubmitCategory = sanitizeCategory(str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)),
             enabledCategories = enabledCategories,
             showToast = bool(SettingsKeys.SHOW_TOAST, true),
@@ -159,6 +163,11 @@ object ModuleSettings {
     private fun parseDuration(raw: String?): Float =
         raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
 
+    private fun parseCacheTtlMs(raw: String?): Long {
+        val minutes = raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 60f
+        return (minutes * 60_000L).toLong()
+    }
+
     private fun sanitizeCategory(raw: String?): String {
         val category = raw?.trim().orEmpty()
         return if (category in com.ctf.bilisb.model.SponsorCategories.displayNames) {
@@ -180,6 +189,7 @@ data class SettingsSnapshot(
     val minSkipDurationSec: Float,
     val skipCountdownSec: Float,
     val serverAddress: String,
+    val cacheTtlMs: Long,
     val defaultSubmitCategory: String,
     val enabledCategories: Set<String>,
     val showToast: Boolean,
@@ -198,6 +208,7 @@ data class SettingsSnapshot(
             minSkipDurationSec = 0f,
             skipCountdownSec = 0f,
             serverAddress = SettingsKeys.DEFAULT_SERVER,
+            cacheTtlMs = 60L * 60_000L,
             defaultSubmitCategory = SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
             enabledCategories = setOf(
                 "sponsor", "selfpromo", "interaction", "intro",

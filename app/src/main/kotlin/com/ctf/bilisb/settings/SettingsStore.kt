@@ -35,6 +35,8 @@ object SettingsKeys {
     // 服务器
     const val SERVER_ADDRESS = "server_address"
     const val DEFAULT_SERVER = "https://bsbsb.top"
+    const val CACHE_TTL_MINUTES = "cache_ttl_minutes"
+    const val DEFAULT_CACHE_TTL_MINUTES = "60"
 
     // 提交配置
     const val USER_ID = "user_id"
@@ -99,7 +101,14 @@ object SettingsKeys {
     ) + CATEGORY_MAP.keys.toList()
 
     /** 所有 string 类型 key */
-    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION, SKIP_COUNTDOWN, USER_ID, DEFAULT_SUBMIT_CATEGORY)
+    val STRING_KEYS = listOf(
+        SERVER_ADDRESS,
+        CACHE_TTL_MINUTES,
+        MIN_SKIP_DURATION,
+        SKIP_COUNTDOWN,
+        USER_ID,
+        DEFAULT_SUBMIT_CATEGORY,
+    )
 
     /** Bool key 默认值 */
     val BOOL_DEFAULTS = mapOf(
@@ -111,6 +120,7 @@ object SettingsKeys {
     /** String key 默认值 */
     val STRING_DEFAULTS = mapOf(
         SERVER_ADDRESS to DEFAULT_SERVER,
+        CACHE_TTL_MINUTES to DEFAULT_CACHE_TTL_MINUTES,
         MIN_SKIP_DURATION to "0",
         SKIP_COUNTDOWN to "0",
         USER_ID to "",

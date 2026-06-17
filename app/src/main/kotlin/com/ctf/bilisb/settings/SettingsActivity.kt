@@ -69,6 +69,7 @@ class SettingsActivity : Activity() {
         // ===== 服务器地址 =====
         root.addView(sectionTitle("服务器"))
         root.addView(serverAddressItem())
+        root.addView(numberItem(SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)", "片段缓存保留时间。0 = 不复用缓存"))
 
         // ===== 跳过类别 =====
         root.addView(sectionTitle("跳过类别"))
