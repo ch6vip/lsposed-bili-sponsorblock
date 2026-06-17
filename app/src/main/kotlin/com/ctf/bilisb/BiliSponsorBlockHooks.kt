@@ -53,10 +53,12 @@ object BiliSponsorBlockHooks {
         settings = freshSettings
         module.info("Settings snapshot on player enter: $freshSettings")
         if (!freshSettings.enabled) {
+            sponsorBlockController?.close()
             sponsorBlockController = null
             module.info("SponsorBlock disabled in settings")
             return
         }
+        sponsorBlockController?.close()
         sponsorBlockController = SponsorBlockController(module, freshSettings)
     }
 
