@@ -20,6 +20,7 @@ import android.content.Context
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SponsorBlockController(
     private val module: XposedModule,
@@ -42,6 +43,7 @@ class SponsorBlockController(
     )
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val closed = AtomicBoolean(false)
     // 正在拉取中的视频 key,防止 onStart 短时间多次触发导致并发重复请求。
     // 缓存有效期由 repository TTL 控制,过期后这里会清掉允许重拉。
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
@@ -62,6 +64,7 @@ class SponsorBlockController(
      * 回调里异步喂入,与 APK `PlayerHookProvider.h/g` 链路一致。
      */
     fun bindPlayerHandle(handle: PlayerHandle) {
+        if (closed.get()) return
         playerHandles[handle.contextHash] = handle
         latestContainerByContext[handle.contextHash] = handle.container
         latestContextHash = handle.contextHash
@@ -76,6 +79,7 @@ class SponsorBlockController(
      * 切集时同一 context 会再次回调,按 `bvid:cid` 去重只拉新视频。
      */
     fun onVideoIds(contextHash: Int, aid: Long, cid: Long) {
+        if (closed.get()) return
         if (aid <= 0 || cid <= 0) {
             return
         }
@@ -109,6 +113,7 @@ class SponsorBlockController(
         }
 
         executor.execute {
+            if (closed.get()) return@execute
             try {
                 val result = repository.fetchAndCache(query)
                 module.info(
@@ -122,6 +127,7 @@ class SponsorBlockController(
     }
 
     fun bindContext(contextHash: Int, state: PlayerState) {
+        if (closed.get()) return
         latestStateByContext[contextHash] = state
         latestContextHash = contextHash
     }
@@ -133,6 +139,7 @@ class SponsorBlockController(
         category: String = "sponsor",
         epId: Int = 0,
     ) {
+        if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: run {
             module.info("submit skipped: missing player state for context=$contextHash")
             return
@@ -156,6 +163,7 @@ class SponsorBlockController(
         category: String = "sponsor",
         epId: Int = 0,
     ) {
+        if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: run {
             module.info("mark skipped: missing player state for context=$contextHash")
             return
@@ -180,6 +188,7 @@ class SponsorBlockController(
     }
 
     fun cancelSubmissionDraft(contextHash: Int) {
+        if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: return
         submissionDraftController.cancel(state)
         module.info("segment draft canceled video=${state.bvid} cid=${state.cid}")
@@ -205,6 +214,7 @@ class SponsorBlockController(
         }
 
         executor.execute {
+            if (closed.get()) return@execute
             val result = repository.submit(submission)
             module.info(
                 "segment submitted video=${state.bvid} cid=${state.cid} " +
@@ -218,23 +228,27 @@ class SponsorBlockController(
     }
 
     fun progressMarkers(): Pair<Long, List<SponsorSegment>>? {
+        if (closed.get()) return null
         val state = latestStateByContext[latestContextHash] ?: return null
         val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
         return state.durationMs to segments
     }
 
     fun segmentsForContext(contextHash: Int): List<SponsorSegment>? {
+        if (closed.get()) return null
         val state = latestStateByContext[contextHash] ?: return null
         return repository.getCached(SponsorBlockQuery(state.bvid, state.cid))
     }
 
     fun latestSegments(): Pair<Long, List<SponsorSegment>>? {
+        if (closed.get()) return null
         val state = latestStateByContext[latestContextHash] ?: return null
         val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
         return state.durationMs to segments
     }
 
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
+        if (closed.get()) return
         // 手动模式 / 静音模式也需要进度回调,所以这里不再因 autoSkip 关闭而早退,
         // 改在拿到命中片段后按 manualSkip / autoSkip / muteSegments 分流。
         if (!settings.autoSkip && !settings.manualSkip && !settings.muteSegments) {
@@ -405,6 +419,20 @@ class SponsorBlockController(
 
         manualButtonSegmentKey = null
         countdownSegmentKey = null
+        close()
+    }
+
+    fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        inFlight.clear()
+        latestStateByContext.clear()
+        latestContainerByContext.clear()
+        playerHandles.clear()
+        skippedSegments.clear()
+        manualButtonSegmentKey = null
+        countdownSegmentKey = null
+        latestContextHash = 0
+        executor.shutdownNow()
     }
 
     private fun getCategoryDisplayName(category: String): String =

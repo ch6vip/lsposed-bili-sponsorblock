@@ -344,20 +344,26 @@ class SettingsActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT
             textSize = 14f
         }
-        android.app.AlertDialog.Builder(this)
+        val dialog = android.app.AlertDialog.Builder(this)
             .setTitle("导入用户 ID")
             .setView(edit)
-            .setPositiveButton("保存") { _, _ ->
+            .setPositiveButton("保存", null)
+            .setNegativeButton("取消", null)
+            .create()
+        dialog.setOnShowListener {
+            val button = dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+            button.setOnClickListener {
                 val userId = edit.text.toString().trim()
                 if (!UserIdentityStore.isValidUserId(userId)) {
                     Toast.makeText(this, "用户 ID 必须是 32 位十六进制", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
                 writer.sharedPreferences.edit().putString(SettingsKeys.USER_ID, userId).apply()
                 onSaved()
                 Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
             }
-            .setNegativeButton("取消", null)
-            .show()
+        }
+        dialog.show()
     }
 }
