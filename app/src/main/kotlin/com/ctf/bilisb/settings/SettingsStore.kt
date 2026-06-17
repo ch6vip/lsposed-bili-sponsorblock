@@ -22,6 +22,12 @@ object SettingsKeys {
     const val ENABLED = "enabled"
     const val AUTO_SKIP = "auto_skip"
 
+    // 跳过策略
+    // manual_skip: 开启后不自动跳过,改为在片段内显示"跳过"按钮,由用户点按跳过。
+    const val MANUAL_SKIP = "manual_skip"
+    // min_skip_duration: 最小片段时长(秒,可带小数)。短于此值的片段不跳过/不显示按钮。"0" = 不过滤。
+    const val MIN_SKIP_DURATION = "min_skip_duration"
+
     // 服务器
     const val SERVER_ADDRESS = "server_address"
     const val DEFAULT_SERVER = "https://bsbsb.top"
@@ -58,19 +64,25 @@ object SettingsKeys {
 
     /** 所有 bool 类型 key */
     val BOOL_KEYS = listOf(
-        ENABLED, AUTO_SKIP,
+        ENABLED, AUTO_SKIP, MANUAL_SKIP,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SUBMIT_BUTTON,
     ) + CATEGORY_MAP.keys.toList()
 
     /** 所有 string 类型 key */
-    val STRING_KEYS = listOf(SERVER_ADDRESS)
+    val STRING_KEYS = listOf(SERVER_ADDRESS, MIN_SKIP_DURATION)
 
     /** Bool key 默认值 */
     val BOOL_DEFAULTS = mapOf(
-        ENABLED to true, AUTO_SKIP to true,
+        ENABLED to true, AUTO_SKIP to true, MANUAL_SKIP to false,
         SHOW_TOAST to true, SHOW_SEEKBAR_MARKER to true,
         SHOW_TIME_DEDUCTION to true, SHOW_SUBMIT_BUTTON to true,
     ) + CATEGORY_MAP.keys.associateWith { true }
+
+    /** String key 默认值 */
+    val STRING_DEFAULTS = mapOf(
+        SERVER_ADDRESS to DEFAULT_SERVER,
+        MIN_SKIP_DURATION to "0",
+    )
 }
 
 /**
@@ -112,7 +124,7 @@ class SettingsWriter(context: Context) {
             json.put(key, prefs.getBoolean(key, def))
         }
         for (key in SettingsKeys.STRING_KEYS) {
-            val def = if (key == SettingsKeys.SERVER_ADDRESS) SettingsKeys.DEFAULT_SERVER else ""
+            val def = SettingsKeys.STRING_DEFAULTS[key] ?: ""
             json.put(key, prefs.getString(key, def) ?: def)
         }
         val content = json.toString(2)
