@@ -70,12 +70,12 @@
 - 详细执行计划见 `docs/OPTIMIZATION_PLAN.md`
 - [ ] R1 设置存储收敛:抽出统一的 SettingsRepository / SettingsSchema,集中处理默认值、校验、迁移和序列化,移除 UI 和 Hook 两侧重复逻辑
 - [ ] R2 设置通道收口:收紧 exported Provider 的暴露面,补调用方校验与敏感字段分级,减少对目标 App 私有目录直写依赖
-- [ ] R3 设置 UI 共用:让 SettingsActivity 和 SponsorBlockSettingDialog 共用同一套设置描述与行构建器,避免双实现漂移
+- [x] R3 设置 UI 共用:LauncherActivity 和 SponsorBlockSettingDialog 已共用 SettingsScreenBuilder,移除旧 XML 设置页,避免双实现漂移
 - [x] R4 弹窗交互修正:用户 ID 导入/编辑失败时不自动关闭弹窗,改成显式校验提示与保留输入
 - [x] R5 控制器生命周期:为 SponsorBlockController 增加 close/shutdown,播放器销毁时清理线程、状态和挂载引用,避免长期播放残留
 - [ ] R6 缓存职责单一化:明确只保留一层缓存或把 client/repository 职责拆清,避免 TTL、失效和强刷行为重复
 - [ ] R7 菜单注入稳态化:去掉字段猜测式兜底,补更多宿主页面布局的定位和回归验证
-- [ ] R8 诊断与观测:为设置读取、网络请求、提交失败建立统一诊断入口,让用户可见状态而不是只靠日志
+- [ ] R8 诊断与观测:模块入口已新增基础状态面板;仍需为设置读取、网络请求、提交失败建立统一诊断入口
 - [ ] R9 自动化回归:补核心工具函数与决策逻辑单测,并建立最小设备矩阵回归清单
 
 ## 技术债务
