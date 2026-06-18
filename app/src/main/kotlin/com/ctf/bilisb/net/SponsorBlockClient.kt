@@ -10,13 +10,17 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
 
+interface SponsorBlockApi {
+    fun fetchSkipSegments(query: SponsorBlockQuery, ignoreCache: Boolean = false): SponsorBlockClient.FetchResult
+    fun submitSegment(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SponsorBlockClient.SubmitResult
+}
+
 class SponsorBlockClient(
     private val config: SponsorBlockConfig = SponsorBlockConfig(),
-) {
+) : SponsorBlockApi {
     data class FetchResult(
         val statusCode: Int,
         val body: String?,
@@ -28,48 +32,16 @@ class SponsorBlockClient(
         val body: String?,
     )
 
-    // 简单的内存缓存
-    private val segmentCache = ConcurrentHashMap<String, CacheEntry>()
-    private data class CacheEntry(
-        val segments: List<SponsorSegment>,
-        val timestamp: Long,
-        val ttlMs: Long,
-    ) {
-        fun isExpired(): Boolean = ttlMs <= 0 || System.currentTimeMillis() - timestamp > ttlMs
-    }
-
     fun endpointForBvid(bvid: String): String {
         val prefix = HashUtils.videoIdHashPrefix(bvid)
         return "${config.serverAddress.trimEnd('/')}/api/skipSegments/$prefix"
     }
 
-    fun fetchSkipSegments(query: SponsorBlockQuery, ignoreCache: Boolean = false): FetchResult {
-        val cacheKey = "${query.bvid}:${query.cid}"
-
-        // 检查缓存
-        if (!ignoreCache && config.cacheTtlMs > 0) {
-            segmentCache[cacheKey]?.let { entry ->
-                if (!entry.isExpired()) {
-                    Log.d(TAG, "Using cached segments for $cacheKey")
-                    return FetchResult(200, null, entry.segments)
-                } else {
-                    segmentCache.remove(cacheKey)
-                }
-            }
-        }
-
+    override fun fetchSkipSegments(query: SponsorBlockQuery, ignoreCache: Boolean): FetchResult {
         // 带重试的网络请求
-        val result = retryRequest(maxRetries = 3) {
+        return retryRequest(maxRetries = 3) {
             fetchSegmentsInternal(query, ignoreCache)
         }
-
-        // 缓存成功结果
-        if (config.cacheTtlMs > 0 && result.statusCode in 200..299 && result.segments.isNotEmpty()) {
-            segmentCache[cacheKey] = CacheEntry(result.segments, System.currentTimeMillis(), config.cacheTtlMs)
-            Log.d(TAG, "Cached ${result.segments.size} segments for $cacheKey")
-        }
-
-        return result
     }
 
     private fun fetchSegmentsInternal(query: SponsorBlockQuery, ignoreCache: Boolean): FetchResult {
@@ -103,7 +75,7 @@ class SponsorBlockClient(
         return fetchSkipSegments(SponsorBlockQuery(bvid, cid)).body
     }
 
-    fun submitSegment(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SubmitResult {
+    override fun submitSegment(submission: SponsorBlockSubmission, ignoreCache: Boolean): SubmitResult {
         // 提交也带重试
         return retryRequest(maxRetries = 2) {
             submitSegmentInternal(submission, ignoreCache)
@@ -156,8 +128,7 @@ class SponsorBlockClient(
     }
 
     fun clearCache() {
-        segmentCache.clear()
-        Log.d(TAG, "Cache cleared")
+        Log.d(TAG, "clearCache() is a no-op; caching lives in repository")
     }
 
     companion object {

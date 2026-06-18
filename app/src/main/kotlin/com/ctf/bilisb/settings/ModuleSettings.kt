@@ -1,7 +1,6 @@
 package com.ctf.bilisb.settings
 
 import android.content.Context
-import android.graphics.Color
 import android.net.Uri
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
@@ -17,8 +16,6 @@ import io.github.libxposed.api.XposedModule
  * 底层走 Binder,不需要特殊权限。
  */
 object ModuleSettings {
-    private const val AUTHORITY = "com.ctf.bilisb.settings"
-
     @Volatile
     private var cached: SettingsSnapshot? = null
 
@@ -55,12 +52,12 @@ object ModuleSettings {
     /** Level 1: ContentProvider IPC */
     private fun tryIpc(module: XposedModule, hostContext: Context): SettingsSnapshot? {
         return runCatching {
-            val uri = Uri.parse("content://$AUTHORITY")
-            val bundle = hostContext.contentResolver.call(uri, "getSettings", null, null)
+            val uri = Uri.parse("content://${SettingsSyncBridge.AUTHORITY}")
+            val bundle = hostContext.contentResolver.call(uri, SettingsSyncBridge.METHOD_GET_SETTINGS, null, null)
                 ?: return@runCatching null
 
             module.info("ModuleSettings: read from ContentProvider IPC")
-            parseFromBundle(bundle)
+            SettingsCodec.snapshotFromBundle(bundle)
         }.getOrElse {
             module.info("ModuleSettings: IPC failed: ${it.message}")
             null
@@ -80,101 +77,13 @@ object ModuleSettings {
                 if (!file.exists() || !file.canRead()) return@runCatching null
                 val json = org.json.JSONObject(file.readText())
                 module.info("ModuleSettings: read from file ${file.absolutePath}")
-                parseFromJson(json)
+                SettingsCodec.snapshotFromJson(json)
             }.getOrNull()
             if (snapshot != null) return snapshot
         }
 
         module.info("ModuleSettings: no mirror file readable")
         return null
-    }
-
-    /** 从 Bundle (ContentProvider 返回) 解析 */
-    private fun parseFromBundle(bundle: android.os.Bundle): SettingsSnapshot {
-        val enabledCategories = SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
-            bundle.getBoolean(key, true)
-        }.values.toSet()
-
-        return SettingsSnapshot(
-            enabled = bundle.getBoolean(SettingsKeys.ENABLED, true),
-            autoSkip = bundle.getBoolean(SettingsKeys.AUTO_SKIP, true),
-            manualSkip = bundle.getBoolean(SettingsKeys.MANUAL_SKIP, false),
-            muteSegments = bundle.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
-            skipCountdownSec = parseDuration(bundle.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
-            serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
-            cacheTtlMs = parseCacheTtlMs(
-                bundle.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
-            ),
-            defaultSubmitCategory = sanitizeCategory(
-                bundle.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
-            ),
-            enabledCategories = enabledCategories,
-            showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
-                parseColor(bundle.getString(SettingsKeys.colorKey(category), def), def)
-            },
-        )
-    }
-
-    /** 从 JSON 镜像文件解析 */
-    private fun parseFromJson(json: org.json.JSONObject): SettingsSnapshot {
-        fun bool(key: String, default: Boolean) =
-            if (json.has(key)) json.getBoolean(key) else default
-
-        fun str(key: String, default: String) =
-            if (json.has(key)) json.getString(key) else default
-
-        val enabledCategories = SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
-            bool(key, true)
-        }.values.toSet()
-
-        return SettingsSnapshot(
-            enabled = bool(SettingsKeys.ENABLED, true),
-            autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
-            manualSkip = bool(SettingsKeys.MANUAL_SKIP, false),
-            muteSegments = bool(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
-            skipCountdownSec = parseDuration(str(SettingsKeys.SKIP_COUNTDOWN, "0")),
-            serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
-            cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
-            defaultSubmitCategory = sanitizeCategory(str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)),
-            enabledCategories = enabledCategories,
-            showToast = bool(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
-                parseColor(str(SettingsKeys.colorKey(category), def), def)
-            },
-        )
-    }
-
-    /** 解析 hex 颜色;非法时回退到默认 hex(默认也非法则回退灰色,理论不会发生)。 */
-    private fun parseColor(hex: String?, default: String): Int =
-        runCatching { Color.parseColor(hex) }.getOrElse {
-            runCatching { Color.parseColor(default) }.getOrDefault(Color.GRAY)
-        }
-
-    /** 把秒字符串解析成非负 Float,解析失败或负数按 0(不过滤)处理。 */
-    private fun parseDuration(raw: String?): Float =
-        raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
-
-    private fun parseCacheTtlMs(raw: String?): Long {
-        val minutes = raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 60f
-        return (minutes * 60_000L).toLong()
-    }
-
-    private fun sanitizeCategory(raw: String?): String {
-        val category = raw?.trim().orEmpty()
-        return if (category in com.ctf.bilisb.model.SponsorCategories.displayNames) {
-            category
-        } else {
-            SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
-        }
     }
 }
 
@@ -190,6 +99,7 @@ data class SettingsSnapshot(
     val skipCountdownSec: Float,
     val serverAddress: String,
     val cacheTtlMs: Long,
+    val userId: String,
     val defaultSubmitCategory: String,
     val enabledCategories: Set<String>,
     val showToast: Boolean,
@@ -200,27 +110,6 @@ data class SettingsSnapshot(
     val categoryColors: Map<String, Int>,
 ) {
     companion object {
-        val DEFAULT = SettingsSnapshot(
-            enabled = true,
-            autoSkip = true,
-            manualSkip = false,
-            muteSegments = false,
-            minSkipDurationSec = 0f,
-            skipCountdownSec = 0f,
-            serverAddress = SettingsKeys.DEFAULT_SERVER,
-            cacheTtlMs = 60L * 60_000L,
-            defaultSubmitCategory = SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
-            enabledCategories = setOf(
-                "sponsor", "selfpromo", "interaction", "intro",
-                "outro", "preview", "music_offtopic", "filler", "poi_highlight"
-            ),
-            showToast = true,
-            showSeekbarMarker = true,
-            showTimeDeduction = true,
-            showSubmitButton = true,
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) ->
-                runCatching { Color.parseColor(hex) }.getOrDefault(Color.GRAY)
-            },
-        )
+        val DEFAULT = SettingsCodec.defaultSnapshot()
     }
 }

@@ -20,7 +20,7 @@ import android.widget.TextView
  * [colorRow] 生成一行「色块 + 类别名」,点击弹出 [show]:预设色板 + hex 手输。
  * 选定后写回 SharedPreferences 的 color_<category> 键并即时刷新行内色块。
  *
- * 两个设置界面(SettingsActivity / SponsorBlockSettingDialog)共用本组件,避免重复。
+ * 模块设置页与宿主内设置弹窗共用本组件,避免重复。
  */
 object ColorPickerDialog {
     // 预设色板:含 9 个分类默认色 + 常用基础色,4 列排布。

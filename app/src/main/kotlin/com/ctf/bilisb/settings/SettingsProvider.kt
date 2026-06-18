@@ -4,6 +4,8 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import android.os.Binder
+import android.util.Log
 
 /**
  * ContentProvider IPC 桥接：让 B 站进程能读取模块进程的设置。
@@ -24,47 +26,51 @@ class SettingsProvider : ContentProvider() {
      *
      * Hook 端调用方式：
      *   contentResolver.call(
-     *       Uri.parse("content://com.ctf.bilisb.settings"),
-     *       "getSettings", null, null
+     *       Uri.parse("content://${SettingsSyncBridge.AUTHORITY}"),
+     *       SettingsSyncBridge.METHOD_GET_SETTINGS, null, null
      *   )
      */
     override fun call(method: String, arg: String?, extras: android.os.Bundle?): android.os.Bundle? {
-        if (method != "getSettings") return null
         val ctx = context ?: return null
+        if (!isAllowedCaller(ctx)) return null
         val prefs = ctx.getSharedPreferences(SettingsKeys.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-
-        return android.os.Bundle().apply {
-            putBoolean(SettingsKeys.ENABLED, prefs.getBoolean(SettingsKeys.ENABLED, true))
-            putBoolean(SettingsKeys.AUTO_SKIP, prefs.getBoolean(SettingsKeys.AUTO_SKIP, true))
-            putBoolean(SettingsKeys.MANUAL_SKIP, prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false))
-            putBoolean(SettingsKeys.MUTE_SEGMENTS, prefs.getBoolean(SettingsKeys.MUTE_SEGMENTS, false))
-            putString(SettingsKeys.MIN_SKIP_DURATION, prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"))
-            putString(SettingsKeys.SKIP_COUNTDOWN, prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"))
-            putString(SettingsKeys.SERVER_ADDRESS, prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
-            putString(
-                SettingsKeys.CACHE_TTL_MINUTES,
-                prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
-            )
-            putString(SettingsKeys.USER_ID, prefs.getString(SettingsKeys.USER_ID, ""))
-            putString(
-                SettingsKeys.DEFAULT_SUBMIT_CATEGORY,
-                prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
-            )
-
-            SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
-                putBoolean(key, prefs.getBoolean(key, true))
+        return when (method) {
+            SettingsSyncBridge.METHOD_GET_SETTINGS -> SettingsCodec.snapshotToBundle(SettingsCodec.snapshotFromPreferences(prefs))
+            SettingsSyncBridge.METHOD_PUT_SETTINGS -> {
+                val raw = extras?.getString("settings_json") ?: return null
+                val snapshot = runCatching { SettingsCodec.snapshotFromJson(org.json.JSONObject(raw)) }.getOrNull() ?: return null
+                SettingsCodec.writeSnapshotToPreferences(prefs, snapshot)
+                android.os.Bundle().apply { putBoolean("ok", true) }
             }
-
-            putBoolean(SettingsKeys.SHOW_TOAST, prefs.getBoolean(SettingsKeys.SHOW_TOAST, true))
-            putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, prefs.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true))
-            putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, prefs.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true))
-            putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, prefs.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true))
-
-            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
-                val key = SettingsKeys.colorKey(category)
-                putString(key, prefs.getString(key, def))
+            SettingsSyncBridge.METHOD_PUT_USER_ID -> {
+                val userId = extras?.getString("user_id")?.trim().orEmpty()
+                if (!com.ctf.bilisb.sponsor.UserIdentityStore.isValidUserId(userId)) {
+                    return android.os.Bundle().apply { putBoolean("ok", false) }
+                }
+                prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
+                android.os.Bundle().apply { putBoolean("ok", true) }
             }
+            else -> null
         }
+    }
+
+    private fun isAllowedCaller(ctx: android.content.Context): Boolean {
+        val uidPackages = runCatching {
+            ctx.packageManager.getPackagesForUid(Binder.getCallingUid())
+        }.getOrNull()
+        val allowed = SettingsProviderAccess.isAllowedCaller(
+            callingPackage = callingPackage,
+            uidPackages = uidPackages,
+            selfPackage = ctx.packageName,
+        )
+        if (!allowed) {
+            Log.w(TAG, "Rejected settings provider caller package=$callingPackage uidPackages=${uidPackages?.joinToString()}")
+        }
+        return allowed
+    }
+
+    companion object {
+        private const val TAG = "SettingsProvider"
     }
 
     // 以下方法不需要实现，保留默认空实现

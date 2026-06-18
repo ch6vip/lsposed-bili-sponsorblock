@@ -8,7 +8,6 @@ import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
-import java.lang.reflect.Field
 
 /**
  * 在B站"我的"页面菜单注入设置入口。
@@ -164,15 +163,6 @@ object MineMenuInjector {
         return fallback
     }
 
-    private fun findDataField(adapter: Any): Field? {
-        val fields = adapter.javaClass.declaredFields
-        return fields.firstOrNull {
-            List::class.java.isAssignableFrom(it.type)
-        }?.apply {
-            isAccessible = true
-        }
-    }
-
     private fun injectSettingItem(module: XposedModule, data: MutableList<Any>, menuItemClass: Class<*>) {
         // 检查是否已存在设置项
         for (group in data) {
@@ -234,7 +224,7 @@ object MineMenuInjector {
 
     private fun createSettingItem(module: XposedModule, menuItemClass: Class<*>): Any? {
         return try {
-            val item = menuItemClass.newInstance()
+            val item = menuItemClass.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
 
             // 设置字段
             setField(item, "id", SETTING_ID)
@@ -263,32 +253,12 @@ object MineMenuInjector {
     }
 
     private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
-        // 获取适配器的数据(List<MenuGroup>),按内容定位以兼容字段重排
         val data = findListFieldByContent(adapter, MENU_GROUP_CLASS) ?: return
-
         if (position >= data.size) return
 
-        val group = data[position]
-        val itemListField = try {
-            group.javaClass.getDeclaredField("itemList").apply { isAccessible = true }
-        } catch (e: Throwable) {
-            return
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        val itemList = itemListField.get(group) as? List<Any> ?: return
-
-        // 检查这个group是否包含我们的设置项
-        val hasSettingItem = itemList.any { item ->
-            try {
-                val uriField = item.javaClass.getDeclaredField("uri").apply { isAccessible = true }
-                uriField.get(item) == SETTING_URI
-            } catch (e: Throwable) {
-                false
-            }
-        }
-
-        if (!hasSettingItem) return
+        val itemList = itemListOf(data[position]) ?: return
+        val settingIndex = itemList.indexOfFirst { item -> itemUri(item) == SETTING_URI }
+        if (settingIndex < 0) return
 
         // 获取ViewHolder的itemView
         val itemView = try {
@@ -304,44 +274,40 @@ object MineMenuInjector {
 
         // 延迟查找内部RecyclerView并添加点击监听
         itemView.post {
-            findAndBindRecyclerView(module, itemView, itemList)
+            findAndBindRecyclerView(module, itemView, settingIndex)
         }
     }
 
-    private fun findAndBindRecyclerView(module: XposedModule, view: View, itemList: List<Any>) {
+    private fun itemListOf(group: Any): List<Any>? {
+        val itemListField = try {
+            group.javaClass.getDeclaredField("itemList").apply { isAccessible = true }
+        } catch (e: Throwable) {
+            return null
+        }
+        @Suppress("UNCHECKED_CAST")
+        return itemListField.get(group) as? List<Any>
+    }
+
+    private fun itemUri(item: Any): String? {
+        return try {
+            val uriField = item.javaClass.getDeclaredField("uri").apply { isAccessible = true }
+            uriField.get(item) as? String
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    private fun findAndBindRecyclerView(module: XposedModule, view: View, settingIndex: Int) {
         if (view.javaClass.name.contains("RecyclerView")) {
-            val adapterField = try {
-                view.javaClass.getMethod("getAdapter").invoke(view)
-            } catch (e: Throwable) {
-                null
-            }
-            if (adapterField != null) {
-                bindItemClicks(module, view, adapterField)
-            }
+            bindItemClick(module, view, settingIndex)
         } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                findAndBindRecyclerView(module, view.getChildAt(i), itemList)
+                findAndBindRecyclerView(module, view.getChildAt(i), settingIndex)
             }
         }
     }
 
-    private fun bindItemClicks(module: XposedModule, recyclerView: View, adapter: Any) {
-        val dataField = findDataField(adapter) ?: return
-        @Suppress("UNCHECKED_CAST")
-        val items = dataField.get(adapter) as? List<Any> ?: return
-
-        // 找到我们的设置项索引
-        val settingIndex = items.indexOfFirst { item ->
-            try {
-                val uriField = item.javaClass.getDeclaredField("uri").apply { isAccessible = true }
-                uriField.get(item) == SETTING_URI
-            } catch (e: Throwable) {
-                false
-            }
-        }
-
-        if (settingIndex < 0) return
-
+    private fun bindItemClick(module: XposedModule, recyclerView: View, settingIndex: Int) {
         // 延迟一下确保View已经渲染
         recyclerView.postDelayed({
             try {

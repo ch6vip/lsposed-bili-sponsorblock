@@ -1,6 +1,7 @@
 package com.ctf.bilisb
 
 import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.widget.TextView
 import io.github.libxposed.api.XposedInterface
@@ -10,7 +11,6 @@ import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.VideoDirectorListener
 import com.ctf.bilisb.sponsor.SponsorBlockController
-import com.ctf.bilisb.ui.ProgressTextDecorator
 import com.ctf.bilisb.ui.ProgressMarkerPainter
 import com.ctf.bilisb.ui.RemainingTimeFormatter
 import com.ctf.bilisb.ui.SubmissionButtonInjector
@@ -55,11 +55,20 @@ object BiliSponsorBlockHooks {
         if (!freshSettings.enabled) {
             sponsorBlockController?.close()
             sponsorBlockController = null
+            settings = freshSettings
             module.info("SponsorBlock disabled in settings")
             return
         }
-        sponsorBlockController?.close()
-        sponsorBlockController = SponsorBlockController(module, freshSettings)
+
+        val currentController = sponsorBlockController
+        if (currentController == null || settings != freshSettings) {
+            currentController?.close()
+            sponsorBlockController = SponsorBlockController(module, freshSettings)
+            settings = freshSettings
+            module.info("SponsorBlock controller initialized settingsChanged=${currentController != null}")
+        } else {
+            module.info("SponsorBlock controller reused")
+        }
     }
 
     private fun hookPlayerContainer(module: XposedModule, cl: ClassLoader) {
@@ -136,6 +145,7 @@ object BiliSponsorBlockHooks {
         ) { chain ->
             val container = chain.getThisObject()
             // 播放器销毁时取消我们触发的静音,避免静音泄漏到其它媒体。
+            VideoDirectorListener.unregister(container)
             sponsorBlockController?.onPlayerDestroyed(container)
             module.info("player container destroyed")
         }
@@ -227,8 +237,9 @@ object BiliSponsorBlockHooks {
 
                 val textView = chain.getThisObject() as? TextView ?: return@intercept result
                 val originalText = textView.text ?: return@intercept result
+                val contextHash = contextHash(textView)
 
-                val newText = computeAdjustedText(originalText)
+                val newText = computeAdjustedText(contextHash, originalText)
                 if (newText != null && newText.toString() != originalText.toString()) {
                     isAdjusting.set(true)
                     try {
@@ -241,15 +252,19 @@ object BiliSponsorBlockHooks {
             }
     }
 
-    private fun computeAdjustedText(originalText: CharSequence): CharSequence? {
-        // 已经带括号的不再处理(避免重复)
+    private fun computeAdjustedText(contextHash: Int, originalText: CharSequence): CharSequence? {
+        if (!settings.showTimeDeduction) {
+            return null
+        }
+
+        // 已经带我们追加的 "(xx:xx)" 后缀时不再处理，避免重复。
         val textStr = originalText.toString()
-        if (textStr.contains("(") && textStr.contains(")")) {
+        if (hasAdjustedDurationSuffix(textStr)) {
             return null
         }
 
         val controller = sponsorBlockController ?: return null
-        val (_, segments) = controller.latestSegments() ?: return null
+        val (_, segments) = controller.latestSegments(contextHash) ?: return null
         if (segments.isEmpty()) {
             return null
         }
@@ -265,6 +280,10 @@ object BiliSponsorBlockHooks {
         }
 
         return RemainingTimeFormatter.appendAdjustedDuration(originalText, adjustedDurationMs)
+    }
+
+    private fun hasAdjustedDurationSuffix(text: String): Boolean {
+        return Regex("""\s\(\d{1,3}:\d{2}(?::\d{2})?\)$""").containsMatchIn(text)
     }
 
     private fun extractDurationFromText(text: String): Long {
@@ -302,8 +321,10 @@ object BiliSponsorBlockHooks {
         // 时长扣减显示完全交给 setText hook (hookBeforeSetText),
         // 因为 B 站显示/隐藏进度条时会重新 setText,只有拦截 setText 才能持久生效。
         sponsorBlockController?.let { controller ->
-            val contextHash = controller.latestContextHash
-            controller.onProgress(contextHash, positionMs, durationMs)
+            val contextHash = contextHash(target)
+            if (contextHash != 0) {
+                controller.onProgress(contextHash, positionMs, durationMs)
+            }
         }
     }
 
@@ -333,7 +354,8 @@ object BiliSponsorBlockHooks {
                     return@hookAfter
                 }
 
-                val markers = sponsorBlockController?.progressMarkers() ?: return@hookAfter
+                val contextHash = contextHash(drawable)
+                val markers = sponsorBlockController?.progressMarkers(contextHash) ?: return@hookAfter
                 val (durationMs, segments) = markers
                 if (segments.isEmpty()) {
                     return@hookAfter
@@ -381,5 +403,22 @@ object BiliSponsorBlockHooks {
         }.onFailure { throwable ->
             module.info("failed to resolve $className#$methodName: ${throwable.javaClass.name}: ${throwable.message}")
         }.getOrNull()
+    }
+
+    private fun contextHash(target: Any): Int {
+        return runCatching {
+            val context = when (target) {
+                is TextView -> target.context
+                is Drawable -> {
+                    val callback = target.callback
+                    when (callback) {
+                        is android.view.View -> callback.context
+                        else -> null
+                    }
+                }
+                else -> null
+            } ?: return 0
+            PlayerBridge.contextHash(context)
+        }.getOrDefault(0)
     }
 }

@@ -5,6 +5,7 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 8.96.0 原版 video director 监听器。
@@ -16,16 +17,23 @@ import java.lang.reflect.Proxy
 object VideoDirectorListener {
     private const val GET_PLAY_DIRECTOR_SERVICE_V3 = "getPlayDirectorServiceV3"
     private const val ADD_VIDEO_DIRECTOR_OBSERVER = "addVideoDirectorObserver"
+    private val registeredContainers = ConcurrentHashMap.newKeySet<Int>()
 
     /**
      * 在 [playerContainer] 上注册 video director 监听器。
      */
     fun register(module: XposedModule, playerContainer: Any, onVideoIds: (aid: Long, cid: Long) -> Unit) {
+        val containerKey = System.identityHashCode(playerContainer)
+        if (!registeredContainers.add(containerKey)) {
+            return
+        }
+
         val directorService = runCatching {
             val method = playerContainer.javaClass.getDeclaredMethod(GET_PLAY_DIRECTOR_SERVICE_V3).apply { isAccessible = true }
             method.invoke(playerContainer)
         }.getOrNull() ?: run {
             module.info("videoDirector: getPlayDirectorServiceV3 null on ${playerContainer.javaClass.name}")
+            registeredContainers.remove(containerKey)
             return
         }
 
@@ -34,6 +42,7 @@ object VideoDirectorListener {
             playerContainer.javaClass.classLoader?.loadClass("tv.danmaku.biliplayerv2.service.VideoDirectorObserver")
         }.getOrNull() ?: run {
             module.info("videoDirector: VideoDirectorObserver interface not found")
+            registeredContainers.remove(containerKey)
             return
         }
 
@@ -49,8 +58,13 @@ object VideoDirectorListener {
             method.invoke(directorService, observer)
             module.info("videoDirector: observer registered on ${directorService.javaClass.name}")
         }.onFailure {
+            registeredContainers.remove(containerKey)
             module.info("videoDirector: addVideoDirectorObserver failed: ${it.message}")
         }
+    }
+
+    fun unregister(playerContainer: Any) {
+        registeredContainers.remove(System.identityHashCode(playerContainer))
     }
 
     private class VideoDirectorObserverHandler(
@@ -58,9 +72,17 @@ object VideoDirectorListener {
         private val onVideoIds: (Long, Long) -> Unit,
     ) : InvocationHandler {
         override fun invoke(proxy: Any, method: Method, args: Array<out Any>?): Any? {
+            if (method.declaringClass == Any::class.java) {
+                return when (method.name) {
+                    "toString" -> "VideoDirectorObserverProxy"
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "equals" -> proxy === args?.firstOrNull()
+                    else -> null
+                }
+            }
             // VideoDirectorObserver 接口方法:onItemStart / onItemWillChange / onItemCompleted / onPlayableParamsChanged
             if (args != null && args.isNotEmpty()) {
-                for ((i, arg) in args.withIndex()) {
+                for (arg in args) {
                     // 如果参数是 Video 对象,提取 aid
                     if (arg.javaClass.name == "tv.danmaku.biliplayerv2.service.Video") {
                         extractFromVideo(arg)
