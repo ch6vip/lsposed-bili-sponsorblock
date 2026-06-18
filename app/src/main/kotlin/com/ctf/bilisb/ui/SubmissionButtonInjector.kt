@@ -13,25 +13,12 @@ import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
+import java.util.concurrent.ConcurrentHashMap
 
 object SubmissionButtonInjector {
     private const val BUTTON_TAG = "com.ctf.bilisb.sponsor_button"
 
-    // 当前选中的类别
-    private var currentCategory = "sponsor"
-
-    // 类别名称映射
-    private val categoryNames = mapOf(
-        "sponsor" to "赞助/恰饭",
-        "selfpromo" to "自我推广",
-        "interaction" to "互动提醒",
-        "intro" to "开场动画",
-        "outro" to "结束画面",
-        "preview" to "回顾/概要",
-        "music_offtopic" to "非音乐片段",
-        "filler" to "填充内容",
-        "poi_highlight" to "精彩时刻"
-    )
+    private val selectedCategoryByContext = ConcurrentHashMap<Int, String>()
 
     fun attach(
         module: XposedModule,
@@ -40,14 +27,14 @@ object SubmissionButtonInjector {
         contextHash: Int,
         defaultCategory: String = "sponsor",
     ) {
-        currentCategory = sanitizeCategory(defaultCategory)
+        selectedCategoryByContext[contextHash] = sanitizeCategory(defaultCategory)
         val activity = playerActivity(host) ?: run {
             module.info("submission button skipped: player context is not Activity")
             return
         }
         val actions = findActionsContainer(activity) ?: run {
             module.info("submission button pending: actions_container_right not found")
-            attachWhenLayoutReady(module, activity, host, controller, contextHash, currentCategory)
+            attachWhenLayoutReady(module, activity, host, controller, contextHash, defaultCategory)
             return
         }
         addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
@@ -75,7 +62,7 @@ object SubmissionButtonInjector {
                 oldBottom: Int,
             ) {
                 val actions = findActionsContainer(activity) ?: return
-                currentCategory = sanitizeCategory(defaultCategory)
+                selectedCategoryByContext[contextHash] = sanitizeCategory(defaultCategory)
                 view.removeOnLayoutChangeListener(this)
                 addButtonIfNeeded(module, host, actions, controller, contextHash, activity)
             }
@@ -106,8 +93,9 @@ object SubmissionButtonInjector {
 
             // 短按：标记当前位置
             setOnClickListener {
-                controller.markOrSubmitCurrentPosition(contextHash, currentCategory)
-                PlayerToastBridge.showMarkToast(module, host, "标记 ${categoryNames[currentCategory]}")
+                val category = currentCategory(contextHash)
+                controller.markOrSubmitCurrentPosition(contextHash, category)
+                PlayerToastBridge.showMarkToast(module, host, "标记 ${SponsorCategories.displayName(category)}")
             }
 
             // 长按：选择类别
@@ -132,15 +120,16 @@ object SubmissionButtonInjector {
         controller: SponsorBlockController,
         contextHash: Int,
     ) {
-        val categories = categoryNames.keys.toList()
-        val categoryDisplayNames = categories.map { categoryNames[it] ?: it }.toTypedArray()
-        val currentIndex = categories.indexOf(currentCategory).coerceAtLeast(0)
+        val categories = SponsorCategories.displayNames.keys.toList()
+        val categoryDisplayNames = categories.map { SponsorCategories.displayName(it) }.toTypedArray()
+        val currentIndex = categories.indexOf(currentCategory(contextHash)).coerceAtLeast(0)
 
         AlertDialog.Builder(activity)
             .setTitle("选择片段类别")
             .setSingleChoiceItems(categoryDisplayNames, currentIndex) { dialog, which ->
-                currentCategory = categories[which]
-                PlayerToastBridge.showMarkToast(module, host, "已选择: ${categoryNames[currentCategory]}")
+                val category = categories[which]
+                selectedCategoryByContext[contextHash] = category
+                PlayerToastBridge.showMarkToast(module, host, "已选择: ${SponsorCategories.displayName(category)}")
                 dialog.dismiss()
             }
             .setNegativeButton("取消标记") { dialog, _ ->
@@ -196,4 +185,7 @@ object SubmissionButtonInjector {
 
     private fun sanitizeCategory(category: String): String =
         if (category in SponsorCategories.displayNames) category else "sponsor"
+
+    private fun currentCategory(contextHash: Int): String =
+        selectedCategoryByContext[contextHash]?.let(::sanitizeCategory) ?: "sponsor"
 }

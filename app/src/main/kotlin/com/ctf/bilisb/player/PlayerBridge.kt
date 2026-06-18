@@ -1,5 +1,7 @@
 package com.ctf.bilisb.player
 
+import android.content.Context
+
 /**
  * 播放器容器桥接。
  *
@@ -26,6 +28,10 @@ object PlayerBridge {
 
     fun contextHash(playerContainer: Any): Int {
         return context(playerContainer)?.hashCode() ?: 0
+    }
+
+    fun contextHash(context: Context): Int {
+        return context.hashCode()
     }
 
     private fun invokeNoArg(target: Any, methodName: String): Any? {

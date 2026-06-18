@@ -2,6 +2,9 @@ package com.ctf.bilisb.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Bundle
+import android.net.Uri
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 
@@ -138,10 +141,17 @@ object SettingsKeys {
 class SettingsWriter(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val syncToModule = appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE ||
+        appContext.packageName == SettingsSyncBridge.HOST_PACKAGE
 
     private val mirrorTargets = mutableListOf<File>()
+    @Volatile
+    private var suppressSync = false
 
     init {
+        hydrateFromCanonicalStoreIfNeeded()
+
         // 镜像位置 1: 模块自身 filesDir
         mirrorTargets.add(File(context.filesDir, SettingsKeys.MIRROR_FILE))
 
@@ -150,7 +160,12 @@ class SettingsWriter(context: Context) {
         mirrorTargets.add(File("/data/user/0/tv.danmaku.bili", SettingsKeys.MIRROR_FILE))
 
         // 监听变更,自动镜像
-        prefs.registerOnSharedPreferenceChangeListener { _, _ -> mirrorToFile() }
+        prefs.registerOnSharedPreferenceChangeListener { _, _ ->
+            mirrorToFile()
+            if (!suppressSync) {
+                syncSnapshotToModule()
+            }
+        }
         // 初始化时写一次
         mirrorToFile()
     }
@@ -160,20 +175,21 @@ class SettingsWriter(context: Context) {
     fun getBoolean(key: String, default: Boolean): Boolean = prefs.getBoolean(key, default)
     fun getString(key: String, default: String): String = prefs.getString(key, default) ?: default
 
+    private fun hydrateFromCanonicalStoreIfNeeded() {
+        if (appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE) {
+            return
+        }
+        val snapshot = SettingsSyncBridge.readSnapshot(appContext) ?: return
+        suppressSync = true
+        try {
+            SettingsCodec.writeSnapshotToPreferences(prefs, snapshot)
+        } finally {
+            suppressSync = false
+        }
+    }
+
     private fun mirrorToFile() {
-        val json = JSONObject()
-        for (key in SettingsKeys.BOOL_KEYS) {
-            val def = SettingsKeys.BOOL_DEFAULTS[key] ?: true
-            json.put(key, prefs.getBoolean(key, def))
-        }
-        for (key in SettingsKeys.STRING_KEYS) {
-            val def = SettingsKeys.STRING_DEFAULTS[key] ?: ""
-            json.put(key, prefs.getString(key, def) ?: def)
-        }
-        for ((category, def) in SettingsKeys.CATEGORY_COLOR_DEFAULTS) {
-            val key = SettingsKeys.colorKey(category)
-            json.put(key, prefs.getString(key, def) ?: def)
-        }
+        val json = SettingsCodec.snapshotToJson(SettingsCodec.snapshotFromPreferences(prefs))
         val content = json.toString(2)
 
         for (target in mirrorTargets) {
@@ -184,5 +200,307 @@ class SettingsWriter(context: Context) {
                 // 写入目标 App 目录可能因权限失败,忽略
             }
         }
+    }
+
+    private fun syncSnapshotToModule() {
+        if (!syncToModule || appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE) {
+            return
+        }
+        val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
+        SettingsSyncBridge.writeSnapshot(appContext, snapshot)
+    }
+}
+
+object SettingsCodec {
+    fun snapshotFromPreferences(prefs: SharedPreferences): SettingsSnapshot {
+        return SettingsSnapshot(
+            enabled = prefs.getBoolean(SettingsKeys.ENABLED, true),
+            autoSkip = prefs.getBoolean(SettingsKeys.AUTO_SKIP, true),
+            manualSkip = prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false),
+            muteSegments = prefs.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
+            minSkipDurationSec = parseDuration(prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
+            skipCountdownSec = parseDuration(prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
+            serverAddress = prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER)
+                ?: SettingsKeys.DEFAULT_SERVER,
+            cacheTtlMs = parseCacheTtlMs(prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
+            userId = prefs.getString(SettingsKeys.USER_ID, "") ?: "",
+            defaultSubmitCategory = sanitizeCategory(
+                prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
+            ),
+            enabledCategories = enabledCategoriesFromPrefs(prefs::getBoolean),
+            showToast = prefs.getBoolean(SettingsKeys.SHOW_TOAST, true),
+            showSeekbarMarker = prefs.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
+            showTimeDeduction = prefs.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSubmitButton = prefs.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(prefs.getString(SettingsKeys.colorKey(category), def), def)
+            },
+        )
+    }
+
+    fun snapshotFromBundle(bundle: Bundle): SettingsSnapshot {
+        return SettingsSnapshot(
+            enabled = bundle.getBoolean(SettingsKeys.ENABLED, true),
+            autoSkip = bundle.getBoolean(SettingsKeys.AUTO_SKIP, true),
+            manualSkip = bundle.getBoolean(SettingsKeys.MANUAL_SKIP, false),
+            muteSegments = bundle.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
+            minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
+            skipCountdownSec = parseDuration(bundle.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
+            serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER)
+                ?: SettingsKeys.DEFAULT_SERVER,
+            cacheTtlMs = parseCacheTtlMs(
+                bundle.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
+            ),
+            userId = bundle.getString(SettingsKeys.USER_ID, "") ?: "",
+            defaultSubmitCategory = sanitizeCategory(
+                bundle.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
+            ),
+            enabledCategories = enabledCategoriesFromPrefs { key, default -> bundle.getBoolean(key, default) },
+            showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
+            showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
+            showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(bundle.getString(SettingsKeys.colorKey(category), def), def)
+            },
+        )
+    }
+
+    fun snapshotFromJson(json: JSONObject): SettingsSnapshot {
+        fun bool(key: String, default: Boolean) =
+            if (json.has(key)) json.getBoolean(key) else default
+
+        fun str(key: String, default: String) =
+            if (json.has(key)) json.getString(key) else default
+
+        return SettingsSnapshot(
+            enabled = bool(SettingsKeys.ENABLED, true),
+            autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
+            manualSkip = bool(SettingsKeys.MANUAL_SKIP, false),
+            muteSegments = bool(SettingsKeys.MUTE_SEGMENTS, false),
+            minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
+            skipCountdownSec = parseDuration(str(SettingsKeys.SKIP_COUNTDOWN, "0")),
+            serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
+            userId = str(SettingsKeys.USER_ID, ""),
+            defaultSubmitCategory = sanitizeCategory(
+                str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
+            ),
+            enabledCategories = enabledCategoriesFromPrefs(::bool),
+            showToast = bool(SettingsKeys.SHOW_TOAST, true),
+            showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
+            showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(str(SettingsKeys.colorKey(category), def), def)
+            },
+        )
+    }
+
+    fun snapshotToJson(snapshot: SettingsSnapshot): JSONObject {
+        return JSONObject().apply {
+            put(SettingsKeys.ENABLED, snapshot.enabled)
+            put(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
+            put(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
+            put(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
+            put(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
+            put(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
+            put(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
+            put(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
+            put(SettingsKeys.USER_ID, snapshot.userId)
+            put(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
+            SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
+                put(key, snapshot.enabledCategories.contains(SettingsKeys.CATEGORY_MAP[key]))
+            }
+            put(SettingsKeys.SHOW_TOAST, snapshot.showToast)
+            put(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
+            put(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
+            put(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
+            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
+                put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
+            }
+        }
+    }
+
+    fun snapshotToBundle(snapshot: SettingsSnapshot): Bundle {
+        return Bundle().apply {
+            putBoolean(SettingsKeys.ENABLED, snapshot.enabled)
+            putBoolean(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
+            putBoolean(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
+            putBoolean(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
+            putString(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
+            putString(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
+            putString(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
+            putString(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
+            putString(SettingsKeys.USER_ID, snapshot.userId)
+            putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
+            SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
+                putBoolean(key, snapshot.enabledCategories.contains(SettingsKeys.CATEGORY_MAP[key]))
+            }
+            putBoolean(SettingsKeys.SHOW_TOAST, snapshot.showToast)
+            putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
+            putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
+            putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
+            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, _) ->
+                putString(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex))
+            }
+        }
+    }
+
+    fun writeSnapshotToPreferences(prefs: SharedPreferences, snapshot: SettingsSnapshot) {
+        prefs.edit().apply {
+            putBoolean(SettingsKeys.ENABLED, snapshot.enabled)
+            putBoolean(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
+            putBoolean(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
+            putBoolean(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
+            putString(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
+            putString(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
+            putString(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
+            putString(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
+            putString(SettingsKeys.USER_ID, snapshot.userId)
+            putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
+            SettingsKeys.CATEGORY_MAP.forEach { (key, category) ->
+                putBoolean(key, snapshot.enabledCategories.contains(category))
+            }
+            putBoolean(SettingsKeys.SHOW_TOAST, snapshot.showToast)
+            putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
+            putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
+            putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
+            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
+                putString(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
+            }
+        }.apply()
+    }
+
+    fun defaultSnapshot(): SettingsSnapshot = SettingsSnapshot(
+        enabled = true,
+        autoSkip = true,
+        manualSkip = false,
+        muteSegments = false,
+        minSkipDurationSec = 0f,
+        skipCountdownSec = 0f,
+        serverAddress = SettingsKeys.DEFAULT_SERVER,
+        cacheTtlMs = 60L * 60_000L,
+        userId = "",
+        defaultSubmitCategory = SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
+        enabledCategories = SettingsKeys.CATEGORY_MAP.values.toSet(),
+        showToast = true,
+        showSeekbarMarker = true,
+        showTimeDeduction = true,
+        showSubmitButton = true,
+        categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) -> parseColor(hex, "#808080") },
+    )
+
+    private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {
+        return SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
+            reader(key, true)
+        }.values.toSet()
+    }
+
+    private fun parseColor(hex: String?, default: String): Int =
+        parseHexColor(hex) ?: parseHexColor(default) ?: 0xFF808080.toInt()
+
+    private fun parseDuration(raw: String?): Float =
+        raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+
+    private fun parseCacheTtlMs(raw: String?): Long {
+        val minutes = raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 60f
+        return (minutes * 60_000L).toLong()
+    }
+
+    private fun formatMinutes(cacheTtlMs: Long): String {
+        val minutes = cacheTtlMs / 60_000.0
+        return if (minutes % 1.0 == 0.0) {
+            minutes.toLong().toString()
+        } else {
+            val raw = minutes.toString()
+            raw.trimEnd('0').trimEnd('.')
+        }
+    }
+
+    private fun sanitizeCategory(raw: String?): String {
+        val category = raw?.trim().orEmpty()
+        return if (category in com.ctf.bilisb.model.SponsorCategories.displayNames) {
+            category
+        } else {
+            SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
+        }
+    }
+
+    private fun toHex(color: Int): String = String.format("#%06X", 0xFFFFFF and color)
+
+    private fun parseHexColor(raw: String?): Int? {
+        val normalized = raw?.trim().orEmpty()
+        if (normalized.isEmpty()) return null
+        val value = normalized.removePrefix("#")
+        return when (value.length) {
+            6 -> value.toLongOrNull(16)?.let { (0xFF000000 or it).toInt() }
+            8 -> value.toLongOrNull(16)?.toInt()
+            else -> null
+        }
+    }
+}
+
+object SettingsSyncBridge {
+    const val MODULE_PACKAGE = "com.ctf.bilisb"
+    const val HOST_PACKAGE = "tv.danmaku.bili"
+    const val AUTHORITY = "com.ctf.bilisb.settings"
+    const val METHOD_GET_SETTINGS = "getSettings"
+    const val METHOD_PUT_SETTINGS = "putSettings"
+    const val METHOD_PUT_USER_ID = "putUserId"
+    private const val EXTRA_JSON = "settings_json"
+    private const val EXTRA_USER_ID = "user_id"
+    private const val TAG = "SettingsSyncBridge"
+
+    fun readSnapshot(context: Context): SettingsSnapshot? {
+        return runCatching {
+            val bundle = context.contentResolver.call(contentUri(), METHOD_GET_SETTINGS, null, null) ?: return null
+            SettingsCodec.snapshotFromBundle(bundle)
+        }.getOrElse {
+            Log.w(TAG, "readSnapshot failed: ${it.message}")
+            null
+        }
+    }
+
+    fun writeSnapshot(context: Context, snapshot: SettingsSnapshot): Boolean {
+        return runCatching {
+            val extras = Bundle().apply {
+                putString(EXTRA_JSON, SettingsCodec.snapshotToJson(snapshot).toString())
+            }
+            val result = context.contentResolver.call(contentUri(), METHOD_PUT_SETTINGS, null, extras)
+            result?.getBoolean("ok", false) == true
+        }.getOrElse {
+            Log.w(TAG, "writeSnapshot failed: ${it.message}")
+            false
+        }
+    }
+
+    fun writeUserId(context: Context, userId: String): Boolean {
+        return runCatching {
+            val extras = Bundle().apply {
+                putString(EXTRA_USER_ID, userId)
+            }
+            val result = context.contentResolver.call(contentUri(), METHOD_PUT_USER_ID, null, extras)
+            result?.getBoolean("ok", false) == true
+        }.getOrElse {
+            Log.w(TAG, "writeUserId failed: ${it.message}")
+            false
+        }
+    }
+
+    private fun contentUri(): Uri = Uri.parse("content://$AUTHORITY")
+}
+
+object SettingsProviderAccess {
+    fun isAllowedCaller(
+        callingPackage: String?,
+        uidPackages: Array<String>?,
+        selfPackage: String,
+    ): Boolean {
+        val allowedPackages = setOf(selfPackage, SettingsSyncBridge.HOST_PACKAGE)
+        if (callingPackage != null && callingPackage !in allowedPackages) {
+            return false
+        }
+        return uidPackages?.any { it in allowedPackages } == true
     }
 }

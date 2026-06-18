@@ -3,6 +3,7 @@ package com.ctf.bilisb.sponsor
 import android.content.Context
 import android.util.Log
 import com.ctf.bilisb.settings.SettingsKeys
+import com.ctf.bilisb.settings.SettingsSyncBridge
 import java.util.UUID
 
 class UserIdentityStore(
@@ -10,10 +11,20 @@ class UserIdentityStore(
 ) {
     fun getOrCreateUserId(): String {
         val prefs = context.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+        val canonical = SettingsSyncBridge.readSnapshot(context)?.userId
+        if (isValidUserId(canonical)) {
+            val userId = canonical.orEmpty()
+            if (prefs.getString(SettingsKeys.USER_ID, null) != userId) {
+                prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
+            }
+            Log.i(TAG, "Using canonical user ID: ${userId.take(8)}...")
+            return userId
+        }
         val existing = prefs.getString(SettingsKeys.USER_ID, null)
 
         if (isValidUserId(existing)) {
             val userId = existing.orEmpty()
+            SettingsSyncBridge.writeUserId(context, userId)
             Log.i(TAG, "Using existing user ID: ${userId.take(8)}...")
             return userId
         }
@@ -22,12 +33,14 @@ class UserIdentityStore(
         if (isValidUserId(legacy)) {
             val userId = legacy.orEmpty()
             prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
+            SettingsSyncBridge.writeUserId(context, userId)
             Log.i(TAG, "Migrated legacy user ID: ${userId.take(8)}...")
             return userId
         }
 
         val userId = generateUserId()
         val success = prefs.edit().putString(SettingsKeys.USER_ID, userId).commit()
+        SettingsSyncBridge.writeUserId(context, userId)
         if (success) Log.i(TAG, "Generated new user ID: ${userId.take(8)}...") else Log.w(TAG, "Failed to save user ID")
 
         return userId

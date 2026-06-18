@@ -33,7 +33,6 @@ class SponsorBlockController(
         client = SponsorBlockClient(
             config = SponsorBlockConfig(
                 serverAddress = settings.serverAddress,
-                cacheTtlMs = settings.cacheTtlMs,
                 enabled = settings.enabled,
                 autoSkip = settings.autoSkip,
                 enabledCategories = settings.enabledCategories,
@@ -52,10 +51,9 @@ class SponsorBlockController(
     private val playerHandles = ConcurrentHashMap<Int, PlayerHandle>()
     private val skippedSegments = ConcurrentHashMap.newKeySet<String>()
     // 手动模式下当前正在展示跳过按钮的片段 key,用于避免每个进度回调都重设按钮。
-    @Volatile private var manualButtonSegmentKey: String? = null
+    private val manualButtonSegmentKeyByContext = ConcurrentHashMap<Int, String>()
     // 当前正在倒计时的片段 key(自动跳过倒计时模式),用于离开片段时取消。
-    @Volatile private var countdownSegmentKey: String? = null
-    @Volatile var latestContextHash: Int = 0
+    private val countdownSegmentKeyByContext = ConcurrentHashMap<Int, String>()
 
     /**
      * 容器创建时绑定播放器 handle(core 用于 seek,container 用于 toast / context)。
@@ -67,7 +65,6 @@ class SponsorBlockController(
         if (closed.get()) return
         playerHandles[handle.contextHash] = handle
         latestContainerByContext[handle.contextHash] = handle.container
-        latestContextHash = handle.contextHash
         module.info("player handle bound context=${handle.contextHash}")
     }
 
@@ -97,7 +94,6 @@ class SponsorBlockController(
             currentPositionMs = core?.let { PlayerActions.currentPositionMs(module, it) } ?: 0L,
         )
         latestStateByContext[contextHash] = state
-        latestContextHash = contextHash
 
         val query = SponsorBlockQuery(state.bvid, state.cid)
         // 缓存未过期(repository TTL 内)直接复用,不再发起请求。
@@ -124,12 +120,6 @@ class SponsorBlockController(
                 inFlight.remove(key)
             }
         }
-    }
-
-    fun bindContext(contextHash: Int, state: PlayerState) {
-        if (closed.get()) return
-        latestStateByContext[contextHash] = state
-        latestContextHash = contextHash
     }
 
     fun submitSegment(
@@ -227,9 +217,9 @@ class SponsorBlockController(
         }
     }
 
-    fun progressMarkers(): Pair<Long, List<SponsorSegment>>? {
+    fun progressMarkers(contextHash: Int): Pair<Long, List<SponsorSegment>>? {
         if (closed.get()) return null
-        val state = latestStateByContext[latestContextHash] ?: return null
+        val state = latestStateByContext[contextHash] ?: return null
         val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
         return state.durationMs to segments
     }
@@ -240,9 +230,9 @@ class SponsorBlockController(
         return repository.getCached(SponsorBlockQuery(state.bvid, state.cid))
     }
 
-    fun latestSegments(): Pair<Long, List<SponsorSegment>>? {
+    fun latestSegments(contextHash: Int): Pair<Long, List<SponsorSegment>>? {
         if (closed.get()) return null
-        val state = latestStateByContext[latestContextHash] ?: return null
+        val state = latestStateByContext[contextHash] ?: return null
         val segments = repository.getCached(SponsorBlockQuery(state.bvid, state.cid)) ?: return null
         return state.durationMs to segments
     }
@@ -282,21 +272,20 @@ class SponsorBlockController(
         // 手动跳过优先:命中片段时浮出按钮,由用户点按跳过;离开片段时收起。
         if (settings.manualSkip) {
             if (segment == null) {
-                if (manualButtonSegmentKey != null) {
-                    manualButtonSegmentKey = null
+                if (manualButtonSegmentKeyByContext.remove(contextHash) != null) {
                     ManualSkipButton.hide(module, handle.container)
                 }
                 return
             }
             val skipKey = "${state.bvid}:${state.cid}:${segment.uuid}:${segment.startMs}-${segment.endMs}"
-            if (manualButtonSegmentKey == skipKey) {
+            if (manualButtonSegmentKeyByContext[contextHash] == skipKey) {
                 return // 同一片段已在展示,避免重复重设按钮
             }
-            manualButtonSegmentKey = skipKey
+            manualButtonSegmentKeyByContext[contextHash] = skipKey
             val categoryName = getCategoryDisplayName(segment.category)
             ManualSkipButton.show(module, handle.container, categoryName) {
                 PlayerActions.seekTo(module, handle.core, segment.endMs)
-                manualButtonSegmentKey = null
+                manualButtonSegmentKeyByContext.remove(contextHash)
                 SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
                 if (settings.showToast) {
                     val durationSec = (segment.endMs - segment.startMs) / 1000.0
@@ -319,8 +308,7 @@ class SponsorBlockController(
 
         if (segment == null) {
             // 离开片段:取消尚在进行的倒计时浮层。
-            if (countdownSegmentKey != null) {
-                countdownSegmentKey = null
+            if (countdownSegmentKeyByContext.remove(contextHash) != null) {
                 SkipCountdownOverlay.cancel(module, handle.container)
             }
             return
@@ -334,7 +322,7 @@ class SponsorBlockController(
             if (!skippedSegments.add(skipKey)) {
                 return
             }
-            countdownSegmentKey = skipKey
+            countdownSegmentKeyByContext[contextHash] = skipKey
             val categoryName = getCategoryDisplayName(segment.category)
             val endMs = segment.endMs
             val startMs = segment.startMs
@@ -344,7 +332,7 @@ class SponsorBlockController(
                 label = categoryName,
                 totalMs = (settings.skipCountdownSec * 1000).toLong(),
                 onComplete = {
-                    countdownSegmentKey = null
+                    countdownSegmentKeyByContext.remove(contextHash)
                     PlayerActions.seekTo(module, handle.core, endMs)
                     SkipStatsStore.record(segment.category, endMs - startMs)
                     if (settings.showToast) {
@@ -355,7 +343,7 @@ class SponsorBlockController(
                     }
                 },
                 onCancel = {
-                    countdownSegmentKey = null
+                    countdownSegmentKeyByContext.remove(contextHash)
                 },
             )
             module.info(
@@ -396,30 +384,28 @@ class SponsorBlockController(
 
         val contextHash = PlayerBridge.contextHash(host)
         if (contextHash != 0) {
-            latestStateByContext.remove(contextHash)
-            latestContainerByContext.remove(contextHash)
-            playerHandles.remove(contextHash)
-            if (latestContextHash == contextHash) {
-                latestContextHash = latestStateByContext.keys.firstOrNull() ?: 0
-            }
+            removeContext(contextHash)
         } else {
             val staleKeys = latestContainerByContext
                 .filterValues { it === host }
                 .keys
                 .toList()
             for (key in staleKeys) {
-                latestStateByContext.remove(key)
-                latestContainerByContext.remove(key)
-                playerHandles.remove(key)
-            }
-            if (latestContextHash in staleKeys) {
-                latestContextHash = latestStateByContext.keys.firstOrNull() ?: 0
+                removeContext(key)
             }
         }
 
-        manualButtonSegmentKey = null
-        countdownSegmentKey = null
-        close()
+        if (latestStateByContext.isEmpty()) {
+            close()
+        }
+    }
+
+    private fun removeContext(contextHash: Int) {
+        latestStateByContext.remove(contextHash)
+        latestContainerByContext.remove(contextHash)
+        playerHandles.remove(contextHash)
+        manualButtonSegmentKeyByContext.remove(contextHash)
+        countdownSegmentKeyByContext.remove(contextHash)
     }
 
     fun close() {
@@ -429,9 +415,8 @@ class SponsorBlockController(
         latestContainerByContext.clear()
         playerHandles.clear()
         skippedSegments.clear()
-        manualButtonSegmentKey = null
-        countdownSegmentKey = null
-        latestContextHash = 0
+        manualButtonSegmentKeyByContext.clear()
+        countdownSegmentKeyByContext.clear()
         executor.shutdownNow()
     }
 

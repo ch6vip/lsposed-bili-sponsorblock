@@ -16,8 +16,7 @@ data class SponsorSegment(
 }
 
 data class SponsorBlockConfig(
-    val serverAddress: String = "https://www.bsbsb.top",
-    val cacheTtlMs: Long = 60L * 60_000L,
+    val serverAddress: String = "https://bsbsb.top",
     val enabled: Boolean = true,
     val autoSkip: Boolean = true,
     val enabledCategories: Set<String> = setOf(

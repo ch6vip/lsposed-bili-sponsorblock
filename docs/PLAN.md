@@ -97,7 +97,7 @@
   - 进度条：`seek.v3.e#draw(Canvas)` 命中
 - `SponsorBlockClient` 已实现片段拉取、缓存、解析和提交 URL。
 - `SponsorBlockController` 已实现自动跳过、去重、Toast、标记提交入口。
-- `SettingsActivity` 已实现。
+- 设置入口已切换为 `LauncherActivity` + 宿主内 `SponsorBlockSettingDialog`。
 - `player/` 模块已独立出来，用于承载播放器状态抽取和后续 seek 调用。
 - `sponsor/` 模块已独立出来，用于承载协议请求、缓存和后续自动跳过决策。
 - 已验证日志包含：

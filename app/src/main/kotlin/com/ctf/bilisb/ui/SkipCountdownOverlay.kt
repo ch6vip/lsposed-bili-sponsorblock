@@ -16,6 +16,7 @@ import android.widget.TextView
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
 import kotlin.math.ceil
+import java.util.WeakHashMap
 
 /**
  * 自动跳过倒计时浮层:进入片段后显示"N秒后跳过 xxx [取消]",每秒递减,
@@ -28,7 +29,12 @@ object SkipCountdownOverlay {
     private const val TAG = "com.ctf.bilisb.skip_countdown"
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
-    @Volatile private var ticker: Runnable? = null
+    private data class CountdownState(
+        var ticker: Runnable? = null,
+    )
+
+    // 只在 main handler 中访问；弱引用避免 Activity 销毁后被静态单例持有。
+    private val stateByActivity = WeakHashMap<Activity, CountdownState>()
 
     /**
      * @param totalMs    倒计时总时长(ms)
@@ -48,7 +54,8 @@ object SkipCountdownOverlay {
                 val activity = playerActivity(host) ?: return@post
                 val decor = activity.window?.decorView as? ViewGroup ?: return@post
 
-                cancelTicker()
+                val state = stateFor(activity)
+                cancelTicker(state)
 
                 val row = (decor.findViewWithTag<View>(TAG) as? LinearLayout)
                     ?: buildRow(activity).also { decor.addView(it, layoutParams(activity)) }
@@ -60,7 +67,7 @@ object SkipCountdownOverlay {
                 var remaining = ceil(totalMs / 1000.0).toInt().coerceAtLeast(1)
 
                 cancelBtn.setOnClickListener {
-                    cancelTicker()
+                    cancelTicker(state)
                     row.visibility = View.GONE
                     module.info("auto-skip countdown canceled by user")
                     onCancel()
@@ -70,13 +77,13 @@ object SkipCountdownOverlay {
                     override fun run() {
                         if (remaining <= 0) {
                             row.visibility = View.GONE
-                            ticker = null
+                            state.ticker = null
                             onComplete()
                             return
                         }
                         text.text = "${remaining}秒后跳过 $label"
                         remaining--
-                        ticker = this
+                        state.ticker = this
                         handler.postDelayed(this, 1000)
                     }
                 }
@@ -91,17 +98,22 @@ object SkipCountdownOverlay {
     fun cancel(module: XposedModule, host: Any) {
         handler.post {
             runCatching {
-                cancelTicker()
                 val activity = playerActivity(host) ?: return@post
+                val state = stateByActivity[activity] ?: return@post
+                cancelTicker(state)
                 val decor = activity.window?.decorView as? ViewGroup ?: return@post
                 decor.findViewWithTag<View>(TAG)?.visibility = View.GONE
             }
         }
     }
 
-    private fun cancelTicker() {
-        ticker?.let { handler.removeCallbacks(it) }
-        ticker = null
+    private fun stateFor(activity: Activity): CountdownState {
+        return stateByActivity.getOrPut(activity) { CountdownState() }
+    }
+
+    private fun cancelTicker(state: CountdownState) {
+        state.ticker?.let { handler.removeCallbacks(it) }
+        state.ticker = null
     }
 
     private fun buildRow(activity: Activity): LinearLayout {
