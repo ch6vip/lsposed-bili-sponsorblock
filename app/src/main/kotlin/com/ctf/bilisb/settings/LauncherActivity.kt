@@ -1,27 +1,43 @@
 package com.ctf.bilisb.settings
 
+import android.app.Activity
 import android.os.Bundle
-import android.preference.PreferenceActivity
-import com.ctf.bilisb.R
 
 /**
- * 设置界面 Activity。
- * 用 PreferenceActivity 直接显示设置,不弹对话框。
+ * 模块入口设置页。
+ *
+ * 和宿主内弹窗共用 [SettingsScreenBuilder]，避免双实现漂移。
  */
-@Suppress("DEPRECATION")
-class LauncherActivity : PreferenceActivity() {
+@Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+class LauncherActivity : Activity() {
     private lateinit var settingsWriter: SettingsWriter
+    private var detailVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 设置 SharedPreferences 名称
-        preferenceManager.sharedPreferencesName = SettingsKeys.PREFS_NAME
-
-        // 直接加载设置 XML
-        addPreferencesFromResource(R.xml.sponsorblock_settings)
-
-        // 创建 SettingsWriter 以注册变更监听 + 写入初始镜像文件
         settingsWriter = SettingsWriter(this)
+        showMain()
+    }
+
+    override fun onBackPressed() {
+        if (detailVisible) {
+            showMain()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    private fun showMain() {
+        detailVisible = false
+        val content = SettingsScreenBuilder.buildMain(this, showStatusPanel = true) {
+            showDetail()
+        }
+        setContentView(SettingsScreenBuilder.wrapScroll(this, content))
+    }
+
+    private fun showDetail() {
+        detailVisible = true
+        val content = SettingsScreenBuilder.buildDetail(this, settingsWriter.sharedPreferences)
+        setContentView(SettingsScreenBuilder.wrapScroll(this, content))
     }
 }
