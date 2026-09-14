@@ -102,6 +102,11 @@
 
 ### 遗留（下一轮）
 
+- [ ] **提交入口缺位（需求变更）**：播放器内的「标记/SB」按钮已按需求移除，
+  `SubmissionButtonInjector` 已删除、设置里的「标记按钮」开关已隐藏；
+  提交链路（`SponsorBlockClient.submitSegment` POST、`SubmissionDraftController`、
+  `SponsorBlockController.markOrSubmitCurrentPosition`、设置页的「提交配置」区）仍保留但**当前没有 UI 入口**。
+  如需恢复提交能力，需要另选入口（设置页按钮 / 播放器长按菜单 / 通知）。
 - [ ] Bundle 往返单测需要 Robolectric 才能真正执行（当前被 `Assume` 跳过）；`app/build.gradle.kts` 加 `testImplementation("org.robolectric:robolectric:...")` 后启用。
 - [ ] 手动跳过按钮 / 倒计时浮层目前挂在 decorView（整屏右下角），详情页滚动、小窗场景位置不准 —— 建议挂到播放器 widget 的父容器并跟随 bounds。
 - [ ] 文案硬编码中文（目标宿主是国际版）—— 抽到 `strings.xml` + `values-en`。

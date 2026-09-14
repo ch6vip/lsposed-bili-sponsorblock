@@ -18,7 +18,6 @@ import com.ctf.bilisb.player.VideoDirectorListener
 import com.ctf.bilisb.sponsor.SponsorBlockController
 import com.ctf.bilisb.ui.ProgressMarkerPainter
 import com.ctf.bilisb.ui.RemainingTimeFormatter
-import com.ctf.bilisb.ui.SubmissionButtonInjector
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
 import java.lang.reflect.Method
@@ -292,17 +291,9 @@ object BiliSponsorBlockHooks {
     ) {
         sponsorBlockController?.bindPlayerHandle(PlayerHandle(contextHash, container, core))
 
-        if (settings.showSubmitButton) {
-            sponsorBlockController?.let { controller ->
-                SubmissionButtonInjector.attach(
-                    module,
-                    host,
-                    controller,
-                    contextHash,
-                    settings.defaultSubmitCategory,
-                )
-            }
-        }
+        // 播放器内的「SB」提交按钮已按需求移除（不再注入任何播放器内 UI）。
+        // 提交相关的代码（客户端的 POST 提交、草稿控制器、controller.markOrSubmitCurrentPosition）
+        // 仍然保留，等以后有别的入口（例如设置页/长按菜单）时可以直接复用。
 
         // 探针：从 widget 上试取 director 服务（6.5.0 只有部分 widget 暴露）
         VideoDirectorListener.tryRegisterFromHost(module, host)
