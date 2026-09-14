@@ -1,18 +1,38 @@
 name: Release
 
-# 推一个 v* tag 即触发：跑单测 → 构建**已签名**的 release APK → 发布 GitHub Release。
-# 需要的 4 个 Secrets（见 README「发布」一节）：
-#   KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+# 两条触发路径：
+#   1) 推 v* tag —— 完整发布：跑单测 → 构建已签名 APK → 发主仓库 Release → 同步到模块镜像仓库
+#   2) 手动触发 —— 只做「补同步镜像仓库」：从主仓库已有的 Release 取包推给镜像仓库。
+#      用于镜像同步失败后重试、或补齐历史上还没同步的版本。
+#
+# 需要的 Secrets：
+#   KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD —— 签名材料
+#   MIRROR_TOKEN —— 跨仓库同步到 Xposed-Modules-Repo 的 PAT。
+#                   未配置时同步步骤只发 warning 并跳过，不影响发布本身。
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "只补同步镜像仓库：填主仓库已有的 tag（如 v0.6.0）。留空则取主仓库 latest release。"
+        required: false
+        type: string
 
 permissions:
   contents: write
 
+env:
+  MAIN_REPO: ${{ github.repository }}
+  MIRROR_REPO: Xposed-Modules-Repo/io.github.ch6vip.bilisb
+
 jobs:
-  release:
+  # ---------------------------------------------------------------------------
+  # 构建并发布到主仓库（只在推 tag 时跑）
+  # ---------------------------------------------------------------------------
+  build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
@@ -83,3 +103,109 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             --latest
+
+  # ---------------------------------------------------------------------------
+  # 同步到模块镜像仓库（modules.lsposed.org 从那里取数据）
+  #
+  # 镜像仓库不会从本仓库自动同步，每发一版都得在那边补一个 release，
+  # tag 格式固定为 [versionCode]-[versionName]（如 6-0.6.0）。
+  #
+  # 版本号刻意从**产物 APK 里读**，而不是读 build.gradle.kts ——
+  # 手动补同步旧版本时，工作区的 versionCode 可能已经前进了，
+  # 读 gradle 会把 0.6.0 的包标成 7-0.6.0。
+  # ---------------------------------------------------------------------------
+  mirror:
+    needs: build
+    # build 被跳过时（手动触发）本 job 仍要跑：always() 且排除真正失败/取消的情况
+    if: always() && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve source tag
+        id: src
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -e
+          TAG="$INPUT_TAG"
+          [ -z "$TAG" ] && TAG="$GITHUB_REF_NAME"
+          # 手动触发且没填 tag 时 $GITHUB_REF_NAME 是分支名，取不到 release 就回退到 latest
+          if ! gh release view "$TAG" --repo "$MAIN_REPO" >/dev/null 2>&1; then
+            TAG=$(gh release view --repo "$MAIN_REPO" --json tagName --jq .tagName)
+            echo "::notice::'$INPUT_TAG' 不是有效 release，回退到主仓库 latest release：$TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "源 tag = $TAG"
+
+      - name: Download APK from main repo release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.src.outputs.tag }}
+        run: |
+          set -e
+          mkdir -p dist
+          gh release download "$TAG" --repo "$MAIN_REPO" --pattern "*.apk" --dir dist --clobber
+          ls -la dist
+
+      - name: Read versionCode / versionName from the APK
+        id: ver
+        run: |
+          set -e
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          APK=$(ls dist/*.apk | head -1)
+          echo "解析 $APK"
+          BADGING=$("$AAPT2" dump badging "$APK")
+          CODE=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)
+          NAME=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          [ -n "$CODE" ] && [ -n "$NAME" ] || { echo "::error::从 APK 里读不到 versionCode/versionName"; exit 1; }
+          echo "versionCode=$CODE  versionName=$NAME"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Check MIRROR_TOKEN
+        id: tok
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+        run: |
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "::warning::未配置 MIRROR_TOKEN secret，已跳过镜像仓库同步。配置方法见 README「发布」一节。"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to mirror repo
+        if: steps.tok.outputs.ok == 'true'
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.src.outputs.tag }}
+          MIRROR_TAG: ${{ steps.ver.outputs.code }}-${{ steps.ver.outputs.name }}
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+        run: |
+          set -e
+          NOTES="$RUNNER_TEMP/notes.md"
+          gh release view "$TAG" --repo "$MAIN_REPO" --json body --jq .body \
+            > "$RUNNER_TEMP/upstream.md" 2>/dev/null || : > "$RUNNER_TEMP/upstream.md"
+          {
+            echo "> 本条发布由 [主仓库 \`$TAG\`](https://github.com/$MAIN_REPO/releases/tag/$TAG) 自动同步。"
+            echo
+            cat "$RUNNER_TEMP/upstream.md"
+          } > "$NOTES"
+
+          # 幂等：已存在则覆盖资产（便于手动重跑修复），否则新建
+          if GH_TOKEN="$MIRROR_TOKEN" gh release view "$MIRROR_TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
+            echo "镜像仓库已有 release $MIRROR_TAG，改为覆盖资产"
+            GH_TOKEN="$MIRROR_TOKEN" gh release upload "$MIRROR_TAG" dist/*.apk \
+              --repo "$MIRROR_REPO" --clobber
+          else
+            GH_TOKEN="$MIRROR_TOKEN" gh release create "$MIRROR_TAG" dist/*.apk \
+              --repo "$MIRROR_REPO" \
+              --title "$VERSION_NAME" \
+              --target main \
+              --notes-file "$NOTES" \
+              --latest
+          fi
+
+          echo "::notice::已同步到 https://github.com/$MIRROR_REPO/releases/tag/$MIRROR_TAG"
