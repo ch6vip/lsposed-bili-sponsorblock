@@ -1,6 +1,7 @@
 # Bili2233 · B站 SponsorBlock 跳过模块
 
 [![Android CI](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml/badge.svg)](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml)
+[![Release](https://img.shields.io/github/v/release/ch6vip/lsposed-bili-sponsorblock)](https://github.com/ch6vip/lsposed-bili-sponsorblock/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![libxposed API](https://img.shields.io/badge/libxposed%20API-101-blue)
 ![minSdk](https://img.shields.io/badge/minSdk-23-green)
@@ -69,22 +70,29 @@
 
 ## 安装
 
-### 方式一：自己构建（当前推荐）
+### 方式一：下载 Release（推荐）
 
-目前尚未发布 Release，仓库的 CI 只产出构建 artifact。
-在 [Actions](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions) 里选最近一次成功的运行，
-下载 `lsposed-bili-sponsorblock-debug` 产物（需要登录 GitHub）；或者按下面的「从源码构建」自己编一个。
+到 [Releases](https://github.com/ch6vip/lsposed-bili-sponsorblock/releases/latest) 下载 `Bili2233-vX.Y.Z.apk`。
 
-### 方式二：从源码构建
+发布包用一把固定的密钥签名，可以直接覆盖升级 —— 请认准这个指纹，别装来路不明的二次打包版：
+
+```
+SHA-256  16:9C:2F:C3:A7:E5:C7:93:6B:D8:72:5E:D4:2E:36:AB:DF:68:E7:64:31:C4:DF:5D:25:CC:D6:7A:73:42:E9:DF
+```
+
+> ⚠️ 早期通过 Actions artifact 装的 `app-debug.apk` 是 **debug 签名**，与发布包签名不同，
+> 无法直接覆盖安装。需要先卸载（LSPosed 里重新启用模块、重新勾作用域），设置也会丢。
+
+### 方式二：自己构建
 
 ```bash
 git clone https://github.com/ch6vip/lsposed-bili-sponsorblock.git
 cd lsposed-bili-sponsorblock
 export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk.dir
-./gradlew :app:assembleDebug
-```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`
+./gradlew :app:assembleDebug     # debug 包，产物 app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease   # release 包；没有签名材料时会产出未签名包
+```
 
 ### 启用模块
 
@@ -155,18 +163,51 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 - 模块声明 `INTERNET` 权限用于上述接口调用；一个 `exported` 的 ContentProvider 用于宿主进程与模块 App
   之间的设置 IPC（Binder，仅本机）。
 
-## 从源码构建
+## 构建与发布
 
 环境：**JDK 17**、Android SDK（`compileSdk 35`）、Gradle 8.12（用 wrapper，无需自备）。
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 
-./gradlew :app:assembleDebug        # 构建 debug APK
-./gradlew :app:testDebugUnitTest    # 跑单元测试（119 例）
+./gradlew :app:assembleDebug        # debug APK
+./gradlew :app:assembleRelease      # release APK（没有签名材料时产出未签名包）
+./gradlew :app:testDebugUnitTest    # 单元测试（119 例）
 ```
 
-产物在 `app/build/outputs/apk/debug/app-debug.apk`。
+release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接宿主被混淆的类名，
+混淆自己收益极低、踩坑成本很高。
+
+### 发布一个版本（维护者）
+
+推一个 `v*` tag 即可，`.github/workflows/release.yml` 会跑单测 → 构建**已签名**的 release APK
+→ 校验签名 → `gh release create` 上传并生成更新日志。
+
+```bash
+git tag v0.5.0
+git push origin v0.5.0
+```
+
+签名材料从仓库 Secrets 读取，密钥本身**不入库**：
+
+| Secret | 内容 |
+| --- | --- |
+| `KEYSTORE_BASE64` | 密钥库文件的 base64（`base64 -w0 release.jks`） |
+| `KEYSTORE_PASSWORD` | 密钥库口令 |
+| `KEY_ALIAS` | 密钥别名 |
+| `KEY_PASSWORD` | 密钥口令 |
+
+本地想自己出签名包，在仓库根目录放一份 `keystore.properties`（已 gitignore）：
+
+```properties
+storeFile=/absolute/path/to/release.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+> ⚠️ 密钥一旦丢失，**再也无法**给已发布的版本推出可原地升级的 APK ——
+> Android 只认同一把签名密钥，届时只能强制所有用户卸载重装。请多地备份。
 
 ## 项目结构
 
