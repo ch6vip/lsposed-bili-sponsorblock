@@ -10,6 +10,12 @@ local.properties
 .idea/
 .DS_Store
 
+# 签名密钥与口令 —— 绝不入库（丢了就无法给已发布版本推原地升级）
+keystore.properties
+*.jks
+*.keystore
+*.pepk
+
 # Python（tools/dexscan）
 __pycache__/
 *.pyc
