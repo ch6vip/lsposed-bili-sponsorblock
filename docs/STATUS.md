@@ -6,7 +6,8 @@
 模块版本：0.5.0（Bili2233）——**主链路已在 6.5.0 真机跑通**，并完成一轮全项目 code review 修复
 最近变更：4 路并行 code review + 34 项问题修复（生命周期/设置热更新/提交协议/绘制几何/单测）
 最近 UI 修复：播放器「更多」面板「空降助手」行左侧对齐 —— 卡片外边距 12→16dp、竖直间距 12→0（宿主已自套 16dp）、
-标题 16→15sp、图标改 `TargetIconDrawable` 现画（不再运行期解析矢量 XML）。**APK 已出，待真机复验左沿落在 96~101px。**
+标题 16→15sp、图标改 `TargetIconDrawable` 现画（不再运行期解析矢量 XML）。
+**2026-09-14 18:31 装机真机复验通过**（设备 density 480 = 3.0，与截图反推的换算一致）。
 最近真机验证：**2026-09-14 在 `com.bilibili.app.in` 6.5.0 上验证通过（见下）**
 
 ## 结论
@@ -31,6 +32,7 @@
 | 自动跳过 | ✅ | `auto-skipped ... segment=0-30015 intro`、`119447-180017 selfpromo`、`300019-600014 sponsor`、`704591-806903 interaction` |
 | M6 进度条标记 | ✅ | `source=progressDrawable+pad rect=Rect(27, 32 - 2466, 40)`，与实测轨道 y 1007–1015 对齐 |
 | M7 我的页入口 | ✅ | 注入 + 点击监听 + `Showing Bili2233 settings dialog` |
+| 播放器「更多」面板入口行（空降助手） | ✅ | 注入 `morePanelItems size=18` → `morePanelInjected <- size=19`；点击后 `sheetContextHash host=233035869`。UI 几何按截图量值对齐（卡片 16dp 外边距 / 间距 16dp / 图标 20dp / 标题 15sp），18:31 装机复验通过 |
 | Toast / 提交按钮 | ✅ | `showToast: 跳过: 开场动画 (30.0秒)`、`标记 赞助/恰饭`、`已取消标记` |
 
 ### 仍未在真机验证
