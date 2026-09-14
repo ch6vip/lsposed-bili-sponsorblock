@@ -151,6 +151,37 @@ object HostTargets {
     )
     const val DRAW_METHOD = "draw"
 
+    // ---------------------------------------------------------------- 播放器「更多」面板（6.5.0）
+
+    /**
+     * 播放器右上角「⋯」弹出的「更多」半屏面板（分享行 + 快捷操作行 + 播放设置列表）。
+     *
+     * 6.5.0 实测定位（classes21.dex 反汇编）：
+     *   - 面板宿主 `com.bilibili.ship.theseus.united.page.toolbar.MenuService`，
+     *     由 `doMorePlayerSetting` 里 `DialogFragment.show(fm, "player_setting_dialog")` 弹出；
+     *   - 内容是一个 RecyclerView，适配器 `com.bilibili.app.gemini.ui.f`，
+     *     全量刷新入口 `f0(List)`；行由条目自己构建（`com.bilibili.app.gemini.ui.i`）。
+     *
+     * 这几个都是混淆短名，匹配时要同时校验类名 + 方法签名（必要时再加 versionCode）。
+     */
+    const val MORE_PANEL_ADAPTER_CLASS = "com.bilibili.app.gemini.ui.f"
+    const val MORE_PANEL_REFRESH_METHOD = "f0"
+    const val MORE_PANEL_MENU_SERVICE_CLASS = "com.bilibili.ship.theseus.united.page.toolbar.MenuService"
+
+    /** 行条目接口（interface，可以动态代理实现）。 */
+    const val MORE_PANEL_ITEM_INTERFACE = "com.bilibili.app.gemini.ui.i"
+
+    /** 行 holder 接口：宿主只要求 `getRoot()` 返回行视图。 */
+    const val MORE_PANEL_HOLDER_INTERFACE = "com.bilibili.app.gemini.ui.i\$b"
+
+    /**
+     * 判定「这是播放器更多面板」的内容特征：列表里出现该前缀包下的行（channel/x、channel/s 等）。
+     *
+     * 必须做这个判定：同一个 adapter `f` 也被详情页复用（实测详情页 47 项、播放器面板 18 项）。
+     */
+    const val MORE_PANEL_ROW_PACKAGE_PREFIX = "com.bilibili.playerbizcommonv2.widget.setting."
+    val MORE_PANEL_OPEN_METHODS = listOf("doMorePlayerSetting", "showNewMenuInternal")
+
     // ---------------------------------------------------------------- 「我的」页入口
 
     /** 「我的」页 adapter：6.5.0 外层类被混淆成 `d`，Fragment 名保留。 */

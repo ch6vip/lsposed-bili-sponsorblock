@@ -16,7 +16,18 @@ import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.VideoDirectorListener
 import com.ctf.bilisb.sponsor.SponsorBlockController
+import com.ctf.bilisb.model.SponsorCategories
+import com.ctf.bilisb.settings.SettingsCodec
+import com.ctf.bilisb.settings.SettingsKeys
+import com.ctf.bilisb.settings.SettingsWriter
+import com.ctf.bilisb.sponsor.SkipStatsStore
+import com.ctf.bilisb.ui.Callbacks
+import com.ctf.bilisb.ui.ManualSegmentItem
+import com.ctf.bilisb.ui.PlayerSheetState
 import com.ctf.bilisb.ui.ProgressMarkerPainter
+import com.ctf.bilisb.ui.SheetStateFormatter
+import com.ctf.bilisb.ui.ValueEditingCallbacks
+import com.ctf.bilisb.ui.SponsorBlockPlayerSheet
 import com.ctf.bilisb.ui.RemainingTimeFormatter
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -73,6 +84,11 @@ object BiliSponsorBlockHooks {
         installSafely(module, "seekTrack") { hookProgressDrawable(module, cl) }
         installSafely(module, "progressCallback") { hookProgressText(module, cl) }
         installSafely(module, "mineMenu") { com.ctf.bilisb.hook.MineMenuInjector.install(module, cl) }
+        installSafely(module, "morePanel") {
+            com.ctf.bilisb.hook.MorePanelInjector.install(module, cl) { rowView ->
+                openPlayerSheet(module, rowView)
+            }
+        }
 
         module.info(HookProbe.summary())
     }
@@ -225,6 +241,21 @@ object BiliSponsorBlockHooks {
     @Volatile
     private var pendingBind: PendingBind? = null
 
+    /** 最近一次绑定的 contextHash / 容器，供播放器面板组装状态使用。 */
+    @Volatile
+    private var lastBoundContextHash: Int = 0
+
+    @Volatile
+    private var lastBoundContainer: Any? = null
+
+    /**
+     * 面板里改设置用的写入器（宿主进程内长期持有）。
+     *
+     * 必须长期持有：SettingsWriter 把变更监听注册在 prefs 上，writer 被回收后监听会失效。
+     */
+    @Volatile
+    private var settingsWriter: SettingsWriter? = null
+
     /**
      * 绑定播放器：取 Context / core，交给 controller，并挂提交按钮。
      *
@@ -298,6 +329,9 @@ object BiliSponsorBlockHooks {
         // 探针：从 widget 上试取 director 服务（6.5.0 只有部分 widget 暴露）
         VideoDirectorListener.tryRegisterFromHost(module, host)
 
+        lastBoundContextHash = contextHash
+        lastBoundContainer = container
+
         module.info("player bound context=$contextHash host=${host.javaClass.name} core=${core.javaClass.name}")
     }
 
@@ -312,14 +346,28 @@ object BiliSponsorBlockHooks {
         // 注意：必须先拿旧快照再赋值。`settings` 是同一个字段，若先赋值再比较，
         // `settings != freshSettings` 恒为 false（data class equals 自反），
         // 会导致除总开关外的所有设置改动都不生效（只有重建 controller 才会带上新配置）。
+        module.info("Settings snapshot on player enter: $freshSettings")
+        applySnapshot(module, freshSettings, source = "player enter")
+    }
+
+    /**
+     * 应用一份设置快照，必要时重建 controller。
+     *
+     * 抽成独立函数是为了让「播放器面板里改开关」立即生效：那条路径直接用宿主 prefs
+     * 生成快照后调用这里，不必再走一次可能读到旧镜像的 IPC/文件回读。
+     */
+    private fun applySnapshot(
+        module: XposedModule,
+        freshSettings: com.ctf.bilisb.settings.SettingsSnapshot,
+        source: String,
+    ) {
         val previousSettings = settings
         settings = freshSettings
-        module.info("Settings snapshot on player enter: $freshSettings")
 
         if (!freshSettings.enabled) {
             sponsorBlockController?.close()
             sponsorBlockController = null
-            module.info("SponsorBlock disabled in settings")
+            module.info("SponsorBlock disabled in settings ($source)")
             return
         }
 
@@ -327,10 +375,143 @@ object BiliSponsorBlockHooks {
         if (currentController == null || previousSettings != freshSettings) {
             currentController?.close()
             sponsorBlockController = SponsorBlockController(module, freshSettings)
-            module.info("SponsorBlock controller initialized settingsChanged=${currentController != null}")
+            module.info("SponsorBlock controller initialized settingsChanged=${currentController != null} ($source)")
         } else {
-            module.info("SponsorBlock controller reused")
+            module.info("SponsorBlock controller reused ($source)")
         }
+    }
+
+    // ------------------------------------------------------------------ 播放器面板（空降助手）
+
+    /** 组装面板状态并展示；返回是否成功展示。 */
+    fun openPlayerSheet(module: XposedModule, host: Any): Boolean {
+        val activity = PlayerBridge.activity(host) ?: run {
+            HookProbe.first(module, "sheetNoActivity", 3) { host.javaClass.name }
+            return false
+        }
+        val context = PlayerBridge.context(host) ?: return false
+        val controller = sponsorBlockController ?: return false
+
+        // 面板入口可能来自宿主「更多」面板里我们自己那一行：它的 Context 是 Dialog 的
+        // ContextThemeWrapper（hash 与播放器容器的 Context 不同），所以这里优先选
+        // 「controller 真的有状态」的那个 contextHash，取不到再回落到最近绑定的那个。
+        val hostHash = PlayerBridge.contextHash(context).takeIf { it != 0 }
+        val contextHash = listOfNotNull(hostHash, lastBoundContextHash.takeIf { it != 0 })
+            .firstOrNull { controller.sheetSnapshot(it) != null }
+            ?: lastBoundContextHash.takeIf { it != 0 }
+            ?: return false
+        HookProbe.first(module, "sheetContextHash", 3) { "host=$hostHash used=$contextHash" }
+
+        val snapshot = controller.sheetSnapshot(contextHash)
+        val inside = snapshot?.currentSegment
+        val stats = SkipStatsStore.snapshot()
+
+        val manualItems = snapshot?.segments.orEmpty().map { segment ->
+            ManualSegmentItem(
+                label = SheetStateFormatter.formatManualSegmentItem(
+                    SponsorCategories.displayName(segment.category),
+                    segment.startMs,
+                    segment.endMs,
+                ),
+                startMs = segment.startMs,
+                endMs = segment.endMs,
+            )
+        }
+
+        val state = PlayerSheetState(
+            segmentCount = snapshot?.segmentCount ?: 0,
+            playheadInsideSegment = inside != null,
+            insideSegmentLabel = inside?.let {
+                "${SponsorCategories.displayName(it.category)} " +
+                    "${SheetStateFormatter.formatSeconds(it.startMs)}-${SheetStateFormatter.formatSeconds(it.endMs)}"
+            },
+            autoSkipEnabled = settings.autoSkip,
+            submitHint = "标记并提交跳过段",
+            manualSkipSummary = SheetStateFormatter.formatManualSummary(snapshot?.segmentCount ?: 0),
+            manualSegments = manualItems,
+            serviceStatus = SheetStateFormatter.formatServiceStatus(
+                ok = true,
+                skippedCount = stats.totalCount.toInt(),
+                savedSeconds = stats.totalDurationMs / 1000,
+            ),
+            showToast = settings.showToast,
+            showSeekbarMarker = settings.showSeekbarMarker,
+            showSkipStats = settings.showSkipStats,
+            minSkipDurationLabel = SheetStateFormatter.formatSeconds((settings.minSkipDurationSec * 1000).toLong()),
+            userIdLabel = settings.userId,
+        )
+
+        val callbacks = object : Callbacks, ValueEditingCallbacks {
+            override fun onToggleAutoSkip(enabled: Boolean) =
+                updateSetting(module, context, SettingsKeys.AUTO_SKIP, enabled)
+
+            override fun onSubmitSegment() {
+                sponsorBlockController?.markOrSubmitCurrentPosition(contextHash, settings.defaultSubmitCategory)
+                module.info("playerSheet: submit toggled context=$contextHash")
+            }
+
+            override fun onManualSkip(item: ManualSegmentItem) {
+                val ok = sponsorBlockController?.manualSkipTo(contextHash, item.endMs) == true
+                module.info("playerSheet: manual skip to=${item.endMs} ok=$ok")
+            }
+
+            override fun onRefreshSegments() {
+                val ok = sponsorBlockController?.refreshSegments(contextHash) == true
+                module.info("playerSheet: refresh segments ok=$ok")
+            }
+
+            override fun onToggleShowToast(enabled: Boolean) =
+                updateSetting(module, context, SettingsKeys.SHOW_TOAST, enabled)
+
+            override fun onToggleSeekbarMarker(enabled: Boolean) =
+                updateSetting(module, context, SettingsKeys.SHOW_SEEKBAR_MARKER, enabled)
+
+            override fun onToggleSkipStats(enabled: Boolean) =
+                updateSetting(module, context, SettingsKeys.SHOW_SKIP_STATS, enabled)
+
+            // 值由 ValueEditingCallbacks 带回，这里无需处理"点了编辑"
+            override fun onEditMinSkipDuration() = Unit
+
+            override fun onEditUserId() = Unit
+
+            override fun onDismiss() {
+                module.info("playerSheet: dismissed")
+            }
+
+            override fun onMinSkipDurationEdited(seconds: Float) =
+                updateSetting(module, context, SettingsKeys.MIN_SKIP_DURATION, seconds.toString())
+
+            override fun onUserIdEdited(userId: String) =
+                updateSetting(module, context, SettingsKeys.USER_ID, userId)
+        }
+
+        return SponsorBlockPlayerSheet.show(activity, state, callbacks) { message ->
+            module.info("playerSheet: $message")
+        }
+    }
+
+    /**
+     * 面板里改设置：写宿主 prefs（SettingsWriter 的监听会自动镜像 + 同步给 provider），
+     * 然后**用本进程 prefs 立刻生成快照并应用**，让改动立即生效。
+     */
+    private fun updateSetting(
+        module: XposedModule,
+        context: android.content.Context,
+        key: String,
+        value: Any,
+    ) {
+        val writer = settingsWriter
+            ?: SettingsWriter(context.applicationContext).also { settingsWriter = it }
+        val editor = writer.sharedPreferences.edit()
+        when (value) {
+            is Boolean -> editor.putBoolean(key, value)
+            is Float -> editor.putString(key, value.toString())
+            is Long -> editor.putString(key, value.toString())
+            is String -> editor.putString(key, value)
+        }
+        editor.apply()
+        val fresh = SettingsCodec.snapshotFromPreferences(writer.sharedPreferences)
+        applySnapshot(module, fresh, source = "player sheet: $key=$value")
     }
 
     // ------------------------------------------------------------------ 进度回调

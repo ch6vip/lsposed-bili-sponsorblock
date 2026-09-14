@@ -211,6 +211,7 @@ class SettingsCodecTest {
         showToast = false,
         showSeekbarMarker = false,
         showTimeDeduction = false,
+        showSkipStats = false,
         showSubmitButton = false,
         // 颜色必须是 opaque：#RRGGBB 是存储契约，alpha 会被 codec 裁掉
         categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, _) ->

@@ -133,6 +133,8 @@ data class SettingsSnapshot(
     val showToast: Boolean,
     val showSeekbarMarker: Boolean,
     val showTimeDeduction: Boolean,
+    /** 是否记录/展示跳过统计（关闭后不再累计新的跳过次数与节省时长）。 */
+    val showSkipStats: Boolean,
     val showSubmitButton: Boolean,
     /** 分类标记颜色:category 字符串 → ARGB int。缺省由 CATEGORY_COLOR_DEFAULTS 填充。 */
     val categoryColors: Map<String, Int>,

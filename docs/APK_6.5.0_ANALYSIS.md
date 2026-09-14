@@ -214,7 +214,43 @@ const-string ", extension="                + l:Object
 
 复现/验证方式见 `docs/DEVICE_PROBE.md`（真机 runbook）。
 
-## 7. 关联文档
+## 7. 播放器「更多」面板注入（6.5.0 实测，已实现）
+
+播放器右上角「⋯」弹出的「更多」半屏面板（分享行 + 快捷操作行 + 播放设置列表）是一个
+**DialogFragment**，不是新 Activity：
+
+| 项 | 值 | 依据 |
+| --- | --- | --- |
+| 面板宿主 | `com.bilibili.ship.theseus.united.page.toolbar.MenuService` | 面板全部行文案只在该 dex 字符串池命中；内部类 `MenuService$doMorePlayerSetting$1` |
+| 弹出方式 | `MenuService.doMorePlayerSetting` 协程里 `DialogFragment.show(fm, "player_setting_dialog")` | classes21 反汇编 |
+| 内容容器 | RecyclerView + 适配器 `com.bilibili.app.gemini.ui.f`，全量刷新 `f0(List)` | 真机探针命中，列表 size=18 |
+| 行模型 | 条目接口 `com.bilibili.app.gemini.ui.i`（**interface**），holder 接口 `i$b`（**interface**，只有 `getRoot()`） | 索引 + 反汇编 |
+| 行数据/实现 | `playerbizcommonv2.widget.setting.channel.x`（开关行）/ `s`（值行）/ `n`（多行值） | classes12/17 |
+
+**关键契约（决定注入方式）**：
+
+```java
+// 1) 视图类型按 item.a()（默认实现返回 getClass()）动态分配 —— 新条目类会自动拿到新 type
+static int i$a.a(i item) { return registry.putIfAbsent(item.a(), nextType++); }
+
+// 2) 创建行时反查列表里 type 匹配的条目，然后「让条目自己造视图」
+onCreateViewHolder(parent, viewType) {
+    for (item in d) if (i$a.a(item) == viewType) return new o(item.b(context, parent));
+    throw new NoSuchElementException(...);
+}
+```
+
+因此注入方式是：在 `f0(List)` **proceed 之前**往列表里 append 一个用 `Proxy` 实现的 `i` 条目
+（`a()` 返回代理类、`b()` 返回自绘行视图的 `i$b` 代理、`e()` 返回 `Unit`），宿主就会用我们的行视图渲染它。
+
+注意事项：
+- 同一个 adapter `f` 也被**详情页**复用（实测详情页 47 项、播放器面板 18 项）→ 必须用内容判据
+  （列表里出现 `com.bilibili.playerbizcommonv2.widget.setting.*` 包下的行）才注入；
+- `f0` 内部先判断"传入 List 是否就是字段 `d`"，所以要在 `proceed` 之前插入，否则本次刷新看不到；
+- 面板里我们那一行的 Context 是 Dialog 的 `ContextThemeWrapper`，`hashCode` 与播放器容器不同，
+  打开自研面板时要按"controller 真的有状态"的 contextHash 选择（实现见 `MorePanelInjector`）。
+
+## 8. 关联文档
 
 - `docs/PROJECT_OVERVIEW.md` — 架构 / Hook 清单 / 设置项 / 风险总览
 - `docs/ROADMAP.md` — 迁移任务（M1…）与验收标准
