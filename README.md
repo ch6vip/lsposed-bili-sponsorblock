@@ -8,7 +8,7 @@
 一个独立的 **LSPosed** 模块：在哔哩哔哩 Android 客户端里自动跳过**赞助广告、片头、自我推广、互动提醒**等片段，
 并在进度条上把它们标出来。
 
-数据来自社区众包的 [SponsorBlock](https://sponsor.ajay.app/) 公开接口。模块**只改本机客户端的播放行为**，
+数据来自社区众包的 [SponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock/wiki/API) 公开接口。模块**只改本机客户端的播放行为**，
 不登录、不接管账号、不改任何服务端请求。
 
 ---
