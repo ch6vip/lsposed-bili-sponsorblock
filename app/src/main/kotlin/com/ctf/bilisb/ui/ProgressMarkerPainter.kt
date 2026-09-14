@@ -16,7 +16,14 @@ import com.ctf.bilisb.model.SponsorSegment
  *   - 普通片段：`drawRect(xStart, bounds.top, xEnd, bounds.bottom)`。
  *   - POI 高亮：`drawCircle(xStart, centerY, height/2)`，对应 patch `anVar.d()` 分支。
  *
- * 调用点是 `seek.v3.f#draw(Canvas)`（薄轨道 drawable），与 patch 注入点一致。
+ * 几何计算全部在 [MarkerGeometry] 里（纯 Kotlin，不依赖 android.graphics），
+ * 这样 6.5.0 上「片段起点超出 duration / 贴到最右 1px」不再让 `coerceIn` 抛
+ * IllegalArgumentException（旧实现会被 runCatching 静默吞掉，并中断 forEach 使
+ * 后续标记整帧消失）。
+ *
+ * 调用点（6.5.0 `com.bilibili.app.in`）：hook 的是 `seek.v3.g`（Drawable，实色轨道层）
+ * 与 `seek.v3.f`（SeekBar 本体，只有 View 宽高、没有 drawable bounds），两者都走
+ * [drawInBounds]；旧的 `seek.v3.q` / `seek.v3.e` 已失效。
  */
 object ProgressMarkerPainter {
     // 分类配色兜底(实色,无 alpha)。当快照里没有该分类颜色时回退到这里。
@@ -44,7 +51,7 @@ object ProgressMarkerPainter {
     /**
      * 在轨道 drawable 上绘制标记。对应 patch 的 `b(...)`。
      *
-     * @param drawable 轨道 drawable（seek.v3.f），用它的 bounds 决定标记的位置和高度
+     * @param drawable 轨道 drawable（6.5.0 的 `seek.v3.g`），用它的 bounds 决定标记的位置和高度
      * @param colorOverrides 用户在设置里自定义的分类颜色(category→ARGB)。缺该分类则回退内置配色。
      */
     fun draw(
@@ -54,44 +61,74 @@ object ProgressMarkerPainter {
         segments: List<SponsorSegment>,
         colorOverrides: Map<String, Int> = emptyMap(),
     ) {
+        drawInBounds(canvas, drawable.bounds, durationMs, segments, colorOverrides)
+    }
+
+    /**
+     * 在给定 bounds 上绘制标记。
+     *
+     * 6.5.0（`com.bilibili.app.in`）里覆写 `draw(Canvas)` 的候选包括
+     * `seek.v3.g`（Drawable，实色矩形轨道层）与 `seek.v3.f`（AppCompatSeekBar 本体，是 View 不是 Drawable），
+     * 后者没有 drawable bounds，只有 View 的宽高，所以这里统一按矩形区域绘制。
+     */
+    fun drawInBounds(
+        canvas: Canvas,
+        bounds: android.graphics.Rect,
+        durationMs: Long,
+        segments: List<SponsorSegment>,
+        colorOverrides: Map<String, Int> = emptyMap(),
+    ) {
         if (durationMs <= 0 || segments.isEmpty()) {
             return
         }
-
-        val bounds = drawable.bounds
         if (bounds.isEmpty) {
             return
         }
 
-        val width = bounds.width()
-        val height = bounds.height()
-        // px per ms（patch: f = iWidth / zoVar.d）
-        val pxPerMs = width.toFloat() / durationMs.toFloat()
+        // 几何在纯函数里算；非法片段（起点超时长、end<start 等）会被跳过而不是抛异常。
+        val ranges = MarkerGeometry.markerRanges(
+            boundsLeft = bounds.left.toFloat(),
+            boundsRight = bounds.right.toFloat(),
+            durationMs = durationMs,
+            segments = segments,
+        )
+        if (ranges.isEmpty()) {
+            return
+        }
 
-        val left = bounds.left
-        val top = bounds.top.toFloat()
-        val bottom = bounds.bottom.toFloat()
-        val centerY = bounds.exactCenterY()
-        val radius = height / 2.0f
-
-        segments.forEach { segment ->
-            paint.color = colorOverrides[segment.category]
-                ?: defaultCategoryColors[segment.category]
-                ?: defaultColor
-
-            val xStart = left + segment.startMs * pxPerMs
-
-            if (isPoi(segment)) {
-                // POI 高亮：画圆点（对齐 patch anVar.d() 分支）
-                canvas.drawCircle(xStart, centerY, radius, paint)
-            } else {
-                val xEnd = left + segment.endMs * pxPerMs
-                canvas.drawRect(xStart, top, xEnd, bottom, paint)
-            }
+        // 裁剪到轨道区域：即使调用方给的 bounds 偏大（例如 SeekBar 本体），
+        // 标记也不会溢出到进度条之外盖住其它控件。
+        val checkpoint = canvas.save()
+        canvas.clipRect(bounds)
+        try {
+            drawRanges(canvas, bounds, ranges, colorOverrides)
+        } finally {
+            canvas.restoreToCount(checkpoint)
         }
     }
 
-    private fun isPoi(segment: SponsorSegment): Boolean {
-        return segment.actionType == "poi" || segment.category == "poi_highlight"
+    private fun drawRanges(
+        canvas: Canvas,
+        bounds: android.graphics.Rect,
+        ranges: List<MarkerGeometry.MarkerRange>,
+        colorOverrides: Map<String, Int>,
+    ) {
+        val top = bounds.top.toFloat()
+        val bottom = bounds.bottom.toFloat()
+        val centerY = bounds.exactCenterY()
+        val radius = bounds.height() / 2.0f
+
+        ranges.forEach { range ->
+            paint.color = colorOverrides[range.category]
+                ?: defaultCategoryColors[range.category]
+                ?: defaultColor
+
+            if (range.isPoi) {
+                // POI 高亮：画圆点（对齐 patch anVar.d() 分支），半径不超过半高，避免超出轨道
+                canvas.drawCircle(range.xStart, centerY, radius, paint)
+            } else {
+                canvas.drawRect(range.xStart, top, range.xEnd, bottom, paint)
+            }
+        }
     }
 }

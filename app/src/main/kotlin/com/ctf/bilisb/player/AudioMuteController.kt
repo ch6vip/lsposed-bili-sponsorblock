@@ -49,9 +49,8 @@ object AudioMuteController {
     }
 
     private fun audioManager(host: Any): AudioManager? {
-        val context = runCatching {
-            host.javaClass.getDeclaredMethod("getContext").apply { isAccessible = true }.invoke(host)
-        }.getOrNull() as? Context ?: return null
+        // 6.5.0 容器取 Context 的方法是 t()；统一走 PlayerBridge，避免写死 getContext 后静默失败
+        val context = PlayerBridge.context(host) ?: return null
         return context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
 }

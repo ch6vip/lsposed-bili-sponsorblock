@@ -83,7 +83,7 @@ object SettingsScreenBuilder {
             addView(TextView(activity).apply {
                 text = "状态"
                 textSize = 16f
-                setTextColor(Color.parseColor("#212121"))
+                setTextColor(primaryTextColor(activity))
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(activity).apply {
@@ -103,8 +103,8 @@ object SettingsScreenBuilder {
             addView(createCheckBox(activity, prefs, SettingsKeys.AUTO_SKIP, "自动跳过", "检测到片段时自动跳过", true))
             addView(createCheckBox(activity, prefs, SettingsKeys.MANUAL_SKIP, "手动跳过", "片段内显示跳过按钮,点按才跳(覆盖自动跳过)", false))
             addView(createCheckBox(activity, prefs, SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过", false))
-            addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)："))
-            addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)："))
+            addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)：", "0"))
+            addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)：", "0"))
 
             addView(sectionTitle(activity, "跳过类别"))
             val categories = listOf(
@@ -143,7 +143,7 @@ object SettingsScreenBuilder {
 
             addView(sectionTitle(activity, "服务器"))
             addView(serverRow(activity, prefs))
-            addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)："))
+            addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
         }
     }
 
@@ -239,7 +239,20 @@ object SettingsScreenBuilder {
         return layout
     }
 
-    private fun numberRow(activity: Activity, prefs: SharedPreferences, key: String, label: String): LinearLayout {
+    /**
+     * 数值输入行。
+     *
+     * [defaultValue] 必须按 key 传真实默认值：缓存 TTL 的真实默认是
+     * [SettingsKeys.DEFAULT_CACHE_TTL_MINUTES]（60），硬编码 "0" 会让 UI 显示成 0，
+     * 与钩子端实际生效的 60 分钟不一致。非法/空输入也退回该默认值。
+     */
+    private fun numberRow(
+        activity: Activity,
+        prefs: SharedPreferences,
+        key: String,
+        label: String,
+        defaultValue: String,
+    ): LinearLayout {
         return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(activity, 10), 0, dp(activity, 10))
@@ -249,13 +262,15 @@ object SettingsScreenBuilder {
                 textSize = 14f
             })
             addView(EditText(activity).apply {
-                setText(prefs.getString(key, "0"))
-                hint = "0"
+                setText(prefs.getString(key, defaultValue))
+                hint = defaultValue
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 setOnFocusChangeListener { _, hasFocus ->
                     if (!hasFocus) {
-                        val normalized = (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: 0f).toString()
+                        val fallback = defaultValue.toFloatOrNull() ?: 0f
+                        val normalized =
+                            (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: fallback).toString()
                         setText(normalized)
                         prefs.edit().putString(key, normalized).apply()
                     }
@@ -281,10 +296,15 @@ object SettingsScreenBuilder {
                 setOnFocusChangeListener { _, hasFocus ->
                     if (!hasFocus) {
                         val addr = text.toString().trim()
-                        if (addr.isNotEmpty()) {
-                            prefs.edit().putString(SettingsKeys.SERVER_ADDRESS, addr).apply()
-                        } else {
+                        if (addr.isEmpty()) {
                             setText(prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
+                        } else if (!SettingsSanitizer.isValidServerAddress(addr)) {
+                            // 非法地址不落盘：SponsorBlockClient 直接拼 `${serverAddress}/api/...`，
+                            // 无 scheme / 超长的地址只会让请求全挂，这里回显已存值并提示。
+                            Toast.makeText(activity, "服务器地址应以 http:// 或 https:// 开头", Toast.LENGTH_SHORT).show()
+                            setText(prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
+                        } else {
+                            prefs.edit().putString(SettingsKeys.SERVER_ADDRESS, addr).apply()
                         }
                     }
                 }
@@ -325,7 +345,7 @@ object SettingsScreenBuilder {
                 addView(TextView(activity).apply {
                     text = "默认标记类别"
                     textSize = 16f
-                    setTextColor(Color.parseColor("#212121"))
+                    setTextColor(primaryTextColor(activity))
                     setTypeface(typeface, Typeface.BOLD)
                 })
                 addView(valueView)
@@ -352,14 +372,15 @@ object SettingsScreenBuilder {
         }
     }
 
+    /**
+     * 用户 ID 行。
+     *
+     * 构建/refresh **只读** prefs：旧实现会在构建期 `putString(USER_ID, generated)`
+     * （构建即写盘、点开设置页就凭空生成一个 ID）。现在没有 ID 时显示占位文案，
+     * 生成与落盘只发生在「重置」按钮回调里；提交路径仍有 [UserIdentityStore.getOrCreateUserId] 兜底生成。
+     */
     private fun userIdRow(activity: Activity, prefs: SharedPreferences): View {
-        fun currentUserId(): String {
-            val saved = prefs.getString(SettingsKeys.USER_ID, "")
-            if (UserIdentityStore.isValidUserId(saved)) return saved ?: ""
-            val generated = UserIdentityStore.generateUserId()
-            prefs.edit().putString(SettingsKeys.USER_ID, generated).apply()
-            return generated
-        }
+        fun currentUserId(): String = prefs.getString(SettingsKeys.USER_ID, "").orEmpty()
 
         val valueView = TextView(activity).apply {
             textSize = 12f
@@ -367,7 +388,8 @@ object SettingsScreenBuilder {
             setPadding(0, dp(activity, 2), 0, 0)
         }
         fun refresh() {
-            valueView.text = currentUserId()
+            valueView.text = currentUserId().takeIf { UserIdentityStore.isValidUserId(it) }
+                ?: "（未生成，点\"重置\"生成）"
         }
         refresh()
 
@@ -377,7 +399,7 @@ object SettingsScreenBuilder {
             addView(TextView(activity).apply {
                 text = "用户 ID"
                 textSize = 16f
-                setTextColor(Color.parseColor("#212121"))
+                setTextColor(primaryTextColor(activity))
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(valueView)
@@ -386,8 +408,13 @@ object SettingsScreenBuilder {
                 addView(Button(activity).apply {
                     text = "复制"
                     setOnClickListener {
+                        val id = currentUserId()
+                        if (!UserIdentityStore.isValidUserId(id)) {
+                            Toast.makeText(activity, "尚未生成用户 ID，请先点\"重置\"", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
                         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Bili2233 userId", currentUserId()))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Bili2233 userId", id))
                         Toast.makeText(activity, "已复制", Toast.LENGTH_SHORT).show()
                     }
                 })
@@ -484,7 +511,7 @@ object SettingsScreenBuilder {
             addView(TextView(activity).apply {
                 text = title
                 textSize = 16f
-                setTextColor(Color.parseColor("#212121"))
+                setTextColor(primaryTextColor(activity))
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(activity).apply {
@@ -532,6 +559,33 @@ object SettingsScreenBuilder {
         setTextColor(Color.GRAY)
         setPadding(0, 0, 0, dp(activity, 4))
     }
+
+    /**
+     * 从主题解析文字色。
+     *
+     * 宿主内弹窗跑在宿主主题里（可能是深色），硬编码 `#212121` 在深色背景下几乎不可读。
+     * 优先取 [android.R.attr.textColorPrimary]，取不到再退回硬编码值。
+     * 强调色 `#FF6699` 是品牌色，不走主题解析。
+     */
+    private fun themedTextColor(activity: Activity, attr: Int, fallbackHex: String): Int {
+        val value = TypedValue()
+        if (activity.theme.resolveAttribute(attr, value, true)) {
+            if (value.type >= TypedValue.TYPE_FIRST_COLOR_INT && value.type <= TypedValue.TYPE_LAST_COLOR_INT) {
+                return value.data
+            }
+            if (value.resourceId != 0) {
+                val resolved = runCatching {
+                    activity.resources.getColor(value.resourceId, activity.theme)
+                }.getOrNull()
+                if (resolved != null) return resolved
+            }
+        }
+        return Color.parseColor(fallbackHex)
+    }
+
+    /** 分节标题/正文等主文字色（深色主题下自适应）。 */
+    private fun primaryTextColor(activity: Activity): Int =
+        themedTextColor(activity, android.R.attr.textColorPrimary, "#212121")
 
     private fun selectableItemBackground(activity: Activity): android.graphics.drawable.Drawable? {
         val tv = TypedValue()

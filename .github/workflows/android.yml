@@ -27,8 +27,22 @@ jobs:
         with:
           gradle-version: "8.12"
 
+      # gradlew 在仓库里是 100644（Windows 上提交的），Linux runner 需要补执行位
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/**
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
