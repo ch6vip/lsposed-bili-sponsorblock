@@ -5,21 +5,29 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.net.Uri
 import android.util.Log
+import com.ctf.bilisb.host.HostTargets
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * 设置存储。
  *
- * 关键:LSPosed 模块进程(在 tv.danmaku.bili 里)和设置 Activity(在模块 APK 里)
- * 是不同进程。写入端写 SharedPreferences + JSON 镜像文件,读取端走三级 fallback:
- *   1) ContentProvider IPC (模块进程存活时)
- *   2) JSON 镜像文件 (模块进程已退出时)
+ * 关键:LSPosed 模块进程(在目标宿主进程里)和设置 Activity(在模块 APK 里)
+ * 是不同进程。模块 APK 的 SharedPreferences 是**权威存储**(由 [SettingsProvider] 暴露),
+ * JSON 镜像文件只是兜底副本。读取端([ModuleSettings])走三级 fallback:
+ *   1) ContentProvider IPC (权威存储,模块进程存活时)
+ *   2) JSON 镜像文件 (模块进程已退出/被系统拦截时)
  *   3) 默认值
  */
 object SettingsKeys {
     const val PREFS_NAME = "sponsorblock_settings"
     const val MIRROR_FILE = "sponsorblock_settings.json"
+
+    // 本地 ↔ 权威存储的同步状态标记(属于内部元数据,不是用户设置)
+    // KEY_LOCAL_DIRTY: 本地 prefs 有还没确认推送成功的改动 —— 为 true 时不能用权威快照覆盖本地。
+    const val KEY_LOCAL_DIRTY = "local_dirty"
 
     // 总开关
     const val ENABLED = "enabled"
@@ -40,6 +48,14 @@ object SettingsKeys {
     const val DEFAULT_SERVER = "https://bsbsb.top"
     const val CACHE_TTL_MINUTES = "cache_ttl_minutes"
     const val DEFAULT_CACHE_TTL_MINUTES = "60"
+
+    // 数值字段合法区间:入参(IPC / JSON 镜像)不可信,统一 clamp,例如 cache_ttl_minutes 传 1e38。
+    /** 缓存 TTL 上限(分钟,7 天)。 */
+    const val MAX_CACHE_TTL_MINUTES = 10_080
+    /** 最小片段时长上限(秒,1 小时)。 */
+    const val MAX_MIN_SKIP_DURATION_SECONDS = 3_600f
+    /** 自动跳过倒计时上限(秒,10 分钟)。 */
+    const val MAX_SKIP_COUNTDOWN_SECONDS = 600f
 
     // 提交配置
     const val USER_ID = "user_id"
@@ -80,10 +96,6 @@ object SettingsKeys {
         "poi_highlight" to "#FF1E1E",   // 红色
     )
 
-    /** 所有颜色 key */
-    val COLOR_KEYS: List<String> = CATEGORY_COLOR_DEFAULTS.keys.map { colorKey(it) }
-
-
     /** 类别 key → SponsorBlock category 字符串 */
     val CATEGORY_MAP = mapOf(
         CAT_SPONSOR to "sponsor",
@@ -97,77 +109,68 @@ object SettingsKeys {
         CAT_POI_HIGHLIGHT to "poi_highlight",
     )
 
-    /** 所有 bool 类型 key */
-    val BOOL_KEYS = listOf(
-        ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
-        SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SUBMIT_BUTTON,
-    ) + CATEGORY_MAP.keys.toList()
-
-    /** 所有 string 类型 key */
-    val STRING_KEYS = listOf(
-        SERVER_ADDRESS,
-        CACHE_TTL_MINUTES,
-        MIN_SKIP_DURATION,
-        SKIP_COUNTDOWN,
-        USER_ID,
-        DEFAULT_SUBMIT_CATEGORY,
-    )
-
-    /** Bool key 默认值 */
-    val BOOL_DEFAULTS = mapOf(
-        ENABLED to true, AUTO_SKIP to true, MANUAL_SKIP to false, MUTE_SEGMENTS to false,
-        SHOW_TOAST to true, SHOW_SEEKBAR_MARKER to true,
-        SHOW_TIME_DEDUCTION to true, SHOW_SUBMIT_BUTTON to true,
-    ) + CATEGORY_MAP.keys.associateWith { true }
-
-    /** String key 默认值 */
-    val STRING_DEFAULTS = mapOf(
-        SERVER_ADDRESS to DEFAULT_SERVER,
-        CACHE_TTL_MINUTES to DEFAULT_CACHE_TTL_MINUTES,
-        MIN_SKIP_DURATION to "0",
-        SKIP_COUNTDOWN to "0",
-        USER_ID to "",
-        DEFAULT_SUBMIT_CATEGORY to DEFAULT_SUBMIT_CATEGORY_VALUE,
-    )
 }
 
 /**
  * 设置 Activity 端使用的写入器。
  *
- * 每次 SharedPreferences 变更时自动镜像为 JSON 文件到两个位置:
- *   - 模块自身 filesDir (ContentProvider 也读这里)
- *   - /data/data/tv.danmaku.bili/MIRROR_FILE (Hook 端直接可读)
+ * 职责:
+ *   1. 监听 SharedPreferences 变更 → 写 JSON 镜像文件 + 推送到权威存储(模块 APK 的 provider);
+ *   2. 本地没有未同步改动时,用权威快照刷新本地 prefs(hydrate)。
+ *
+ * 线程模型:变更回调可能发生在宿主主线程上,所以监听体只做「标 dirty + 投递任务」,
+ * 文件 IO 与同步 Binder IPC 一律交给单线程 [ioExecutor] 串行执行。
  */
 class SettingsWriter(context: Context) {
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
     private val appContext = context.applicationContext
-    private val syncToModule = appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE ||
+    private val prefs: SharedPreferences =
+        appContext.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** 模块 App 进程:它的 prefs 就是权威存储本身,不需要 hydrate。 */
+    private val isModuleProcess = appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE
+
+    /** 自身或宿主进程的写入才需要推给 provider(保持原有语义)。 */
+    private val syncToModule = isModuleProcess ||
         appContext.packageName == SettingsSyncBridge.HOST_PACKAGE
 
     private val mirrorTargets = mutableListOf<File>()
-    @Volatile
-    private var suppressSync = false
+
+    /**
+     * 单线程 IO 队列:镜像写文件(最多 5 个目标)和 provider 同步都离开调用线程。
+     * 守护线程,进程退出不需要特殊处理(没落盘的镜像会在下次变更时重写)。
+     */
+    private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "bilisb-settings-io").apply { isDaemon = true }
+    }
+
+    /**
+     * 「内部写入」标记(按线程):apply() 会在写入线程上同步回调监听器,
+     * 用它区分用户改动和我们自己写的 dirty / hydrate 标记,避免同步被自我触发。
+     */
+    private val internalWrite = ThreadLocal<Boolean>()
 
     init {
         hydrateFromCanonicalStoreIfNeeded()
 
         // 镜像位置 1: 模块自身 filesDir
-        mirrorTargets.add(File(context.filesDir, SettingsKeys.MIRROR_FILE))
+        mirrorTargets.add(File(appContext.filesDir, SettingsKeys.MIRROR_FILE))
 
         // 镜像位置 2: 目标 App 数据目录 (Hook 端可直接读取)
-        mirrorTargets.add(File("/data/data/tv.danmaku.bili", SettingsKeys.MIRROR_FILE))
-        mirrorTargets.add(File("/data/user/0/tv.danmaku.bili", SettingsKeys.MIRROR_FILE))
-
-        // 监听变更,自动镜像
-        prefs.registerOnSharedPreferenceChangeListener { _, _ ->
-            mirrorToFile()
-            if (!suppressSync) {
-                syncSnapshotToModule()
+        // 6.5.0 目标宿主是 com.bilibili.app.in；旧包目录保留作为兜底（见 HostTargets.HOST_DATA_DIRS）
+        // 模块进程写宿主数据目录必然因沙箱失败,只会白跑 4 次失败的写 + 异常填栈,直接跳过。
+        if (!isModuleProcess) {
+            for (dir in HostTargets.HOST_DATA_DIRS) {
+                mirrorTargets.add(File(dir, SettingsKeys.MIRROR_FILE))
             }
         }
-        // 初始化时写一次
-        mirrorToFile()
+
+        // 监听变更:只标 dirty + 投递任务,绝不在监听线程(宿主主线程)做文件 IO / IPC
+        prefs.registerOnSharedPreferenceChangeListener { _, _ ->
+            if (internalWrite.get() == true) return@registerOnSharedPreferenceChangeListener
+            onLocalSettingsChanged()
+        }
+        // 初始化时投递一次镜像(同样不在构造线程写文件)
+        ioExecutor.execute { mirrorToFile() }
     }
 
     val sharedPreferences: SharedPreferences get() = prefs
@@ -175,39 +178,102 @@ class SettingsWriter(context: Context) {
     fun getBoolean(key: String, default: Boolean): Boolean = prefs.getBoolean(key, default)
     fun getString(key: String, default: String): String = prefs.getString(key, default) ?: default
 
+    /** 用户(设置页/宿主内弹窗)改了设置:标 dirty 后把镜像与 provider 同步投递到 IO 队列。 */
+    private fun onLocalSettingsChanged() {
+        editInternal { putBoolean(SettingsKeys.KEY_LOCAL_DIRTY, true) }
+        ioExecutor.execute {
+            mirrorToFile()
+            syncSnapshotToModule()
+        }
+    }
+
+    /** 内部写入:不触发同步回调(见 [internalWrite])。 */
+    private fun editInternal(block: SharedPreferences.Editor.() -> Unit) {
+        internalWrite.set(true)
+        try {
+            val editor = prefs.edit()
+            editor.block()
+            editor.apply()
+        } finally {
+            internalWrite.set(false)
+        }
+    }
+
+    /**
+     * 用权威存储(模块 App 的 provider)回填本地 prefs。
+     *
+     * 只在「本地没有未确认推送的改动」时才覆盖:
+     *   - 本地有未确认推送成功的改动([SettingsKeys.KEY_LOCAL_DIRTY])时跳过,以本地为准,
+     *     否则用户刚改完的设置会被旧快照回滚(推送成功后标记会被清掉,那时权威快照里
+     *     本来就包含这些改动,覆盖等价于刷新,安全);
+     *   - 模块进程本身是权威存储的宿主,不需要回填。
+     *
+     * 注意:这里不能加「只 hydrate 一次」的短路 —— 宿主进程的 prefs 是本地副本,
+     * 每次重新打开宿主内弹窗都要拿权威值刷新,否则会显示旧值并可能把旧值推回 provider。
+     */
     private fun hydrateFromCanonicalStoreIfNeeded() {
-        if (appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE) {
+        if (isModuleProcess) return
+        if (prefs.getBoolean(SettingsKeys.KEY_LOCAL_DIRTY, false)) {
+            Log.w(TAG, "hydrate skipped: local prefs has unsynced edits, keep local as source of truth")
             return
         }
         val snapshot = SettingsSyncBridge.readSnapshot(appContext) ?: return
-        suppressSync = true
+        internalWrite.set(true)
         try {
             SettingsCodec.writeSnapshotToPreferences(prefs, snapshot)
         } finally {
-            suppressSync = false
+            internalWrite.set(false)
         }
     }
 
+    /** 把当前设置写成 JSON 镜像。 */
     private fun mirrorToFile() {
-        val json = SettingsCodec.snapshotToJson(SettingsCodec.snapshotFromPreferences(prefs))
-        val content = json.toString(2)
-
+        val content = SettingsCodec.snapshotToJson(SettingsCodec.snapshotFromPreferences(prefs)).toString(2)
         for (target in mirrorTargets) {
-            try {
-                target.parentFile?.mkdirs()
-                target.writeText(content)
-            } catch (_: Exception) {
-                // 写入目标 App 目录可能因权限失败,忽略
-            }
+            writeMirrorAtomically(target, content)
         }
     }
 
-    private fun syncSnapshotToModule() {
-        if (!syncToModule || appContext.packageName == SettingsSyncBridge.MODULE_PACKAGE) {
-            return
+    /**
+     * 原子写镜像:先写同目录的 `<name>.tmp` 再 renameTo(target)(同目录 rename 是原子的),
+     * 避免 Hook 端 tryFileFallback 读到写了一半的 JSON。rename 失败才退回直接写。
+     */
+    private fun writeMirrorAtomically(target: File, content: String) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        try {
+            target.parentFile?.mkdirs()
+            tmp.writeText(content)
+            if (tmp.renameTo(target)) return
+            Log.w(TAG, "mirror rename failed, fallback to direct write: ${target.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "mirror tmp write failed: ${target.absolutePath}: ${e.message}")
         }
+        runCatching {
+            target.parentFile?.mkdirs()
+            target.writeText(content)
+        }.onFailure { Log.w(TAG, "mirror write failed: ${target.absolutePath}: ${it.message}") }
+        runCatching { tmp.delete() }
+    }
+
+    /**
+     * 把本地设置推给权威存储(provider)。
+     *
+     * 模块进程也要推:模块 App 里改的设置只有进了 provider(= 模块 prefs)才会被 Hook 端读到。
+     * 失败不能静默:保留 dirty 标记 + warn,后续 hydrate 一律以本地为准,避免用户改动被回滚。
+     */
+    private fun syncSnapshotToModule() {
+        if (!syncToModule) return
         val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
-        SettingsSyncBridge.writeSnapshot(appContext, snapshot)
+        if (SettingsSyncBridge.writeSnapshot(appContext, snapshot)) {
+            // 权威存储已接受:清掉 dirty,之后可以安全地用权威快照 hydrate
+            editInternal { putBoolean(SettingsKeys.KEY_LOCAL_DIRTY, false) }
+        } else {
+            Log.w(TAG, "writeSnapshot failed, keep local prefs as source of truth")
+        }
+    }
+
+    private companion object {
+        const val TAG = "SettingsWriter"
     }
 }
 
@@ -218,8 +284,14 @@ object SettingsCodec {
             autoSkip = prefs.getBoolean(SettingsKeys.AUTO_SKIP, true),
             manualSkip = prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false),
             muteSegments = prefs.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
-            skipCountdownSec = parseDuration(prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
+            minSkipDurationSec = parseDuration(
+                prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"),
+                SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
+            ),
+            skipCountdownSec = parseDuration(
+                prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"),
+                SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
+            ),
             serverAddress = prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER)
                 ?: SettingsKeys.DEFAULT_SERVER,
             cacheTtlMs = parseCacheTtlMs(prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
@@ -238,48 +310,65 @@ object SettingsCodec {
         )
     }
 
-    fun snapshotFromBundle(bundle: Bundle): SettingsSnapshot {
-        return SettingsSnapshot(
-            enabled = bundle.getBoolean(SettingsKeys.ENABLED, true),
-            autoSkip = bundle.getBoolean(SettingsKeys.AUTO_SKIP, true),
-            manualSkip = bundle.getBoolean(SettingsKeys.MANUAL_SKIP, false),
-            muteSegments = bundle.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(bundle.getString(SettingsKeys.MIN_SKIP_DURATION, "0")),
-            skipCountdownSec = parseDuration(bundle.getString(SettingsKeys.SKIP_COUNTDOWN, "0")),
-            serverAddress = bundle.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER)
-                ?: SettingsKeys.DEFAULT_SERVER,
-            cacheTtlMs = parseCacheTtlMs(
-                bundle.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES),
-            ),
-            userId = bundle.getString(SettingsKeys.USER_ID, "") ?: "",
-            defaultSubmitCategory = sanitizeCategory(
-                bundle.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
-            ),
-            enabledCategories = enabledCategoriesFromPrefs { key, default -> bundle.getBoolean(key, default) },
-            showToast = bundle.getBoolean(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = bundle.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = bundle.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSubmitButton = bundle.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
-                parseColor(bundle.getString(SettingsKeys.colorKey(category), def), def)
-            },
-        )
+    /**
+     * 字段映射的唯一实现:Bundle / JSON / SharedPreferences 三条通道都折叠到这里。
+     *
+     * 为什么用 Map 中转:JVM 单测里 `android.os.Bundle` 全是 stub(没有 Robolectric),
+     * 折叠之后「整对象等价」的往返测试可以在无 Android 环境下覆盖全部字段。
+     * 数值统一用字符串(与 Bundle / JSON 的持久化形态一致),颜色统一 `#RRGGBB`(裁掉 alpha)。
+     */
+    fun snapshotToMap(snapshot: SettingsSnapshot): Map<String, Any> {
+        return linkedMapOf<String, Any>().apply {
+            put(SettingsKeys.ENABLED, snapshot.enabled)
+            put(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
+            put(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
+            put(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
+            put(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
+            put(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
+            put(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
+            put(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
+            put(SettingsKeys.USER_ID, snapshot.userId)
+            put(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
+            SettingsKeys.CATEGORY_MAP.forEach { (key, category) ->
+                put(key, snapshot.enabledCategories.contains(category))
+            }
+            put(SettingsKeys.SHOW_TOAST, snapshot.showToast)
+            put(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
+            put(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
+            put(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
+            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
+                put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
+            }
+        }
     }
 
-    fun snapshotFromJson(json: JSONObject): SettingsSnapshot {
-        fun bool(key: String, default: Boolean) =
-            if (json.has(key)) json.getBoolean(key) else default
+    /**
+     * 从 Map 还原快照。
+     *
+     * 字段级容错(JSON 镜像可能是半截内容或被外部改写):单个字段出错只影响该字段,
+     * 退回它的默认值,其余字段照常解析。布尔/字符串都要求类型严格匹配,不做隐式强转
+     * (`"enabled": 1` 这类脏数据不会被当成 true 用)。
+     */
+    fun snapshotFromMap(values: Map<String, Any?>): SettingsSnapshot {
+        fun <T> field(key: String, default: T, cast: (Any) -> T?): T =
+            runCatching { values[key]?.let(cast) }.getOrNull() ?: default
 
-        fun str(key: String, default: String) =
-            if (json.has(key)) json.getString(key) else default
+        fun bool(key: String, default: Boolean) = field(key, default) { it as? Boolean }
+        fun str(key: String, default: String) = field(key, default) { it as? String }
 
         return SettingsSnapshot(
             enabled = bool(SettingsKeys.ENABLED, true),
             autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
             manualSkip = bool(SettingsKeys.MANUAL_SKIP, false),
             muteSegments = bool(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(str(SettingsKeys.MIN_SKIP_DURATION, "0")),
-            skipCountdownSec = parseDuration(str(SettingsKeys.SKIP_COUNTDOWN, "0")),
+            minSkipDurationSec = parseDuration(
+                str(SettingsKeys.MIN_SKIP_DURATION, "0"),
+                SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
+            ),
+            skipCountdownSec = parseDuration(
+                str(SettingsKeys.SKIP_COUNTDOWN, "0"),
+                SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
+            ),
             serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
             cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
             userId = str(SettingsKeys.USER_ID, ""),
@@ -297,77 +386,37 @@ object SettingsCodec {
         )
     }
 
+    fun snapshotFromBundle(bundle: Bundle): SettingsSnapshot {
+        val values = HashMap<String, Any?>(bundle.size())
+        bundle.keySet().forEach { key -> values[key] = bundle.get(key) }
+        return snapshotFromMap(values)
+    }
+
+    fun snapshotFromJson(json: JSONObject): SettingsSnapshot {
+        val values = HashMap<String, Any?>(json.length())
+        json.keys().forEach { key -> values[key] = json.opt(key) }
+        return snapshotFromMap(values)
+    }
+
     fun snapshotToJson(snapshot: SettingsSnapshot): JSONObject {
         return JSONObject().apply {
-            put(SettingsKeys.ENABLED, snapshot.enabled)
-            put(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
-            put(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
-            put(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
-            put(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
-            put(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
-            put(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
-            put(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
-            put(SettingsKeys.USER_ID, snapshot.userId)
-            put(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
-            SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
-                put(key, snapshot.enabledCategories.contains(SettingsKeys.CATEGORY_MAP[key]))
-            }
-            put(SettingsKeys.SHOW_TOAST, snapshot.showToast)
-            put(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
-            put(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
-            put(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
-            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
-                put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
-            }
+            snapshotToMap(snapshot).forEach { (key, value) -> put(key, value) }
         }
     }
 
     fun snapshotToBundle(snapshot: SettingsSnapshot): Bundle {
         return Bundle().apply {
-            putBoolean(SettingsKeys.ENABLED, snapshot.enabled)
-            putBoolean(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
-            putBoolean(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
-            putBoolean(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
-            putString(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
-            putString(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
-            putString(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
-            putString(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
-            putString(SettingsKeys.USER_ID, snapshot.userId)
-            putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
-            SettingsKeys.CATEGORY_MAP.keys.forEach { key ->
-                putBoolean(key, snapshot.enabledCategories.contains(SettingsKeys.CATEGORY_MAP[key]))
-            }
-            putBoolean(SettingsKeys.SHOW_TOAST, snapshot.showToast)
-            putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
-            putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
-            putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
-            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, _) ->
-                putString(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex))
+            snapshotToMap(snapshot).forEach { (key, value) ->
+                // 与旧形态保持一致:数值以字符串写入 Bundle,避免跨进程 Bundle 类型漂移
+                if (value is Boolean) putBoolean(key, value) else putString(key, value.toString())
             }
         }
     }
 
     fun writeSnapshotToPreferences(prefs: SharedPreferences, snapshot: SettingsSnapshot) {
         prefs.edit().apply {
-            putBoolean(SettingsKeys.ENABLED, snapshot.enabled)
-            putBoolean(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
-            putBoolean(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
-            putBoolean(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
-            putString(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
-            putString(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
-            putString(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
-            putString(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
-            putString(SettingsKeys.USER_ID, snapshot.userId)
-            putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
-            SettingsKeys.CATEGORY_MAP.forEach { (key, category) ->
-                putBoolean(key, snapshot.enabledCategories.contains(category))
-            }
-            putBoolean(SettingsKeys.SHOW_TOAST, snapshot.showToast)
-            putBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
-            putBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
-            putBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
-            SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
-                putString(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
+            snapshotToMap(snapshot).forEach { (key, value) ->
+                if (value is Boolean) putBoolean(key, value) else putString(key, value.toString())
             }
         }.apply()
     }
@@ -400,11 +449,17 @@ object SettingsCodec {
     private fun parseColor(hex: String?, default: String): Int =
         parseHexColor(hex) ?: parseHexColor(default) ?: 0xFF808080.toInt()
 
-    private fun parseDuration(raw: String?): Float =
-        raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 0f
+    /** 时长解析:非数值/NaN/无穷一律按 0,并 clamp 到 [0, maxSeconds]。 */
+    private fun parseDuration(raw: String?, maxSeconds: Float): Float {
+        val value = raw?.trim()?.toFloatOrNull() ?: return 0f
+        if (!value.isFinite()) return 0f
+        return value.coerceIn(0f, maxSeconds)
+    }
 
+    /** 缓存 TTL 解析(分钟 → 毫秒):非法值退回 60 分钟,并 clamp 到 [0, MAX_CACHE_TTL_MINUTES]。 */
     private fun parseCacheTtlMs(raw: String?): Long {
-        val minutes = raw?.trim()?.toFloatOrNull()?.coerceAtLeast(0f) ?: 60f
+        val parsed = raw?.trim()?.toFloatOrNull()?.takeIf { it.isFinite() }
+        val minutes = parsed?.coerceIn(0f, SettingsKeys.MAX_CACHE_TTL_MINUTES.toFloat()) ?: 60f
         return (minutes * 60_000L).toLong()
     }
 
@@ -443,7 +498,9 @@ object SettingsCodec {
 
 object SettingsSyncBridge {
     const val MODULE_PACKAGE = "com.ctf.bilisb"
-    const val HOST_PACKAGE = "tv.danmaku.bili"
+
+    /** 目标宿主包名（bilibili 6.5.0 国际版）。 */
+    const val HOST_PACKAGE = HostTargets.HOST_PACKAGE
     const val AUTHORITY = "com.ctf.bilisb.settings"
     const val METHOD_GET_SETTINGS = "getSettings"
     const val METHOD_PUT_SETTINGS = "putSettings"
@@ -492,6 +549,15 @@ object SettingsSyncBridge {
 }
 
 object SettingsProviderAccess {
+    /**
+     * 调用方准入:只放行「自身 App」和「目标宿主」。
+     *
+     * 三个条件都要满足:
+     *   1. callingPackage(非 null 时)必须在允许集合内;
+     *   2. uid 解析出的包名里至少有一个在允许集合内;
+     *   3. callingPackage 必须属于该 uid 解析出的包名 —— 否则调用方是在谎报包名
+     *      (uid 属于宿主、包名却是别的 App),一律拒绝。
+     */
     fun isAllowedCaller(
         callingPackage: String?,
         uidPackages: Array<String>?,
@@ -501,6 +567,13 @@ object SettingsProviderAccess {
         if (callingPackage != null && callingPackage !in allowedPackages) {
             return false
         }
-        return uidPackages?.any { it in allowedPackages } == true
+        val packages = uidPackages ?: return false
+        if (packages.none { it in allowedPackages }) {
+            return false
+        }
+        if (callingPackage != null && callingPackage !in packages) {
+            return false
+        }
+        return true
     }
 }

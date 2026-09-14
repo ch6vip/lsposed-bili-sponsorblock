@@ -6,11 +6,14 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.util.info
 import io.github.libxposed.api.XposedModule
 
@@ -24,20 +27,55 @@ import io.github.libxposed.api.XposedModule
  */
 object ManualSkipButton {
     private const val TAG = "com.ctf.bilisb.manual_skip_button"
+
+    /** 点击跳过后的抑制窗口：seek 生效前进度回调仍在片段内，按钮会闪回。 */
+    private const val SKIP_SUPPRESS_MS = 2_000L
+
     private val handler by lazy { Handler(Looper.getMainLooper()) }
+
+    // key 由 contextHash + 片段标识组成，不同播放器/视频互不影响。
+    private val suppression = SkipSuppression(SKIP_SUPPRESS_MS)
 
     /**
      * 显示/更新跳过按钮。
      *
-     * @param host    播放器容器(用其 getContext 拿 Activity)
-     * @param label   类别显示名,用于按钮文案
-     * @param onSkip  点击回调(执行 seek)。点击后按钮自动隐藏。
+     * @param host       播放器容器(用其 getContext 拿 Activity)
+     * @param label      类别显示名,用于按钮文案
+     * @param segmentKey 片段标识(例如 `"$videoKey:$uuid:$startMs-$endMs"`)。跳过后的抑制按它记账:
+     *                   传空串时**不做抑制**(避免不同片段互相压制),拨动点需要显式传入。
+     * @param onSkip     点击回调(执行 seek)。点击后按钮自动隐藏,并进入抑制窗口。
      */
-    fun show(module: XposedModule, host: Any, label: String, onSkip: () -> Unit) {
+    fun show(
+        module: XposedModule,
+        host: Any,
+        label: String,
+        segmentKey: String = "",
+        onSkip: () -> Unit,
+    ) {
         handler.post {
             runCatching {
-                val activity = playerActivity(host) ?: return@post
-                val decor = activity.window?.decorView as? ViewGroup ?: return@post
+                val activity = playerActivity(host) ?: run {
+                    probeNoActivity(module, "manualSkipNoActivity", host)
+                    return@post
+                }
+                val decor = activity.window?.decorView as? ViewGroup ?: run {
+                    probeNoActivity(module, "manualSkipNoDecor", host)
+                    return@post
+                }
+                // Activity 已在销毁路上时不要再挂 View（会泄漏 decorView）。
+                if (activity.isFinishing || activity.isDestroyed) {
+                    HookProbe.first(module, "manualSkipActivityGone", 3) {
+                        "skip show: activity finishing/destroyed, host=${host.javaClass.name}"
+                    }
+                    return@post
+                }
+
+                val scope = System.identityHashCode(activity)
+                if (segmentKey.isNotEmpty() &&
+                    suppression.isSuppressed(scope, segmentKey, SystemClock.uptimeMillis())
+                ) {
+                    return@post
+                }
 
                 val button = (decor.findViewWithTag<View>(TAG) as? TextView)
                     ?: createButton(activity).also { decor.addView(it, buttonLayoutParams(activity)) }
@@ -46,6 +84,10 @@ object ManualSkipButton {
                 button.visibility = View.VISIBLE
                 button.setOnClickListener {
                     it.visibility = View.GONE
+                    // 先记账再 seek：seek 是异步的，抑制窗口要覆盖它生效前的几帧回调。
+                    if (segmentKey.isNotEmpty()) {
+                        suppression.suppress(scope, segmentKey, SystemClock.uptimeMillis())
+                    }
                     onSkip()
                 }
             }.onFailure {
@@ -58,8 +100,14 @@ object ManualSkipButton {
     fun hide(module: XposedModule, host: Any) {
         handler.post {
             runCatching {
-                val activity = playerActivity(host) ?: return@post
-                val decor = activity.window?.decorView as? ViewGroup ?: return@post
+                val activity = playerActivity(host) ?: run {
+                    probeNoActivity(module, "manualSkipHideNoActivity", host)
+                    return@post
+                }
+                val decor = activity.window?.decorView as? ViewGroup ?: run {
+                    probeNoActivity(module, "manualSkipHideNoDecor", host)
+                    return@post
+                }
                 decor.findViewWithTag<View>(TAG)?.visibility = View.GONE
             }.onFailure {
                 module.info("manual skip button hide failed: ${it.javaClass.name}: ${it.message}")
@@ -98,10 +146,18 @@ object ManualSkipButton {
     }
 
     private fun playerActivity(host: Any): Activity? {
-        val context = runCatching {
-            host.javaClass.getDeclaredMethod("getContext").apply { isAccessible = true }.invoke(host)
-        }.getOrNull()
-        return context as? Activity
+        // 6.5.0：容器取 Context 的方法名是 t()，且拿到的是 ContextWrapper，需要解包才是 Activity
+        return PlayerBridge.activity(host)
+    }
+
+    /**
+     * 「取不到 Activity / 挂载点」以前是静默 return，真机上只表现为「按钮不出现」。
+     * 这里限频打出宿主实际类型 + Context 类型，便于区分是宿主改版还是包装层问题。
+     */
+    private fun probeNoActivity(module: XposedModule, key: String, host: Any) {
+        HookProbe.first(module, key, 3) {
+            "host=${host.javaClass.name} context=${PlayerBridge.context(host)?.javaClass?.name}"
+        }
     }
 
     private fun dp(activity: Activity, value: Int): Int =

@@ -6,6 +6,4 @@ data class PlayerState(
     val cid: Long,
     val durationMs: Long,
     val currentPositionMs: Long,
-) {
-    val hasVideoId: Boolean get() = bvid.isNotBlank() && cid > 0
-}
+)

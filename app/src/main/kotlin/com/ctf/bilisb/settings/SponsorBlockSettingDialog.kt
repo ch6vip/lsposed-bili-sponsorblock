@@ -14,7 +14,15 @@ object SponsorBlockSettingDialog {
     @Volatile
     private var writer: SettingsWriter? = null
 
+    /** 当前正在显示的弹窗（主页面或详情页）：防止连点导致弹窗层层叠加。 */
+    @Volatile
+    private var currentDialog: AlertDialog? = null
+
     fun show(activity: Activity, onDismiss: (() -> Unit)? = null) {
+        // Activity 已结束/正在结束时不能再 show()，否则会 WindowManager$BadTokenException
+        if (activity.isFinishing || activity.isDestroyed) return
+        // 已经有一个弹窗在显示时不叠加（宿主「我的」页入口可能被连点）
+        if (currentDialog?.isShowing == true) return
         writer = SettingsWriter(activity)
         showMain(activity, onDismiss)
     }
@@ -23,6 +31,7 @@ object SponsorBlockSettingDialog {
         (writer ?: SettingsWriter(activity).also { writer = it }).sharedPreferences
 
     private fun showMain(activity: Activity, onDismiss: (() -> Unit)?) {
+        if (activity.isFinishing || activity.isDestroyed) return
         val navigating = booleanArrayOf(false)
         val dialogRef = arrayOfNulls<AlertDialog>(1)
         val root = SettingsScreenBuilder.buildMain(activity) {
@@ -36,12 +45,21 @@ object SponsorBlockSettingDialog {
             .setView(SettingsScreenBuilder.wrapScroll(activity, root))
             .setPositiveButton("关闭", null)
             .create()
-        dialog.setOnDismissListener { if (!navigating[0]) onDismiss?.invoke() }
+        dialog.setOnDismissListener {
+            if (dialogRef[0] === currentDialog) currentDialog = null
+            if (!navigating[0]) {
+                // 根弹窗真正被关闭：释放 writer，避免静态引用长期持有旧 Activity 的 Context
+                writer = null
+                onDismiss?.invoke()
+            }
+        }
         dialogRef[0] = dialog
+        currentDialog = dialog
         dialog.show()
     }
 
     private fun showDetail(activity: Activity, onDismiss: (() -> Unit)?) {
+        if (activity.isFinishing || activity.isDestroyed) return
         val dialogRef = arrayOfNulls<AlertDialog>(1)
         fun back() {
             dialogRef[0]?.currentFocus?.clearFocus()
@@ -54,7 +72,12 @@ object SponsorBlockSettingDialog {
             .setPositiveButton("返回") { _, _ -> back() }
             .create()
         dialog.setOnCancelListener { back() }
+        dialog.setOnDismissListener {
+            // 只有当前登记的弹窗才清空，避免导航时把新弹窗的登记清掉
+            if (dialogRef[0] === currentDialog) currentDialog = null
+        }
         dialogRef[0] = dialog
+        currentDialog = dialog
         dialog.show()
     }
 }

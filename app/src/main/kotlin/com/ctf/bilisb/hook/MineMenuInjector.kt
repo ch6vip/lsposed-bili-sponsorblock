@@ -3,6 +3,9 @@ package com.ctf.bilisb.hook
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
+import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.host.HookResolve
+import com.ctf.bilisb.host.HostTargets
 import com.ctf.bilisb.settings.SponsorBlockSettingDialog
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -11,22 +14,30 @@ import io.github.libxposed.api.XposedModule
 
 /**
  * 在B站"我的"页面菜单注入设置入口。
+ *
+ * 6.5.0（`com.bilibili.app.in`）实测：
+ *   - `MenuGroup` / `MenuGroup$Item` 类名与字段完整保留（`id/title/uri/icon/needLogin/redDot/localShow`），
+ *     所以注入构造逻辑可以复用；
+ *   - 「我的」页 adapter 的外层类被混淆成 `tv.danmaku.bili.ui.main2.mine.d`（Fragment 名保留），
+ *     类名走 [HostTargets.MINE_ADAPTER_CLASSES] 候选；
+ *   - adapter 本身不覆写 `notifyDataSetChanged`，现有实现命中的是 `RecyclerView.Adapter` 的基类方法，
+ *     所以对所有 RecyclerView 生效、靠 [findListFieldByContent] 的字段内容过滤兜底。
  */
 object MineMenuInjector {
 
     private const val SETTING_ID = 0x5B5B5B5BL
     private const val SETTING_URI = "bilisb://settings"
     private const val SETTING_TITLE = "Bili2233"
-    private const val MENU_GROUP_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup"
     // 宿主“我的”页按钮图标链路实际接受远程图片 URL。
     private const val SETTING_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         try {
-            val menuGroupClass = findClass(classLoader, "com.bilibili.lib.homepage.mine.MenuGroup")
-            val menuItemClass = findClass(classLoader, "com.bilibili.lib.homepage.mine.MenuGroup\$Item")
+            val menuGroupClass = HookResolve.findClass(classLoader, listOf(HostTargets.MENU_GROUP_CLASS))
+            val menuItemClass = HookResolve.findClass(classLoader, listOf(HostTargets.MENU_ITEM_CLASS))
 
             if (menuGroupClass == null || menuItemClass == null) {
+                HookProbe.miss(module, "mineMenuModel", "MenuGroup/Item not found")
                 module.warn("MenuGroup or Item class not found, skip mine menu injection")
                 return
             }
@@ -43,70 +54,57 @@ object MineMenuInjector {
     }
 
     private fun findClass(classLoader: ClassLoader, name: String): Class<*>? {
-        return try {
-            classLoader.loadClass(name)
-        } catch (e: Throwable) {
-            null
-        }
+        return HookResolve.findClass(classLoader, listOf(name))
     }
 
     private fun hookMineAdapter(module: XposedModule, classLoader: ClassLoader, menuItemClass: Class<*>) {
-        val adapterClass = try {
-            classLoader.loadClass("tv.danmaku.bili.ui.main2.mine.HomeUserCenterAdapter")
-        } catch (e: Throwable) {
-            module.warn("HomeUserCenterAdapter not found")
+        // 6.5.0 的 adapter 外层类被混淆成 tv.danmaku.bili.ui.main2.mine.d
+        val adapterClass = HookResolve.findClass(classLoader, HostTargets.MINE_ADAPTER_CLASSES)
+        if (adapterClass == null) {
+            HookProbe.miss(module, "mineAdapter", HostTargets.MINE_ADAPTER_CLASSES.joinToString())
+            module.warn("mine adapter not found")
             return
         }
 
+        // notifyDataSetChanged 由 RecyclerView.Adapter 基类声明（子类不覆写），getMethod 能取到
         val notifyMethod = try {
             adapterClass.getMethod("notifyDataSetChanged")
         } catch (e: Throwable) {
-            module.warn("Failed to resolve notifyDataSetChanged: ${e.message}")
-            return
+            HookProbe.miss(module, "mineAdapterNotify", "${adapterClass.name}: ${e.message}")
+            null
         }
 
-        module.hook(notifyMethod)
-            .setPriority(XposedInterface.PRIORITY_DEFAULT)
-            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
-            .intercept { chain ->
-                try {
-                    val adapter = chain.getThisObject()
-                    injectSettingItemIfMineAdapter(module, adapter, menuItemClass)
-                } catch (e: Throwable) {
-                    // 忽略错误
+        if (notifyMethod != null) {
+            module.hook(notifyMethod)
+                .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept { chain ->
+                    try {
+                        val adapter = chain.getThisObject()
+                        injectSettingItemIfMineAdapter(module, adapter, menuItemClass)
+                    } catch (e: Throwable) {
+                        // 忽略错误
+                    }
+                    chain.proceed()
                 }
-                chain.proceed()
-            }
+            HookProbe.ok(module, "mineAdapterNotify", "${adapterClass.name} (via ${notifyMethod.declaringClass.name})")
+            module.info("Hooked notifyDataSetChanged for mine adapter ${adapterClass.name}")
+        }
 
-        module.info("Hooked HomeUserCenterAdapter.notifyDataSetChanged")
-
-        // Hook HomeUserCenterAdapter的onBindViewHolder添加点击监听
-        hookAdapterClickListener(module, classLoader)
+        // Hook adapter 的 onBindViewHolder 添加点击监听
+        hookAdapterClickListener(module, adapterClass)
     }
 
-    private fun hookAdapterClickListener(module: XposedModule, classLoader: ClassLoader) {
-        val adapterClass = try {
-            classLoader.loadClass("tv.danmaku.bili.ui.main2.mine.HomeUserCenterAdapter")
-        } catch (e: Throwable) {
-            module.warn("HomeUserCenterAdapter not found")
-            return
-        }
-
-        val viewHolderClass = try {
-            classLoader.loadClass("androidx.recyclerview.widget.RecyclerView\$ViewHolder")
-        } catch (e: Throwable) {
-            module.warn("RecyclerView.ViewHolder not found")
-            return
-        }
-
-        // Hook onBindViewHolder
-        val onBindMethod = try {
-            adapterClass.getDeclaredMethod(
-                "onBindViewHolder",
-                viewHolderClass,
-                Int::class.javaPrimitiveType
-            )
-        } catch (e: Throwable) {
+    private fun hookAdapterClickListener(module: XposedModule, adapterClass: Class<*>) {
+        // 不按名字加载 `androidx.recyclerview.widget.RecyclerView$ViewHolder`
+        // （真机上 Class.forName 取不到，导致点击绑定 MISS），
+        // 直接按「方法名 + 2 个参数 + 第二参数是 int」定位，第一参数类型就是 ViewHolder。
+        val onBindMethod = adapterClass.declaredMethods.firstOrNull { method ->
+            method.name == "onBindViewHolder" &&
+                method.parameterTypes.size == 2 &&
+                method.parameterTypes[1] == Int::class.javaPrimitiveType
+        }?.apply { isAccessible = true } ?: run {
+            HookProbe.miss(module, "mineAdapterBind", "${adapterClass.name}#onBindViewHolder not found")
             module.warn("onBindViewHolder not found")
             return
         }
@@ -128,16 +126,17 @@ object MineMenuInjector {
                 result
             }
 
-        module.info("Hooked HomeUserCenterAdapter.onBindViewHolder")
+        module.info("Hooked ${adapterClass.name}.onBindViewHolder")
+        HookProbe.ok(module, "mineAdapterBind", "${adapterClass.name}#onBindViewHolder")
     }
 
     private fun injectSettingItemIfMineAdapter(module: XposedModule, adapter: Any, menuItemClass: Class<*>) {
         // 直接按内容定位 List<MenuGroup> 字段，避免“第一个 List 字段”假设在改版后选错。
-        val data = findListFieldByContent(adapter, MENU_GROUP_CLASS) ?: return
+        val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
         if (data.isEmpty()) return
 
         // 记录adapter类名用于后续hook点击
-        module.info("Found mine adapter: ${adapter.javaClass.name}")
+        HookProbe.first(module, "mineAdapterFound", 3) { adapter.javaClass.name }
 
         // 注入设置项
         injectSettingItem(module, data, menuItemClass)
@@ -146,11 +145,12 @@ object MineMenuInjector {
     /**
      * 在 adapter 的所有 List 字段里，挑出元素类型为 [expectedClassName] 的那一个。
      *
-     * 之前只取“第一个 List 字段”，一旦宿主在前面新增/重排其它 List 字段就会选错并静默失败。
-     * 按内容匹配后，字段顺序变化不再影响入口注入。匹配不到时回退到第一个非空 List，保持旧行为兜底。
+     * 6.5.0 真机结论：**不再使用「第一个非空 List」兜底**。
+     * 该兜底会在无关 adapter（实测 `LF1.b`）上也注入出一份菜单项，导致重复/错位；
+     * 而真正的「我的」页 adapter（`tv.danmaku.bili.ui.main2.mine.d`）本身就能按内容命中，
+     * 所以这里只认内容匹配，匹配不到就放弃（探针记录适配器类名，便于宿主改版后补候选）。
      */
     private fun findListFieldByContent(adapter: Any, expectedClassName: String): MutableList<Any>? {
-        var fallback: MutableList<Any>? = null
         for (field in adapter.javaClass.declaredFields) {
             if (!List::class.java.isAssignableFrom(field.type)) continue
             field.isAccessible = true
@@ -158,9 +158,8 @@ object MineMenuInjector {
             val list = field.get(adapter) as? MutableList<Any> ?: continue
             val first = list.firstOrNull() ?: continue
             if (first.javaClass.name == expectedClassName) return list
-            if (fallback == null) fallback = list
         }
-        return fallback
+        return null
     }
 
     private fun injectSettingItem(module: XposedModule, data: MutableList<Any>, menuItemClass: Class<*>) {
@@ -253,7 +252,7 @@ object MineMenuInjector {
     }
 
     private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
-        val data = findListFieldByContent(adapter, MENU_GROUP_CLASS) ?: return
+        val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
         if (position >= data.size) return
 
         val itemList = itemListOf(data[position]) ?: return
@@ -336,14 +335,11 @@ object MineMenuInjector {
 
     private fun hookUriRouter(module: XposedModule, classLoader: ClassLoader) {
         // Hook B站的URI路由器，拦截 bilisb://settings
-        // 尝试hook常见的URI处理类
-        val routerClasses = listOf(
-            "com.bilibili.lib.blrouter.Router",
-            "com.bilibili.lib.blrouter.BLRouter",
-            "tv.danmaku.bili.ui.intent.IntentHandlerActivity"
-        )
+        // 6.5.0 实测：blrouter 框架还在，但 Router / BLRouter 类名不存在（被混淆），
+        // IntentHandlerActivity 仍存在。这里按候选尝试，命中情况由探针记录（见 ROADMAP M8）。
+        var hooked = 0
 
-        for (className in routerClasses) {
+        for (className in HostTargets.ROUTER_CLASSES) {
             val routerClass = findClass(classLoader, className) ?: continue
 
             // 尝试hook open/handle/route方法
@@ -375,11 +371,18 @@ object MineMenuInjector {
 
                             chain.proceed()
                         }
+                    hooked++
                     module.info("Hooked URI router: ${className}.${method.name}")
                 } catch (e: Throwable) {
                     // 继续尝试其他方法
                 }
             }
+        }
+
+        if (hooked > 0) {
+            HookProbe.ok(module, "uriRouter", "$hooked methods")
+        } else {
+            HookProbe.miss(module, "uriRouter", HostTargets.ROUTER_CLASSES.joinToString())
         }
     }
 }

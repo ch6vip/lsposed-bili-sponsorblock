@@ -2,6 +2,7 @@ package com.ctf.bilisb.settings
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.DialogInterface
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -13,6 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 /**
  * 纯代码颜色选择器(不依赖任何三方库)。
@@ -69,6 +71,7 @@ object ColorPickerDialog {
             setOnClickListener {
                 val current = parseColorOrDefault(prefs.getString(key, default), default)
                 show(activity, current) { picked ->
+                    // 落盘与预览统一：都用裁掉 alpha 的 #RRGGBB（标记绘制端也只认 RGB）
                     prefs.edit().putString(key, toHex(picked)).apply()
                     applySwatch(picked)
                 }
@@ -76,19 +79,21 @@ object ColorPickerDialog {
         }
     }
 
-    /** 打开颜色选择器:预览块 + 预设色板 + hex 输入。确定时回调最终颜色。 */
+    /**
+     * 打开颜色选择器：预览块 + 预设色板 + hex 输入。确定时回调最终颜色（已裁掉 alpha）。
+     *
+     * 非法输入不再静默回退到上一次选中的颜色：给一次 Toast 提示并保持弹窗打开。
+     */
     fun show(activity: Activity, current: Int, onPick: (Int) -> Unit) {
         val density = activity.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
-
-        var selected = current
 
         val preview = View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40))
         }
         fun applyPreview(color: Int) {
             preview.background = GradientDrawable().apply {
-                setColor(color)
+                setColor(toOpaque(color))
                 cornerRadius = dp(8).toFloat()
                 setStroke(dp(1), Color.parseColor("#40000000"))
             }
@@ -121,7 +126,6 @@ object ColorPickerDialog {
                             setStroke(dp(1), Color.parseColor("#40000000"))
                         }
                         setOnClickListener {
-                            selected = color
                             applyPreview(color)
                             hexInput.setText(toHex(color))
                         }
@@ -142,19 +146,45 @@ object ColorPickerDialog {
             addView(hexInput)
         }
 
-        AlertDialog.Builder(activity)
+        // 用 create() + 自定义确认按钮：非法输入时不关闭弹窗（setPositiveButton 会自动 dismiss）
+        val dialog = AlertDialog.Builder(activity)
             .setTitle("选择颜色")
             .setView(ScrollView(activity).apply { addView(content) })
-            .setPositiveButton("确定") { _, _ ->
-                val fromHex = runCatching { Color.parseColor(hexInput.text.toString().trim()) }.getOrNull()
-                onPick(fromHex ?: selected)
-            }
+            .setPositiveButton("确定", null)
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val picked = parseHexOrNull(hexInput.text.toString())
+                if (picked == null) {
+                    Toast.makeText(activity, "颜色格式应为 #RRGGBB", Toast.LENGTH_SHORT).show()
+                } else {
+                    onPick(picked)
+                    dialog.dismiss()
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun toHex(color: Int): String = String.format("#%06X", 0xFFFFFF and color)
 
+    /** 裁掉 alpha：落盘与预览都不保留透明度。 */
+    private fun toOpaque(color: Int): Int = 0xFF000000.toInt() or (0xFFFFFF and color)
+
+    /**
+     * 严格解析 hex 颜色：只接受 `#` 开头的 6/8 位十六进制（8 位会裁掉 alpha）。
+     * 非法输入返回 null，由调用方提示，避免静默回退到上一次选中的颜色。
+     */
+    private fun parseHexOrNull(raw: String?): Int? {
+        val text = raw?.trim().orEmpty()
+        if (!text.startsWith("#")) return null
+        val digits = text.substring(1)
+        if (digits.length != 6 && digits.length != 8) return null
+        if (!digits.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
+        return runCatching { toOpaque(Color.parseColor(text)) }.getOrNull()
+    }
+
     private fun parseColorOrDefault(hex: String?, default: String): Int =
-        runCatching { Color.parseColor(hex) }.getOrElse { Color.parseColor(default) }
+        runCatching { toOpaque(Color.parseColor(hex)) }.getOrElse { Color.parseColor(default) }
 }

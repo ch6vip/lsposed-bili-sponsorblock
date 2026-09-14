@@ -11,8 +11,4 @@ object HashUtils {
     fun videoIdHashPrefix(videoId: String): String {
         return sha256Hex(videoId).take(4)
     }
-
-    fun hashPrefix(value: String): String {
-        return videoIdHashPrefix(value)
-    }
 }
