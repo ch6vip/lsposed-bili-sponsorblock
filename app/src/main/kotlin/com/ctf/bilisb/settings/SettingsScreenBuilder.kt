@@ -132,6 +132,7 @@ object SettingsScreenBuilder {
             addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_TOAST, "跳过提示", "跳过时显示 Toast", true))
             addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_SEEKBAR_MARKER, "进度条标记", "标记片段位置", true))
             addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_TIME_DEDUCTION, "时间扣减", "总时长减去跳过时长", true))
+            addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_SKIP_STATS, "跳过次数统计", "累计跳过次数与节省时长", true))
             // 播放器内的「标记按钮」已按需求移除，对应开关不再展示；
             // SettingsKeys.SHOW_SUBMIT_BUTTON 暂时保留以兼容旧配置与编解码。
 

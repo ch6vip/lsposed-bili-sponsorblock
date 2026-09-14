@@ -203,8 +203,23 @@ class SponsorBlockController(
         submit(submission, state)
     }
 
-    fun cancelSubmissionDraft(contextHash: Int) {
-        if (closed.get()) return
+    /**
+     * 播放器面板的「手动跳过」：把播放头跳到指定片段的末尾。
+     *
+     * 与自动跳过的区别是**用户显式指定片段**，所以这里不再做「播放头是否已越过末尾」的判定，
+     * 但仍然会走同一套 seek + 统计逻辑；返回是否真的执行了。
+     */
+    fun manualSkipTo(contextHash: Int, endMs: Long): Boolean {
+        if (closed.get()) return false
+        val handle = playerHandles[contextHash] ?: return false
+        val state = latestStateByContext[contextHash] ?: return false
+        val target = endMs.coerceIn(0L, state.durationMs.takeIf { it > 0 } ?: endMs)
+        PlayerActions.seekTo(module, handle.core, target)
+        module.info("manual sheet skip video=${state.bvid} cid=${state.cid} to=$target")
+        return true
+    }
+
+    fun cancelSubmissionDraft(contextHash: Int) {        if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: return
         submissionDraftController.cancel(state)
         module.info("segment draft canceled video=${state.bvid} cid=${state.cid}")
@@ -278,6 +293,62 @@ class SponsorBlockController(
         return state.durationMs to segments
     }
 
+    /** 播放器面板一次取齐的快照（片段数、播放位置、是否在片段内、片段列表）。 */
+    data class SheetSnapshot(
+        val segmentCount: Int,
+        val positionMs: Long,
+        val durationMs: Long,
+        val currentSegment: SponsorSegment?,
+        val segments: List<SponsorSegment>,
+    )
+
+    /**
+     * 播放器面板用：当前视频的片段与播放头状态。
+     *
+     * `currentSegment` 用半开区间 `[startMs, endMs)` 判定，与 [SkipDecision] 保持一致。
+     */
+    fun sheetSnapshot(contextHash: Int): SheetSnapshot? {
+        if (closed.get()) return null
+        val state = latestStateByContext[contextHash] ?: return null
+        val segments = stateSegments(contextHash, state).orEmpty()
+        val positionMs = currentPositionMs(contextHash) ?: state.currentPositionMs
+        val current = segments.firstOrNull { positionMs >= it.startMs && positionMs < it.endMs }
+        return SheetSnapshot(
+            segmentCount = segments.size,
+            positionMs = positionMs,
+            durationMs = state.durationMs,
+            currentSegment = current,
+            segments = segments,
+        )
+    }
+
+    /**
+     * 播放器面板的「刷新片段」：清掉当前视频缓存并忽略缓存重新拉取。
+     *
+     * 与 [onVideoIds] 的区别是不受 TTL 缓存/in-flight 去重阻挡（用户显式要求刷新）。
+     */
+    fun refreshSegments(contextHash: Int): Boolean {
+        if (closed.get()) return false
+        val state = latestStateByContext[contextHash] ?: return false
+        val query = SponsorBlockQuery(state.bvid, state.cid)
+        repository.clear(query)
+        val key = videoKey(state)
+        inFlight.remove(key)
+        executor.execute {
+            if (closed.get()) return@execute
+            try {
+                val result = repository.fetchAndCache(query, ignoreCache = true)
+                module.info(
+                    "segments refreshed video=${query.bvid} cid=${query.cid} " +
+                        "status=${result.statusCode} count=${result.segments.size}",
+                )
+            } finally {
+                inFlight.remove(key)
+            }
+        }
+        return true
+    }
+
     fun onProgress(contextHash: Int, positionMs: Long, durationMs: Long) {
         if (closed.get()) return
         // 手动模式 / 静音模式也需要进度回调,所以这里不再因 autoSkip 关闭而早退,
@@ -344,7 +415,8 @@ class SponsorBlockController(
                 // 手动跳过由用户显式触发,但位置已经越过片段尾时同样不该回跳。
                 if (performSkipIfStillValid(contextHash, handle, segment, "manual")) {
                     manualButtonSegmentKeyByContext.remove(contextHash)
-                    SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
+                    // 统计开关关闭时不累计（面板/设置页的「跳过次数统计」）
+                    if (settings.showSkipStats) SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
                     if (settings.showToast) {
                         val durationSec = (segment.endMs - segment.startMs) / 1000.0
                         PlayerToastBridge.showSkipToast(
@@ -399,7 +471,8 @@ class SponsorBlockController(
                     if (!performSkipIfStillValid(contextHash, handle, segment, "countdown")) {
                         return@start
                     }
-                    SkipStatsStore.record(segment.category, endMs - startMs)
+                    // 统计开关关闭时不累计（面板/设置页的「跳过次数统计」）
+                    if (settings.showSkipStats) SkipStatsStore.record(segment.category, endMs - startMs)
                     if (settings.showToast) {
                         val durationSec = (endMs - startMs) / 1000.0
                         PlayerToastBridge.showSkipToast(
@@ -429,7 +502,8 @@ class SponsorBlockController(
         if (!performSkipIfStillValid(contextHash, handle, segment, "auto")) {
             return
         }
-        SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
+        // 统计开关关闭时不累计（面板/设置页的「跳过次数统计」）
+        if (settings.showSkipStats) SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
         if (settings.showToast) {
             val categoryName = getCategoryDisplayName(segment.category)
             val durationSec = (segment.endMs - segment.startMs) / 1000.0

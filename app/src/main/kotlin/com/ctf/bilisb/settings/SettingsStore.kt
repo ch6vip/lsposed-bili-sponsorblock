@@ -77,6 +77,9 @@ object SettingsKeys {
     const val SHOW_TOAST = "show_toast"
     const val SHOW_SEEKBAR_MARKER = "show_seekbar_marker"
     const val SHOW_TIME_DEDUCTION = "show_time_deduction"
+
+    // 是否记录/展示跳过统计（播放器面板与设置页的「跳过次数统计」开关）
+    const val SHOW_SKIP_STATS = "show_skip_stats"
     const val SHOW_SUBMIT_BUTTON = "show_submit_button"
 
     // 分类标记颜色:key 为 "color_<category>",值为 "#RRGGBB" hex 字符串。
@@ -303,6 +306,7 @@ object SettingsCodec {
             showToast = prefs.getBoolean(SettingsKeys.SHOW_TOAST, true),
             showSeekbarMarker = prefs.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
             showTimeDeduction = prefs.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSkipStats = prefs.getBoolean(SettingsKeys.SHOW_SKIP_STATS, true),
             showSubmitButton = prefs.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
             categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
                 parseColor(prefs.getString(SettingsKeys.colorKey(category), def), def)
@@ -335,6 +339,7 @@ object SettingsCodec {
             put(SettingsKeys.SHOW_TOAST, snapshot.showToast)
             put(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
             put(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
+            put(SettingsKeys.SHOW_SKIP_STATS, snapshot.showSkipStats)
             put(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
             SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
                 put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
@@ -379,6 +384,7 @@ object SettingsCodec {
             showToast = bool(SettingsKeys.SHOW_TOAST, true),
             showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
             showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
+            showSkipStats = bool(SettingsKeys.SHOW_SKIP_STATS, true),
             showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
             categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
                 parseColor(str(SettingsKeys.colorKey(category), def), def)
@@ -436,6 +442,7 @@ object SettingsCodec {
         showToast = true,
         showSeekbarMarker = true,
         showTimeDeduction = true,
+        showSkipStats = true,
         showSubmitButton = true,
         categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) -> parseColor(hex, "#808080") },
     )
