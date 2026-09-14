@@ -504,11 +504,11 @@ object SettingsCodec {
 }
 
 object SettingsSyncBridge {
-    const val MODULE_PACKAGE = "com.ctf.bilisb"
+    const val MODULE_PACKAGE = "io.github.ch6vip.bilisb"
 
     /** 目标宿主包名（bilibili 6.5.0 国际版）。 */
     const val HOST_PACKAGE = HostTargets.HOST_PACKAGE
-    const val AUTHORITY = "com.ctf.bilisb.settings"
+    const val AUTHORITY = "io.github.ch6vip.bilisb.settings"
     const val METHOD_GET_SETTINGS = "getSettings"
     const val METHOD_PUT_SETTINGS = "putSettings"
     const val METHOD_PUT_USER_ID = "putUserId"

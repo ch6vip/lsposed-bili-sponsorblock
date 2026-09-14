@@ -14,7 +14,7 @@ import org.json.JSONObject
 /**
  * ContentProvider IPC 桥接：让 B 站进程能读取模块进程的设置。
  *
- * 模块设置 UI（LauncherActivity / SponsorBlockSettingDialog）运行在模块进程 com.ctf.bilisb 中，
+ * 模块设置 UI（LauncherActivity / SponsorBlockSettingDialog）运行在模块进程 io.github.ch6vip.bilisb 中，
  * 通过 SharedPreferences 写入设置。Hook 端运行在 tv.danmaku.bili 进程中，
  * 无法直接读取模块的 SharedPreferences 文件（应用沙箱隔离）。
  *

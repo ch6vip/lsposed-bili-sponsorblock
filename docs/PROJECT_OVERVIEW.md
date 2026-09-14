@@ -15,7 +15,7 @@
 | **目标宿主版本** | **6.5.0（versionCode 9110200）** |
 | **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi） |
 | 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36，33 个 dex |
-| 模块包名 | `com.ctf.bilisb` |
+| 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
 | 当前版本 | 0.5.0（versionCode 5）——**代码仍停在旧目标，尚未迁移** |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
@@ -92,7 +92,7 @@ tools/dexscan/                          目标 APK 静态分析工具
 
 ### 4.1 双进程模型
 
-- 模块 APK 进程 `com.ctf.bilisb`：设置 UI（LauncherActivity）、ContentProvider。
+- 模块 APK 进程 `io.github.ch6vip.bilisb`：设置 UI（LauncherActivity）、ContentProvider。
 - 宿主进程 **`com.bilibili.app.in`**：Hook 代码、播放器内 UI、统计。
 - 宿主还有 `:web` / `:download` / `:pushservice` / `:ijkservice` / `:widgetProvider` /
   `:dd_update` / `:heap_analysis` / `:safemode` / `:sandboxed_process0..4` 等子进程，一律不挂 Hook。
@@ -110,7 +110,7 @@ SharedPreferences 变更
 
 读取端 ModuleSettings（Hook 端，宿主进程）：
 
-1. JSON 镜像文件（候选 `/data/data/com.ctf.bilisb/files/...`、**`/data/data/com.bilibili.app.in/...`**）
+1. JSON 镜像文件（候选 `/data/data/io.github.ch6vip.bilisb/files/...`、**`/data/data/com.bilibili.app.in/...`**）
 2. ContentProvider `call(getSettings)`
 3. SettingsSnapshot.DEFAULT
 

@@ -40,11 +40,15 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ctf.bilisb"
+        // 反域名必须是「自己拥有的域名」，否则 modules.lsposed.org 不予收录。
+        // 没有自己的域名时按官方要求用 io.github.<用户名> 前缀。
+        // 注意：namespace 与 Kotlin 包名仍是 com.ctf.bilisb（那是类名，不是应用身份），
+        // 只有 applicationId 决定安装身份 / 数据目录 / 模块在仓库里的条目名。
+        applicationId = "io.github.ch6vip.bilisb"
         minSdk = 23
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
     }
 
     signingConfigs {
