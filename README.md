@@ -209,16 +209,24 @@ Actions → Release → Run workflow → `tag`（留空则取本仓库 latest re
 | `KEY_PASSWORD` | 密钥口令 |
 | `MIRROR_TOKEN` | 同步到镜像仓库用的 PAT。**未配置时只跳过同步，不影响发布本身** |
 
-`MIRROR_TOKEN` 建议用只授单一仓库的细粒度 PAT：
+`MIRROR_TOKEN` 用 **classic** PAT，且只勾 `public_repo`：
 
-- 打开 <https://github.com/settings/personal-access-tokens/new>
-- Repository access → Only select repositories → `Xposed-Modules-Repo/io.github.ch6vip.bilisb`
-- Permissions → Repository permissions → **Contents: Read and write**（创建 release 所需）
-- 若仓库列表里选不到它（该组织禁用了细粒度 PAT），改用 classic token 并勾 `repo` scope
+- 打开 <https://github.com/settings/tokens/new>
+- Note 随意（如 `bilisb-mirror-release`）；Expiration 建议 1 年
+- Scopes **只勾 `public_repo`**（Full control of public repositories）—— **不要**勾整个 `repo`
 
 ```bash
 gh secret set MIRROR_TOKEN --repo ch6vip/lsposed-bili-sponsorblock
 ```
+
+> 为什么不用看起来更"现代"的细粒度 PAT？镜像仓库属于 `Xposed-Modules-Repo` 组织，
+> 而模块作者只是该仓库的 **outside collaborator**。GitHub 官方文档明确写着：
+> *Outside collaborators can only use personal access tokens (classic) to access
+> organization repositories that they are a collaborator on.* —— 这类仓库
+> **不会出现**在细粒度 PAT 的仓库列表里（搜索只会得到 "No repositories found"）。
+>
+> 好在镜像仓库是 **public**，所以 `public_repo` 足够创建 release，
+> 而这个 scope **完全不涉及任何私有仓库**，泄漏面比 `repo` 小得多。
 
 本地想自己出签名包，在仓库根目录放一份 `keystore.properties`（已 gitignore）：
 
