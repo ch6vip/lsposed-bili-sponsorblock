@@ -133,8 +133,9 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 
 **关于默认服务器**
 
-- 默认值是 `https://bsbsb.top`，这是一个**第三方 SponsorBlock 实例，不是官方的 `sponsor.ajay.app`**。
-  它的可用性、数据留存策略、运营方立场都由该实例自行决定，本项目不做任何承诺。
+- 默认值是 `https://bsbsb.top`，这是「[小电视空降助手](https://github.com/hanydd/BilibiliSponsorBlock)」的服务端，
+  **不是官方的 `sponsor.ajay.app`**。它的可用性、数据留存策略、运营方立场都由该项目自行决定，
+  本项目不做任何承诺，也与该项目没有隶属关系。
 - 你可以在设置里改成任何兼容 SponsorBlock API 的实例（包括自建）。
 
 **其他**
@@ -217,7 +218,11 @@ flowchart LR
 
 ## 致谢
 
-- [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议
+- [小电视空降助手 · hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) ——
+  本项目默认使用的 `bsbsb.top` 数据源就是该项目的服务端；播放器面板里「空降助手」这个叫法、
+  以及用于标识片段的分类体系，也都沿用了它。这是一款移植自 SponsorBlock 的浏览器插件，
+  本项目相当于把同样的能力搬到了 Android 客户端的 LSPosed 侧。
+- [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议（上面两个项目的共同上游）
 - [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— B 站客户端改动的思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) 与 [libxposed](https://github.com/libxposed) —— 框架与 API
 
