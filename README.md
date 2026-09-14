@@ -180,15 +180,26 @@ release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接
 
 ### 发布一个版本（维护者）
 
-推一个 `v*` tag 即可，`.github/workflows/release.yml` 会跑单测 → 构建**已签名**的 release APK
-→ 校验签名 → `gh release create` 上传并生成更新日志。
+推一个 `v*` tag 即可。`.github/workflows/release.yml` 会做两件事：
+
+1. 跑单测 → 构建**已签名**的 release APK → 校验签名 → `gh release create` 发到本仓库；
+2. **自动同步到模块镜像仓库** [`Xposed-Modules-Repo/io.github.ch6vip.bilisb`](https://github.com/Xposed-Modules-Repo/io.github.ch6vip.bilisb)。
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
-签名材料从仓库 Secrets 读取，密钥本身**不入库**：
+第 2 步是有原因的：`modules.lsposed.org` 从镜像仓库取数据，而那个仓库**不会**从本仓库
+自动同步，每发一版都必须在那边补一个 release（tag 格式固定 `[versionCode]-[versionName]`，
+如 `6-0.6.0`）。版本号由 **APK 自身**解析得出，而非读 `build.gradle.kts` ——
+补同步旧版本时工作区的 `versionCode` 可能已经前进，读 gradle 会把包标错版本。
+
+同步失败、或要补齐历史上没同步的版本时，手动触发同一个 workflow 并填上目标 tag：
+Actions → Release → Run workflow → `tag`（留空则取本仓库 latest release）。
+同步是**幂等**的 —— 镜像仓库已有同名 release 时改为覆盖资产，可以放心重跑。
+
+签名材料与同步凭据都从仓库 Secrets 读取，密钥本身**不入库**：
 
 | Secret | 内容 |
 | --- | --- |
@@ -196,6 +207,18 @@ git push origin v0.5.0
 | `KEYSTORE_PASSWORD` | 密钥库口令 |
 | `KEY_ALIAS` | 密钥别名 |
 | `KEY_PASSWORD` | 密钥口令 |
+| `MIRROR_TOKEN` | 同步到镜像仓库用的 PAT。**未配置时只跳过同步，不影响发布本身** |
+
+`MIRROR_TOKEN` 建议用只授单一仓库的细粒度 PAT：
+
+- 打开 <https://github.com/settings/personal-access-tokens/new>
+- Repository access → Only select repositories → `Xposed-Modules-Repo/io.github.ch6vip.bilisb`
+- Permissions → Repository permissions → **Contents: Read and write**（创建 release 所需）
+- 若仓库列表里选不到它（该组织禁用了细粒度 PAT），改用 classic token 并勾 `repo` scope
+
+```bash
+gh secret set MIRROR_TOKEN --repo ch6vip/lsposed-bili-sponsorblock
+```
 
 本地想自己出签名包，在仓库根目录放一份 `keystore.properties`（已 gitignore）：
 
