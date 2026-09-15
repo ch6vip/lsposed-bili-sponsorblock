@@ -173,7 +173,7 @@ object BiliSponsorBlockHooks {
             HookResolve.declaredMethod(clazz, listOf(HostTargets.WIDGET_DETACH_METHOD))?.let { detach ->
                 hookAfter(module, detach, "playerTeardown:$className") { chain ->
                     val host = chain.getThisObject() ?: return@hookAfter
-                    onPlayerLeft(module, host)
+                    onPlayerLeft(module, host, null)
                 }
                 teardownHooked = true
             }
@@ -191,12 +191,73 @@ object BiliSponsorBlockHooks {
      *
      * 这是 6.5.0 上真正会被调用的清理入口（挂在 widget 的 `onDetachedFromWindow` 上）。
      */
-    private fun onPlayerLeft(module: XposedModule, host: Any) {
+    private fun onPlayerLeft(module: XposedModule, host: Any, container: Any?) {
         HookProbe.first(module, "playerTeardownCalled", 5) { host.javaClass.name }
+        if (scheduleDeferredTeardown(module, host, container)) {
+            module.info("player left: teardown deferred host=${host.javaClass.name}")
+        }
+    }
+
+    /**
+     * 待清理的 contextHash 与登记时刻。
+     *
+     * 键是 **contextHash** 而不是 host 对象：全屏切换会 detach 旧 widget 再 attach 一个
+     * **新的** PlayerSeekWidget3 实例（真机日志证实 bindPlayerContainerCalled #2/#3 是新实例），
+     * 按 host 身份匹配永远取消不掉，延迟清理照样执行、状态照样被删空。
+     * contextHash（容器的 Context hash）在竖屏/全屏之间是同一个，才能正确撤销。
+     */
+    private data class PendingTeardown(val contextHash: Int, val registeredAtMs: Long)
+
+    /** 已登记延迟清理的 contextHash 表。进度回调 / bind 到来时按 hash 移除。 */
+    private val pendingTeardowns: MutableMap<Int, PendingTeardown> =
+        java.util.concurrent.ConcurrentHashMap<Int, PendingTeardown>()
+
+    /** 延迟清理窗口：全屏切换的 detach→attach 间隔远小于它；退出播放页则不会再有回调。 */
+    private const val TEARDOWN_DELAY_MS = 3000L
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** 计算 host/container 的 contextHash，取不到返回 0（调用方按 0 跳过）。 */
+    private fun teardownHashOf(host: Any, container: Any?): Int {
+        val context = container?.let { PlayerBridge.context(it) } ?: PlayerBridge.context(host)
+        return context?.let { PlayerBridge.contextHash(it) } ?: 0
+    }
+
+    /**
+     * 登记 contextHash 并起延迟任务。返回 false 表示该 hash 已有待执行的清理（不重复登记）。
+     *
+     * @param host 触发 detach 的 widget（用于延迟任务里真正清理时解绑 director）
+     * @param container 播放器容器（用于算 contextHash；detach 时机上可能拿不到，可传 null）
+     */
+    private fun scheduleDeferredTeardown(module: XposedModule, host: Any, container: Any?): Boolean {
+        val hash = teardownHashOf(host, container)
+        if (hash == 0) return false
+        val first = pendingTeardowns.putIfAbsent(
+            hash, PendingTeardown(hash, android.os.SystemClock.uptimeMillis()),
+        ) == null
+        if (!first) return false
+        mainHandler.postDelayed({
+            val pending = pendingTeardowns.remove(hash) ?: return@postDelayed
+            performTeardown(module, host, hash)
+        }, TEARDOWN_DELAY_MS)
+        return true
+    }
+
+    /** 有任何「播放器仍然活着」的信号（bind / 进度回调）时调用：撤销该 context 的待执行清理。 */
+    private fun cancelDeferredTeardown(module: XposedModule, hash: Int) {
+        if (hash == 0) return
+        val removed = pendingTeardowns.remove(hash) != null
+        if (removed) {
+            HookProbe.first(module, "teardownCancelled", 3) { "context=$hash" }
+        }
+    }
+
+    /** 真正的清理：只应由 [scheduleDeferredTeardown] 的延迟任务调用。 */
+    private fun performTeardown(module: XposedModule, host: Any, contextHash: Int) {
         pendingBindRef.set(null)
         VideoDirectorListener.unregister(host)
-        sponsorBlockController?.onPlayerDestroyed(host)
-        module.info("player left: teardown done host=${host.javaClass.name}")
+        sponsorBlockController?.onPlayerDestroyed(contextHash)
+        module.info("player left: teardown done context=$contextHash host=${host.javaClass.name}")
     }
 
     /**
@@ -269,6 +330,10 @@ object BiliSponsorBlockHooks {
                 return
             }
 
+        // 全屏切换会先 detach 再 attach 并重新 bind：bind 到来说明播放器还活着，
+        // 按 contextHash 撤销延迟清理（新 widget 实例与旧的不是一个对象，不能按身份匹配）。
+        cancelDeferredTeardown(module, PlayerBridge.contextHash(context))
+
         ensureSettingsLoaded(module, context)
 
         if (!settings.enabled) {
@@ -293,6 +358,24 @@ object BiliSponsorBlockHooks {
         }
 
         completeBind(module, contextHash, container ?: host, host, core)
+    }
+
+    /**
+     * 状态被误清后的补绑兜底：全屏切换 detach→attach 若在延迟窗口外触发了清理，
+     * controller 里该 context 的 state/handle 会被删空且不会再有 bindPlayerContainer。
+     * 进度回调仍每帧到来（widget 还在画），这里用 widget 的 core（或 director 服务的）
+     * 重建一个 handle 重新登记，恢复跳过/标记链路。core 未就绪时静默放弃（等下一帧）。
+     */
+    private fun ensureRebindAfterTeardown(module: XposedModule, widget: Any, contextHash: Int) {
+        val core = PlayerBridge.coreService(widget)
+            ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService()) ?: return
+        val container = VideoDirectorListener.lastDirectorService() ?: widget
+        sponsorBlockController?.bindPlayerHandle(PlayerHandle(contextHash, container, core))
+        VideoDirectorListener.noteContextHash(contextHash)
+        HookProbe.first(module, "rebindAfterTeardown", 3) {
+            "context=$contextHash widget=${widget.javaClass.name} core=${core.javaClass.name}"
+        }
+        module.info("player handle rebound after teardown context=$contextHash")
     }
 
     /** 首次进度回调时补绑（那时 widget 已完成服务注入）。
@@ -613,6 +696,15 @@ object BiliSponsorBlockHooks {
             // onProgress 只负责触发跳过/静音；时长扣减显示交给 setText hook。
             val contextHash = contextHash(target)
             if (contextHash != 0) {
+                // 进度回调本身就是「播放器还活着」的信号：按 contextHash 撤销延迟清理
+                // （全屏切换 detach→attach 后是新的 widget 实例，不能按对象身份匹配）。
+                cancelDeferredTeardown(module, contextHash)
+                // 状态缺失兜底：全屏切换若触发了清理（延迟窗口之外的边缘时序），
+                // state 会被删空且不会再有 bindPlayerContainer。这里从 widget 的 core
+                // 与 director 服务重建一个 handle 并重新登记，恢复跳过/标记链路。
+                if (sponsorBlockController?.latestStateExists(contextHash) != true) {
+                    ensureRebindAfterTeardown(module, target, contextHash)
+                }
                 sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
             } else {
                 // 取不到 contextHash 时全链路会静默什么都不做，这里留一条探针便于定位
