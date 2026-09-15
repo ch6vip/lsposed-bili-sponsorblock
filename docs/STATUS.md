@@ -3,7 +3,7 @@
 > **目标口径（2026-09 起）**：模块只以 `bilibili 6.5.0` / `com.bilibili.app.in` / `<APK目录>\bilibili_6.5.0.apks` 为目标。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：0.5.0（Bili2233）——**主链路已在 6.5.0 真机跑通**，并完成一轮全项目 code review 修复
+模块版本：0.6.0（Bili2233，applicationId 已迁移为 `io.github.ch6vip.bilisb` / versionCode 6）——**主链路已在 6.5.0 真机跑通**，并完成一轮全项目 code review 修复
 最近变更：4 路并行 code review + 34 项问题修复（生命周期/设置热更新/提交协议/绘制几何/单测）
 最近 UI 修复：播放器「更多」面板「空降助手」行左侧对齐 —— 卡片外边距 12→16dp、竖直间距 12→0（宿主已自套 16dp）、
 标题 16→15sp、图标改 `TargetIconDrawable` 现画（不再运行期解析矢量 XML）。
