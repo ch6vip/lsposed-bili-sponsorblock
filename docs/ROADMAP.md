@@ -107,7 +107,12 @@
   入口 = 播放器右上角「⋯」→ 更多面板里的「空降助手」行（`MorePanelInjector` 注入）。
 - [x] **播放器内「空降助手」面板**：片段信息 / 空降助手开关 / 提交片段 / 手动跳过 / 刷新片段 /
   服务信息 / 三个显示开关 / 最短片段时长 / 用户 ID，改设置立即生效（不再需要重进播放页）。
-- [ ] Bundle 往返单测需要 Robolectric 才能真正执行（当前被 `Assume` 跳过）；`app/build.gradle.kts` 加 `testImplementation("org.robolectric:robolectric:...")` 后启用。
+- [x] Bundle 往返单测需要 Robolectric 才能真正执行（此前被 `Assume` 跳过）：
+      `app/build.gradle.kts` 已加 `testImplementation("org.robolectric:robolectric:4.14.1")`，
+      `SettingsCodecTest` 类级 `@RunWith(RobolectricTestRunner)` + `@Config(sdk=[34])`，
+      Bundle 往返用例已真跑（124 例 0 失败 0 跳过）。
+- [x] 面板本体行为测试：新增 `SponsorBlockPlayerSheetBehaviorTest`（Robolectric，5 例），
+      覆盖主线程拒绝 / Activity finishing 拒绝 / already-showing 去重 / dismiss 回调 / Switch 开关回调 / 文案行渲染。
 - [ ] 手动跳过按钮 / 倒计时浮层目前挂在 decorView（整屏右下角），详情页滚动、小窗场景位置不准 —— 建议挂到播放器 widget 的父容器并跟随 bounds。
 - [ ] 文案硬编码中文（目标宿主是国际版）—— 抽到 `strings.xml` + `values-en`。
 - [ ] 分类/高亮/actionType 常量在 4 处重复定义 —— 收敛到 `SponsorCategories` 单一来源。

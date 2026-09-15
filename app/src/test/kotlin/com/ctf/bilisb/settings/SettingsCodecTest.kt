@@ -7,7 +7,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+/**
+ * SettingsCodec 的编解码单测。
+ *
+ * 类级跑在 JUnit（纯 JVM，Bundle 是 stub）上；Bundle 往返用例用
+ * `Assume` + `bundleWorks()` 探测：有 Robolectric 时真跑，没有时 skip。
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class SettingsCodecTest {
     @Test
     fun parsesJsonWithValidationAndDefaults() {
@@ -123,9 +134,8 @@ class SettingsCodecTest {
     /**
      * `snapshotToBundle → snapshotFromBundle` 整对象等价。
      *
-     * 注意：AGP 单元测试里 `android.os.Bundle` 是 stub（方法直接抛 "Stub!"），
-     * 没有 Robolectric 时这一条会被 skip（CI 依然会跑上面的 map/json 等价用例）。
-     * 要让它真正执行，需要在 app/build.gradle.kts 加 Robolectric（不在本次改动范围内）。
+     * Robolectric 提供真 Bundle 实现，这一条会真正执行（不再被 Assume 永久跳过）。
+     * 无 Robolectric 的环境（如某些轻量 CI）里 `bundleWorks()` 为 false 时仍会 skip。
      */
     @Test
     fun bundleRoundTripIsWholeObjectEqual() {

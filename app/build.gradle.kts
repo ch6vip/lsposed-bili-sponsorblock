@@ -95,4 +95,9 @@ dependencies {
     compileOnly("io.github.libxposed:api:101.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Robolectric：让「需要真 android.* 类型」的单测真正执行（此前被 Assume 跳过）：
+    //   - Bundle 往返（SettingsCodec 的 snapshotToBundle/FromBundle）
+    //   - 面板本体（SponsorBlockPlayerSheet 的 Dialog/View 行为）
+    // SDK 版本按 deviceProfile 需要下载对应 android-all jar（首次跑测试走网络）。
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
