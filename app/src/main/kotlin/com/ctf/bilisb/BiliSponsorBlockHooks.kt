@@ -166,14 +166,16 @@ object BiliSponsorBlockHooks {
             }
             hooked = true
 
-            if (!teardownHooked) {
-                HookResolve.declaredMethod(clazz, listOf(HostTargets.WIDGET_DETACH_METHOD))?.let { detach ->
-                    hookAfter(module, detach, "playerTeardown:$className") { chain ->
-                        val host = chain.getThisObject() ?: return@hookAfter
-                        onPlayerLeft(module, host)
-                    }
-                    teardownHooked = true
+            // 对每个成功挂上 bind 的 widget 类都尝试挂 detach:
+            // 两个 widget 类(PlayerSeekWidget3 / PlayerProgressTextWidget)的实例各自独立
+            // detach,只挂第一个会让第二个类的 widget 分离时不触发清理。onPlayerLeft 幂等,
+            // 重复触发只是多打一条探针。
+            HookResolve.declaredMethod(clazz, listOf(HostTargets.WIDGET_DETACH_METHOD))?.let { detach ->
+                hookAfter(module, detach, "playerTeardown:$className") { chain ->
+                    val host = chain.getThisObject() ?: return@hookAfter
+                    onPlayerLeft(module, host)
                 }
+                teardownHooked = true
             }
         }
         if (!hooked) {
@@ -191,7 +193,7 @@ object BiliSponsorBlockHooks {
      */
     private fun onPlayerLeft(module: XposedModule, host: Any) {
         HookProbe.first(module, "playerTeardownCalled", 5) { host.javaClass.name }
-        pendingBind = null
+        pendingBindRef.set(null)
         VideoDirectorListener.unregister(host)
         sponsorBlockController?.onPlayerDestroyed(host)
         module.info("player left: teardown done host=${host.javaClass.name}")
@@ -238,15 +240,12 @@ object BiliSponsorBlockHooks {
      */
     private data class PendingBind(val contextHash: Int, val container: Any, val host: Any)
 
-    @Volatile
-    private var pendingBind: PendingBind? = null
+    /** 补绑用的挂起绑定。AtomicReference 抢占式清空,避免多线程重复 completeBind。 */
+    private val pendingBindRef = java.util.concurrent.atomic.AtomicReference<PendingBind?>()
 
-    /** 最近一次绑定的 contextHash / 容器，供播放器面板组装状态使用。 */
+    /** 最近一次绑定的 contextHash，供日志与状态组装使用。 */
     @Volatile
     private var lastBoundContextHash: Int = 0
-
-    @Volatile
-    private var lastBoundContainer: Any? = null
 
     /**
      * 面板里改设置用的写入器（宿主进程内长期持有）。
@@ -288,7 +287,7 @@ object BiliSponsorBlockHooks {
             ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService())
 
         if (core == null) {
-            pendingBind = PendingBind(contextHash, container ?: host, host)
+            pendingBindRef.set(PendingBind(contextHash, container ?: host, host))
             module.info("core not ready at bind time, defer binding context=$contextHash host=${host.javaClass.name}")
             return
         }
@@ -296,20 +295,26 @@ object BiliSponsorBlockHooks {
         completeBind(module, contextHash, container ?: host, host, core)
     }
 
-    /** 首次进度回调时补绑（那时 widget 已完成服务注入）。 */
+    /** 首次进度回调时补绑（那时 widget 已完成服务注入）。
+     *  用 AtomicReference 抢占式清空，避免多条回调并发时对同一 pending 重复 completeBind。 */
     private fun ensureDeferredBind(module: XposedModule, progressWidget: Any) {
-        val pending = pendingBind ?: return
+        val pending = pendingBindRef.getAndSet(null) ?: return
         // 必须校验「补绑用的 widget」就是当初发起绑定的那个播放器：
         // 否则会用 A 的 contextHash/container 配 B 的 core（小窗/快速切集时串台）。
         if (pending.host !== progressWidget &&
             PlayerBridge.contextHash(progressWidget) != pending.contextHash
         ) {
+            // 校验失败:把 pending 放回去,等待真正匹配的 widget
+            pendingBindRef.compareAndSet(null, pending)
             return
         }
         val core = PlayerBridge.coreService(progressWidget)
             ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService())
-            ?: return
-        pendingBind = null
+            ?: run {
+                // core 还没就绪:放回 pending,等下一次回调
+                pendingBindRef.compareAndSet(null, pending)
+                return
+            }
         completeBind(module, pending.contextHash, pending.container, pending.host, core)
     }
 
@@ -330,7 +335,6 @@ object BiliSponsorBlockHooks {
         VideoDirectorListener.tryRegisterFromHost(module, host)
 
         lastBoundContextHash = contextHash
-        lastBoundContainer = container
 
         module.info("player bound context=$contextHash host=${host.javaClass.name} core=${core.javaClass.name}")
     }
@@ -501,7 +505,10 @@ object BiliSponsorBlockHooks {
         value: Any,
     ) {
         val writer = settingsWriter
-            ?: SettingsWriter(context.applicationContext).also { settingsWriter = it }
+            ?: synchronized(this) {
+                // 双检锁:多线程同时走到这里时只建一个 SettingsWriter,避免重复注册监听
+                settingsWriter ?: SettingsWriter(context.applicationContext).also { settingsWriter = it }
+            }
         val editor = writer.sharedPreferences.edit()
         when (value) {
             is Boolean -> editor.putBoolean(key, value)
@@ -687,14 +694,18 @@ object BiliSponsorBlockHooks {
         return RemainingTimeFormatter.appendAdjustedDuration(originalText, adjustedDurationMs)
     }
 
+    // 进度文本每次 setText 都会走到这里(UI 线程高频):Regex 提为常量,Kotlin Regex 线程安全可复用
+    private val adjustedSuffixRegex = Regex("""\s\(\d{1,3}:\d{2}(?::\d{2})?\)$""")
+    private val durationWithHoursRegex = Regex("""(\d+):(\d+):(\d+)\s*/\s*(\d+):(\d+):(\d+)""")
+    private val durationNoHoursRegex = Regex("""(\d+):(\d+)\s*/\s*(\d+):(\d+)""")
+
     private fun hasAdjustedDurationSuffix(text: String): Boolean {
-        return Regex("""\s\(\d{1,3}:\d{2}(?::\d{2})?\)$""").containsMatchIn(text)
+        return adjustedSuffixRegex.containsMatchIn(text)
     }
 
     private fun extractDurationFromText(text: String): Long {
         // 尝试从 "00:16 / 30:01" 格式中提取总时长
-        val regex = Regex("""(\d+):(\d+):(\d+)\s*/\s*(\d+):(\d+):(\d+)""")
-        val match = regex.find(text)
+        val match = durationWithHoursRegex.find(text)
         if (match != null) {
             val groups = match.groupValues
             val h = groups.getOrNull(4)?.toLongOrNull() ?: 0
@@ -704,8 +715,7 @@ object BiliSponsorBlockHooks {
         }
 
         // 尝试 "00:16 / 30:01" 格式 (无小时)
-        val regex2 = Regex("""(\d+):(\d+)\s*/\s*(\d+):(\d+)""")
-        val match2 = regex2.find(text)
+        val match2 = durationNoHoursRegex.find(text)
         if (match2 != null) {
             val groups = match2.groupValues
             val m = groups.getOrNull(3)?.toLongOrNull() ?: 0

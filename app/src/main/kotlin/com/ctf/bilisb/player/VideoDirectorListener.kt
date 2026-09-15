@@ -59,6 +59,12 @@ object VideoDirectorListener {
     @Volatile
     private var pendingIds: Pair<Long, Long>? = null
 
+    /** pendingIds 的采集时刻(uptimeMillis):补发前做时效校验,上一播放会话的残留 id 不再补发。 */
+    private var pendingIdsAtMs: Long = 0L
+
+    /** pendingIds 有效期:超过它认为残留自上一播放会话,丢弃(足够覆盖 bind 早于 director 回调的正常窗口)。 */
+    private const val PENDING_TTL_MS = 10_000L
+
     fun lastDirectorService(): Any? = lastService
 
     /** 播放器离开时调用：断开服务引用，避免长期持有宿主对象。 */
@@ -77,7 +83,17 @@ object VideoDirectorListener {
         val ids = pendingIds ?: return
         val sink = idSink ?: return
         if (contextHash == 0) return
+        // 时效校验:hook 链路是尽力而为的,destroy/unregister 可能没触发;
+        // 上一个播放会话的残留 id 若被补发到新 context,会用错误视频的片段跳过新视频。
+        // 超过 PENDING_TTL_MS(10s,足够覆盖「bind 早于 director 回调」的正常窗口)直接丢弃。
+        val age = android.os.SystemClock.uptimeMillis() - pendingIdsAtMs
         pendingIds = null
+        if (age > PENDING_TTL_MS) {
+            HookProbe.first(module, "pendingIdsExpired", 3) {
+                "expired pending aid=${ids.first} cid=${ids.second} age=${age}ms, dropped"
+            }
+            return
+        }
         module.info("videoDirector: flush pending aid=${ids.first} cid=${ids.second} context=$contextHash")
         sink(contextHash, ids.first, ids.second)
     }
@@ -87,6 +103,7 @@ object VideoDirectorListener {
      */
     fun clearPendingIds() {
         pendingIds = null
+        pendingIdsAtMs = 0L
     }
 
     /** 注册 aid/cid 消费方（由 BiliSponsorBlockHooks 在进入播放页时设置）。 */
@@ -256,7 +273,11 @@ object VideoDirectorListener {
             }
         }
 
-        // 兜底：逐字段找 long（aid 先出现，随后是 cid）
+        // 兜底：逐字段找 long（aid 先出现，随后是 cid）。
+        // 危险路径:任意「第一个/第二个非零且不相等的 long/int 字段」都可能是 duration、
+        // epid、seasonId 等其它 id,误选会拉取并应用**错误视频**的片段(seek/静音/提交全错)。
+        // 所以这里加两道校验:量级范围(aid/cid 是 1e8~1e13 级的 id,不是 1e3 级的时长,
+        // 也不是 1e15+ 的 seasonId)+ 结果只经 probe 记录后采用。
         var aid = 0L
         var cid = 0L
         var aidField = ""
@@ -277,17 +298,33 @@ object VideoDirectorListener {
                 cidField = field.name
             }
         }
-        if (aid > 0 && cid > 0) {
+        if (aid > 0 && cid > 0 && plausibleVideoIds(aid, cid)) {
             HookProbe.first(module, "extractVideoIdsFallback", 5) {
                 "video=${video.javaClass.name} aid=$aid($aidField) cid=$cid($cidField) (字段扫描兜底)"
             }
             return aid to cid
+        }
+        if (aid > 0 && cid > 0) {
+            // 扫描到了但不合量级:宁可放弃这次 id 采集(下次 z() 主路径可能就绪),
+            // 也不能拿错误的 id 去拉片段
+            HookProbe.first(module, "extractVideoIdsRejected", 5) {
+                "video=${video.javaClass.name} aid=$aid($aidField) cid=$cid($cidField) 不合量级,放弃"
+            }
         }
 
         HookProbe.first(module, "extractVideoIdsFailed", 5) {
             "video=${video.javaClass.name} params=${params?.javaClass?.name}"
         }
         return null
+    }
+
+    /**
+     * 量级校验:B 站 aid/cid 都是 1e8~1e13 级的正整数。
+     * duration 是 1e5~1e7 毫秒级,seasonId 可能到 1e15+;都不该被当成 aid/cid。
+     */
+    private fun plausibleVideoIds(aid: Long, cid: Long): Boolean {
+        fun plausible(value: Long): Boolean = value in 10_000_000L..999_999_999_999_999L
+        return plausible(aid) && plausible(cid) && aid != cid
     }
 
     private fun dispatch(module: XposedModule, video: Any?) {
@@ -302,6 +339,7 @@ object VideoDirectorListener {
         if (video == null) return
         val ids = extractVideoIds(module, video) ?: return
         pendingIds = ids
+        pendingIdsAtMs = android.os.SystemClock.uptimeMillis()
         val contextHash = lastContextHash
         if (contextHash == 0) {
             HookProbe.first(module, "videoIdsWithoutContext", 3) { "aid=${ids.first} cid=${ids.second}（还没有容器绑定，已缓存）" }

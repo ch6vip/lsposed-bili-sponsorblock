@@ -9,8 +9,9 @@ import org.junit.Test
  * 这个文件**不碰任何 android.\* 类型**：面板本体（Dialog/View）没有 Robolectric 就跑不了，
  * 所以「面板长什么样」在真机上验收，而「面板上写什么字」在这里覆盖——
  * 文案里的边界（0 片段 / null / 负数 / 超长 ID）恰恰是最容易写错又最容易被忽略的部分。
+ * （原文件名 SponsorBlockPlayerSheetTest 名不副实——没有一行测到面板本体,已改名。）
  */
-class SponsorBlockPlayerSheetTest {
+class SheetStateFormatterTest {
 
     // ------------------------------------------------------------ 片段信息
 

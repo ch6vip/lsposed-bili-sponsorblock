@@ -10,6 +10,55 @@
 **2026-09-14 18:31 装机真机复验通过**（设备 density 480 = 3.0，与截图反推的换算一致）。
 最近真机验证：**2026-09-14 在 `com.bilibili.app.in` 6.5.0 上验证通过（见下）**
 
+## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
+
+> reviewer 分别负责：入口/Hook、业务+网络、设置+构建、UI+测试；共报 42 条真实问题（0 阻塞、4 高、17 中、21 低），已全部修复。
+
+**高**
+
+1. `SettingsWriter.syncSnapshotToModule` 同进程 provider 回写自激死循环（listener 未被 internalWrite 覆盖 + SharedPreferences 值相同也回调）→ provider 写入外层打 internalWrite 标记 + provider 端值相同跳过 apply。
+2. `module.prop` 缺 name/versionName/versionCode/author/description → 补全（与 build.gradle.kts 的 0.6.0/6 对齐）。
+3. 「我的」页入口用**组内索引**当 RecyclerView 全局 position（多 group 时点击绑错行）→ 按各 group itemList 尺寸累加还原拍平规则计算全局位置，探针记录 `mineMenuFlatPos`。
+4. `lastBoundContainer` 死字段强引用宿主容器 → 删除；`MorePanelInjector` 的 `kotlin.Unit` 用宿主 CL 加载可能失败 → 优先模块 CL，加载不到打 probe。
+
+**中**
+
+5. `SkipStatsStore` init 预加载自己 await loadLatch 白等 2 秒（且卡 UI 线程首次统计读取）→ init 直接 loadFromDisk；readFromDisk 的 exists/canRead 纳入 runCatching；loadFromDisk try/finally countDown。
+6. `AudioMuteController` 全局 `mutedByUs` 在多播放器场景互相踩（静音反复抖动/泄漏）→ 改按 contextHash 记账（mutedContexts），只有所有 context 都不需要静音才 unmute 流。
+7. `SponsorBlockController.onProgress` 无条件回写 state 会用旧视频 state 覆盖新视频（跨线程时序）→ 改 `ConcurrentHashMap.replace(key, old, new)` 条件回写。
+8. 200 但解析失败的坏响应（截断/CDN 错误页）被当「无片段」缓存满一个 TTL → FetchResult 加 `parseFailed` 标志，解析失败只返回不缓存。
+9. `VideoDirectorListener` 字段扫描兜底把任意 long 字段误当 aid/cid（会拉错视频的片段）→ 加量级校验（1e7~1e15 且 aid≠cid），不合量级宁可放弃。
+10. 重看/循环播放同一视频时 skippedSegmentsByVideo 的 key 不清 → 片段永不跳过；onVideoIds 对同一 videoKey 也清空该桶。
+11. `manualSkipTo` 在 duration 未知且 endMs<0 时 coerceIn(min>max) 抛异常 → 先夹负数再夹时长。
+12. 提交成功判定 `statusCode == 200` 漏掉 201/204 → 改用 `result.isSuccess`。
+13. `SubmissionDraftController` 草稿 TTL 用墙钟（回拨后过期永不生效）→ 改单调时钟（与 Repository 一致，JVM 单测退化墙钟）。
+14. `BiliSponsorBlockHooks` teardown 只挂第一个命中的 widget 类 → 每个成功挂 bind 的类都挂 detach（onPlayerLeft 幂等）。
+15. `ensureDeferredBind` check-then-act 竞态 → `pendingBindRef` 改 `AtomicReference` 抢占式 getAndSet(null)，校验失败放回。
+16. `SkipCountdownOverlay` deadline 溢出（超大 totalMs 回绕负数 → 0 秒直接跳过）→ totalMs 饱和夹取（上限 10 分钟）。
+17. 抑制窗口/Toast 节流用墙钟会被 NTP 回拨拉长 → 统一 `SystemClock.uptimeMillis`。
+18. `SettingsWriter` 每次打开设置页新建（监听器/线程累积）→ BiliSponsorBlockHooks.updateSetting 双检锁单例化；「统计」区块在模块 APK 进程永远显示 0 → 改为提示文案（数据在宿主进程）。
+19. `LauncherActivity` 返回键不触发 EditText 失焦，数值改动丢失 → onPause 递归 clearFocus。
+20. `SponsorBlockSettingDialog` 「返回」按钮未先 dismiss → 统一 dismiss 后再导航（避免双弹窗叠加）。
+21. `SponsorSegment` 含 LongArray，data class equals/hashCode 用引用比较 → 自定义按内容比较。
+22. `MaxHeightScrollView.onMeasure` 丢弃父约束 → maxHeight 与父约束取 min。
+23. 面板 `editNumber` 只夹下限（1e30 原样回调）→ 夹到 [0, 600]（与 MAX_SKIP_COUNTDOWN_SECONDS 对齐）。
+
+**低**
+
+24. `MineMenuInjector` install 失败只打 e.message → 记类名+堆栈+probe；回调异常静默吞 → 留 warn；`setField` 按字段实际类型转换（Long→Int），失败留日志。
+25. 进度文本热路径每次编译 Regex → 提为常量（3 个）。
+26. `HookProbe.first` 计数器无界增长 → 记满后移除键。
+27. `flushPendingIds` 不校验时效（上一会话残留 id 补发到新 context）→ 附带采集时刻，超 10s 丢弃。
+28. `onPlayerDestroyed` 在空 map 时 close() 永久关闭 executor → close 只由显式生命周期入口调用。
+29. `refreshSegments` 与 onVideoIds 并发重复请求 → 走同一 inFlight.add 防并发。
+30. `MarkerGeometry` 「至少 1px」与实现矛盾（贴右边缘时 0 可视宽度）→ 贴边时改画 [right-1f, right]，测试同步修正。
+31. `RemainingTimeFormatter` 按原始长度过阈值、按 clamp 后扣减，边界不一致 → 先 clamp 再过阈值。
+32. 数值输入 "60" 回显 "60.0" → 整数值去掉 ".0"。
+33. 默认服务器字面量两处 → `SponsorBlockConfig.DEFAULT_SERVER_ADDRESS` 单一来源。
+34. 测试文件名 SponsorBlockPlayerSheetTest 名不副实（全测 SheetStateFormatter）→ 改名 SheetStateFormatterTest。
+35. CI setup-gradle 指定 gradle-version 后又调 wrapper（冗余）→ 删掉让 wrapper 生效。
+36. 其余：`PlayerSheetState.playheadInsideSegment` 注释对齐、ToastThrottle 注释对齐、BiliSponsorBlockHooks 595 注释与容差实现对齐、Entry/HostTargets legacy 兜底注释标注。
+
 ## 结论
 
 - 目标宿主 6.5.0 上主链路已经端到端可用：加载 → 取 aid/cid → 拉片段 → 自动跳过 → 进度条标记 → Toast → 我的页入口 → 提交。

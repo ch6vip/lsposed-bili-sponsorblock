@@ -45,7 +45,9 @@ object SettingsKeys {
 
     // 服务器
     const val SERVER_ADDRESS = "server_address"
-    const val DEFAULT_SERVER = "https://bsbsb.top"
+
+    /** 默认服务器引用 SponsorBlockConfig 的单一来源,避免两处字面量漂移。 */
+    const val DEFAULT_SERVER = com.ctf.bilisb.model.SponsorBlockConfig.DEFAULT_SERVER_ADDRESS
     const val CACHE_TTL_MINUTES = "cache_ttl_minutes"
     const val DEFAULT_CACHE_TTL_MINUTES = "60"
 
@@ -267,11 +269,20 @@ class SettingsWriter(context: Context) {
     private fun syncSnapshotToModule() {
         if (!syncToModule) return
         val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
-        if (SettingsSyncBridge.writeSnapshot(appContext, snapshot)) {
-            // 权威存储已接受:清掉 dirty,之后可以安全地用权威快照 hydrate
-            editInternal { putBoolean(SettingsKeys.KEY_LOCAL_DIRTY, false) }
-        } else {
-            Log.w(TAG, "writeSnapshot failed, keep local prefs as source of truth")
+        // 同进程 provider call 会在调用线程上同步执行 provider 的 writeSnapshotToPreferences → apply(),
+        // apply() 又会回调本 writer 的变更监听器 —— 必须打上 internalWrite 标记,否则同步自我触发死循环
+        // (SharedPreferencesImpl 即使值相同也会回调监听器)。
+        val marked = internalWrite.get() == true
+        if (!marked) internalWrite.set(true)
+        try {
+            if (SettingsSyncBridge.writeSnapshot(appContext, snapshot)) {
+                // 权威存储已接受:清掉 dirty,之后可以安全地用权威快照 hydrate
+                editInternal { putBoolean(SettingsKeys.KEY_LOCAL_DIRTY, false) }
+            } else {
+                Log.w(TAG, "writeSnapshot failed, keep local prefs as source of truth")
+            }
+        } finally {
+            if (!marked) internalWrite.set(false)
         }
     }
 

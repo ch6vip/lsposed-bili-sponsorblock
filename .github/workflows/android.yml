@@ -24,8 +24,7 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.12"
+        # 不指定 gradle-version:仓库里有 wrapper(8.12),让 wrapper 生效,setup 只提供缓存
 
       # gradlew 在仓库里是 100644（Windows 上提交的），Linux runner 需要补执行位
       - name: Make gradlew executable

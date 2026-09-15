@@ -3,6 +3,7 @@ package com.ctf.bilisb.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.widget.Toast
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.util.info
@@ -40,7 +41,8 @@ object PlayerToastBridge {
             return
         }
 
-        if (!throttle.shouldShow(message)) {
+        // 节流时间用单调时钟 uptimeMillis:墙钟回拨最多导致一次重复 Toast,用单调钟避免
+        if (!throttle.shouldShow(message, SystemClock.uptimeMillis())) {
             return // 节流丢弃：静默，不刷日志
         }
 

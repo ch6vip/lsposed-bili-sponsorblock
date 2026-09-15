@@ -60,7 +60,9 @@ object SkipStatsStore {
 
     init {
         // 类初始化时就异步读盘:UI 第一次打开统计对话框前数据通常已经就绪。
-        io.execute { ensureLoaded() }
+        // 注意直接调 loadFromDisk:ensureLoaded 会等 loadLatch,而 latch 只能由 loadFromDisk
+        // (即自己超时后的兜底路径)countDown —— 预加载自己等自己会白等满 2 秒。
+        io.execute { loadFromDisk() }
     }
 
     data class CategoryStat(val count: Long, val durationMs: Long)
@@ -123,17 +125,21 @@ object SkipStatsStore {
 
     /** 真正读盘。可能被后台 preload 或 [ensureLoaded] 兜底调用,重复调用是幂等的。 */
     private fun loadFromDisk() {
-        val snapshot = readFromDisk()
-        synchronized(lock) {
-            if (!loaded) {
-                totalCount = snapshot.totalCount
-                totalDurationMs = snapshot.totalDurationMs
-                perCategoryCount.putAll(snapshot.perCategoryCount)
-                perCategoryDurationMs.putAll(snapshot.perCategoryDurationMs)
-                loaded = true
+        try {
+            val snapshot = readFromDisk()
+            synchronized(lock) {
+                if (!loaded) {
+                    totalCount = snapshot.totalCount
+                    totalDurationMs = snapshot.totalDurationMs
+                    perCategoryCount.putAll(snapshot.perCategoryCount)
+                    perCategoryDurationMs.putAll(snapshot.perCategoryDurationMs)
+                    loaded = true
+                }
             }
+        } finally {
+            // 无论成功失败都要放行等待者:否则 ensureLoaded 的 2 秒超时兜底每次都触发
+            loadLatch.countDown()
         }
-        loadLatch.countDown()
     }
 
     private class DiskSnapshot(
@@ -145,7 +151,10 @@ object SkipStatsStore {
 
     private fun readFromDisk(): DiskSnapshot {
         for (file in candidates) {
-            if (!file.exists() || !file.canRead()) continue
+            // exists/canRead 也可能抛 SecurityException:不包 runCatching 会让 init 预加载
+            // 整体失败且 loadLatch 永不 countDown,之后每次 record/snapshot 都走 2 秒超时兜底
+            val readable = runCatching { file.exists() && file.canRead() }.getOrDefault(false)
+            if (!readable) continue
             val parsed = runCatching { parse(file) }
             if (parsed.isSuccess) return parsed.getOrThrow()
 

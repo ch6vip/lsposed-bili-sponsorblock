@@ -147,6 +147,11 @@ object HookProbe {
      */
     fun first(module: XposedModule, key: String, times: Int, message: () -> String) {
         val count = firstCounters.merge(key, 1, Int::plus) ?: 1
+        if (count == times + 1) {
+            // 记满后从 map 移除键:probe 键(如 seekDraw:$className:$instanceId)按实例生成,
+            // 长会话会缓慢累积;计数已达上限时最后一次 merge 的值就是 times+1,移除防止无界增长
+            firstCounters.remove(key, count)
+        }
         if (count <= times) {
             module.info("[probe] $key #$count: ${safeMessage(message)}")
         }

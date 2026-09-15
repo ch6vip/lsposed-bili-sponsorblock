@@ -13,7 +13,7 @@ class SkipSuppression(private val windowMs: Long) {
 
     private val suppressedAtByKey = HashMap<String, Long>()
 
-    /** 是否处于抑制窗口内。[nowMs] 用 SystemClock.uptimeMillis()（手动跳过）或 System.currentTimeMillis()。 */
+    /** 是否处于抑制窗口内。[nowMs] 统一用 SystemClock.uptimeMillis()（单调时钟，调用方已收敛）。 */
     @Synchronized
     fun isSuppressed(scopeHash: Int, segmentKey: String, nowMs: Long): Boolean {
         evictExpired(nowMs)

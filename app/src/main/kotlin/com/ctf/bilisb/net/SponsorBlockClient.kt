@@ -41,6 +41,8 @@ class SponsorBlockClient(
         val statusCode: Int,
         val body: String?,
         val segments: List<SponsorSegment>,
+        /** 200 但 body 解析失败(非 JSON/截断/CDN 错误页):结果不可信,调用方不应缓存。 */
+        val parseFailed: Boolean = false,
     ) {
         /** 2xx 即视为成功(不要只认 200,服务端可能返回 201/204)。 */
         val isSuccess: Boolean get() = statusCode in 200..299
@@ -106,11 +108,12 @@ class SponsorBlockClient(
             val status = conn.responseCode
             val body = readBody(conn, status, "fetch")
             log("fetch GET $url -> status=$status body=${body?.take(LOG_BODY_PREVIEW_CHARS)}")
-            // 解析失败(如 404 body 不是 JSON 数组)按空结果处理,不触发重试。
-            val segments = runCatching { parseSegmentsForVideo(query.bvid, body) }
+            // 解析失败(如 CDN 错误页 body 不是 JSON)按空结果处理,不触发重试,但标记 parseFailed
+            val parsed = runCatching { parseSegmentsForVideo(query.bvid, body) }
+            val segments = parsed
                 .onFailure { log("parse segments failed status=$status: ${it.message}") }
                 .getOrElse { emptyList() }
-            FetchResult(status, body, segments)
+            FetchResult(status, body, segments, parseFailed = parsed.isFailure)
         } finally {
             conn.disconnect()
         }

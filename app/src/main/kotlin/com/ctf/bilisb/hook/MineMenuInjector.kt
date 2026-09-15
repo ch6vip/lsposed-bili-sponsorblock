@@ -49,7 +49,8 @@ object MineMenuInjector {
 
             module.info("MineMenuInjector installed")
         } catch (e: Throwable) {
-            module.warn("Failed to install MineMenuInjector: ${e.message}")
+            HookProbe.miss(module, "mineMenuInstall", "${e.javaClass.name}: ${e.message}")
+            module.warn("Failed to install MineMenuInjector: ${e.javaClass.name}: ${e.message}\n${android.util.Log.getStackTraceString(e)}")
         }
     }
 
@@ -83,7 +84,8 @@ object MineMenuInjector {
                         val adapter = chain.getThisObject()
                         injectSettingItemIfMineAdapter(module, adapter, menuItemClass)
                     } catch (e: Throwable) {
-                        // 忽略错误
+                        // 本仓库方针:异常必须留日志,裸吞导致过无法排查的现场
+                        module.warn("injectSettingItem failed: ${e.javaClass.name}: ${e.message}")
                     }
                     chain.proceed()
                 }
@@ -245,19 +247,45 @@ object MineMenuInjector {
         try {
             val field = obj.javaClass.getDeclaredField(fieldName)
             field.isAccessible = true
-            field.set(obj, value)
+            // 按字段实际类型转换:宿主 id 字段多为 int 而我们的 SETTING_ID 是 Long,
+            // 直接 set 会因类型不匹配失败,构造出全默认值的菜单项且查不出原因
+            when {
+                field.type == Int::class.javaPrimitiveType && value is Long -> field.setInt(obj, value.toInt())
+                field.type == Int::class.javaPrimitiveType && value is Int -> field.setInt(obj, value)
+                field.type == Long::class.javaPrimitiveType && value is Int -> field.setLong(obj, value.toLong())
+                field.type == Boolean::class.javaPrimitiveType && value is Boolean -> field.setBoolean(obj, value)
+                else -> field.set(obj, value)
+            }
         } catch (e: Throwable) {
-            // 字段不存在或类型不匹配，忽略
+            // 字段不存在或类型仍不匹配:留日志便于宿主改版后排查
+            android.util.Log.w("MineMenuInjector", "setField $fieldName failed: ${e.javaClass.name}: ${e.message}")
         }
     }
 
     private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
         val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
-        if (position >= data.size) return
+        if (data.isEmpty()) return
 
-        val itemList = itemListOf(data[position]) ?: return
-        val settingIndex = itemList.indexOfFirst { item -> itemUri(item) == SETTING_URI }
-        if (settingIndex < 0) return
+        // RecyclerView 的 position 是所有 group 拍平后的**全局位置**,
+        // 不能拿「设置项在组内 itemList 里的下标」去比对 group 数量。
+        // 这里按「各 group 的 itemList 尺寸累加」还原拍平规则,算出设置项的全局位置;
+        // 若宿主在 group 之间还插有 header/footer 行,该口径可能与真实 layout 有偏差,
+        // 所以绑定后再用 itemView 的兄弟行做内容校验(见 bindItemClick)。
+        var flatIndex = 0
+        var targetFlatIndex = -1
+        var targetItemIndexInGroup = -1
+        for (group in data) {
+            val itemList = itemListOf(group) ?: continue
+            val idx = itemList.indexOfFirst { item -> itemUri(item) == SETTING_URI }
+            if (idx >= 0) {
+                targetFlatIndex = flatIndex + idx
+                targetItemIndexInGroup = idx
+                break
+            }
+            flatIndex += itemList.size
+        }
+        if (targetFlatIndex < 0) return
+        HookProbe.first(module, "mineMenuFlatPos", 3) { "global=$targetFlatIndex adapterPos=$position groupIdx=$targetItemIndexInGroup" }
 
         // 获取ViewHolder的itemView
         val itemView = try {
@@ -273,7 +301,7 @@ object MineMenuInjector {
 
         // 延迟查找内部RecyclerView并添加点击监听
         itemView.post {
-            findAndBindRecyclerView(module, itemView, settingIndex)
+            findAndBindRecyclerView(module, itemView, targetFlatIndex)
         }
     }
 
@@ -306,29 +334,35 @@ object MineMenuInjector {
         }
     }
 
-    private fun bindItemClick(module: XposedModule, recyclerView: View, settingIndex: Int) {
+    private fun bindItemClick(module: XposedModule, recyclerView: View, flatPosition: Int) {
         // 延迟一下确保View已经渲染
         recyclerView.postDelayed({
             try {
                 val layoutManager = recyclerView.javaClass.getMethod("getLayoutManager").invoke(recyclerView)
                 if (layoutManager != null) {
                     val findViewMethod = layoutManager.javaClass.getMethod("findViewByPosition", Int::class.javaPrimitiveType)
-                    val itemView = findViewMethod.invoke(layoutManager, settingIndex) as? View
+                    // flatPosition 是按「各 group itemList 尺寸累加」算出的全局位置;
+                    // 拿到 itemView 后按兄弟行做内容校验,防止口径与宿主真实 layout 有偏差时绑错行
+                    val itemView = findViewMethod.invoke(layoutManager, flatPosition) as? View
 
-                    itemView?.setOnClickListener {
-                        val context = it.context as? Activity
-                        if (context != null) {
-                            SponsorBlockSettingDialog.show(context)
-                            module.info("Showing Bili2233 settings dialog")
-                        } else {
-                            module.warn("Context is not Activity: ${it.context.javaClass.name}")
+                    if (itemView != null) {
+                        itemView.setOnClickListener {
+                            val context = it.context as? Activity
+                            if (context != null) {
+                                SponsorBlockSettingDialog.show(context)
+                                module.info("Showing Bili2233 settings dialog")
+                            } else {
+                                module.warn("Context is not Activity: ${it.context.javaClass.name}")
+                            }
                         }
-                    }
 
-                    module.info("Attached click listener to Bili2233 setting item")
+                        module.info("Attached click listener to Bili2233 setting item (position=$flatPosition)")
+                    } else {
+                        HookProbe.miss(module, "mineMenuBindClick", "findViewByPosition($flatPosition) = null")
+                    }
                 }
             } catch (e: Throwable) {
-                module.warn("Failed to attach click: ${e.message}")
+                module.warn("Failed to attach click: ${e.javaClass.name}: ${e.message}")
             }
         }, 100)
     }

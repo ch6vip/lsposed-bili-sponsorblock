@@ -37,11 +37,15 @@ object RemainingTimeFormatter {
         var currentEnd = -1L
         segments
             .filter { it.actionType == "skip" && it.category !in nonDeductibleCategories }
-            .filter { it.endMs - it.startMs >= minSkipDurationMs }
             .sortedBy { it.startMs }
             .forEach { segment ->
+                // 先 clamp 到视频时长内再过阈值:endMs 远超 durationMs 的片段按「实际会跳的时长」
+                // 过滤,而不是按原始长度过阈值、随后又被 clamp 扣减,两者在边界上不一致
                 val start = segment.startMs.coerceAtLeast(0L)
                 val end = segment.endMs.coerceAtMost(durationMs)
+                if (end - start < minSkipDurationMs) {
+                    return@forEach
+                }
                 if (end <= start) {
                     return@forEach
                 }

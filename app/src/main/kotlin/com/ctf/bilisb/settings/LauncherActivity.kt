@@ -2,6 +2,8 @@ package com.ctf.bilisb.settings
 
 import android.app.Activity
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 
 /**
  * 模块入口设置页。
@@ -24,6 +26,26 @@ class LauncherActivity : Activity() {
             showMain()
         } else {
             super.onBackPressed()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 返回键/切后台不触发 EditText 失焦(numberRow 只在失焦时落盘):
+        // 用户改完「缓存 TTL / 最小时长 / 倒计时」直接按返回键,改动会静默丢失。
+        // 这里在离开前主动清掉焦点,触发同一套落盘路径。
+        clearFocusRecursively(window?.decorView)
+    }
+
+    private fun clearFocusRecursively(view: View?) {
+        view ?: return
+        if (view.hasFocus()) {
+            view.clearFocus()
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                clearFocusRecursively(view.getChildAt(i))
+            }
         }
     }
 
