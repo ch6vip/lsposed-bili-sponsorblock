@@ -655,6 +655,27 @@ class SponsorBlockController(
         return minOf(configuredMs, (endMs - startMs) / 2).coerceAtLeast(1L)
     }
 
+    /**
+     * 按 contextHash 清理播放器状态(延迟清理路径专用)。
+     *
+     * 与 [onPlayerDestroyed] 的区别:销毁时机上宿主 widget 往往已经 detach,
+     * 反射取 Context 会失败,`PlayerBridge.contextHash(host)` 会返回 0,
+     * 按 host 对象清理不可靠 —— 这里直接收 hash。
+     *
+     * 静音的解除:用 controller 里记录的 container(仍在内存里,Context 可反射)
+     * 做 AudioManager 宿主;拿不到时只清记账,流层 unmute 由剩余 context 的回调兜底。
+     */
+    fun onPlayerContextDestroyed(contextHash: Int) {
+        if (contextHash == 0) return
+        val container = latestContainerByContext[contextHash]
+        if (container != null) {
+            AudioMuteController.unmute(module, container)
+            ManualSkipButton.hide(module, container)
+            SkipCountdownOverlay.cancel(module, container)
+        }
+        removeContext(contextHash)
+    }
+
     /** 播放器销毁时调用:确保静音被取消,避免静音状态泄漏到其它媒体。 */
     fun onPlayerDestroyed(host: Any) {
         AudioMuteController.unmute(module, host)

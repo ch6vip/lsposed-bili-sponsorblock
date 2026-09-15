@@ -108,7 +108,6 @@ object HookResolve {
 object HookProbe {
     private val results = LinkedHashMap<String, String>()
     private val firstCounters = ConcurrentHashMap<String, Int>()
-    private val lastLogAt = ConcurrentHashMap<String, Long>()
 
     @Synchronized
     fun ok(module: XposedModule, key: String, target: String) {
@@ -155,15 +154,6 @@ object HookProbe {
         if (count <= times) {
             module.info("[probe] $key #$count: ${safeMessage(message)}")
         }
-    }
-
-    /** 每 [intervalMs] 毫秒最多记录一次（用于高频回调）。 */
-    fun throttled(module: XposedModule, key: String, intervalMs: Long, message: () -> String) {
-        val now = System.currentTimeMillis()
-        val last = lastLogAt[key] ?: 0L
-        if (now - last < intervalMs) return
-        lastLogAt[key] = now
-        module.info("[probe] $key: ${safeMessage(message)}")
     }
 
     private fun safeMessage(message: () -> String): String {
