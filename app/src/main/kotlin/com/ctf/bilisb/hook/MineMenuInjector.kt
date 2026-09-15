@@ -266,26 +266,28 @@ object MineMenuInjector {
         val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
         if (data.isEmpty()) return
 
-        // RecyclerView 的 position 是所有 group 拍平后的**全局位置**,
-        // 不能拿「设置项在组内 itemList 里的下标」去比对 group 数量。
-        // 这里按「各 group 的 itemList 尺寸累加」还原拍平规则,算出设置项的全局位置;
-        // 若宿主在 group 之间还插有 header/footer 行,该口径可能与真实 layout 有偏差,
-        // 所以绑定后再用 itemView 的兄弟行做内容校验(见 bindItemClick)。
+        // 宿主 adapter 的 position 口径未知（可能是 ConcatAdapter 按 group 分段、也可能拍平），
+        // 之前只按「group 拍平累加」算 global=8，真机实测 findViewByPosition(8) 永远 null，
+        // 而用户看得到入口 —— 说明真实 position 是别的口径（日志显示 adapterPos 与 groupIdx 吻合）。
+        // 这里同时收集多个候选位置（组内下标 / 拍平累加），绑定轮询里哪个能找到视图就绑哪个。
         var flatIndex = 0
-        var targetFlatIndex = -1
         var targetItemIndexInGroup = -1
+        val candidatePositions = LinkedHashSet<Int>()
         for (group in data) {
             val itemList = itemListOf(group) ?: continue
             val idx = itemList.indexOfFirst { item -> itemUri(item) == SETTING_URI }
             if (idx >= 0) {
-                targetFlatIndex = flatIndex + idx
                 targetItemIndexInGroup = idx
+                candidatePositions.add(idx)
+                candidatePositions.add(flatIndex + idx)
                 break
             }
             flatIndex += itemList.size
         }
-        if (targetFlatIndex < 0) return
-        HookProbe.first(module, "mineMenuFlatPos", 3) { "global=$targetFlatIndex adapterPos=$position groupIdx=$targetItemIndexInGroup" }
+        if (targetItemIndexInGroup < 0) return
+        HookProbe.first(module, "mineMenuFlatPos", 3) {
+            "candidates=$candidatePositions adapterPos=$position groupIdx=$targetItemIndexInGroup"
+        }
 
         // 获取ViewHolder的itemView
         val itemView = try {
@@ -299,9 +301,9 @@ object MineMenuInjector {
             }
         } ?: return
 
-        // 延迟查找内部RecyclerView并添加点击监听
+        // 延迟查找内部RecyclerView并按候选位置绑定
         itemView.post {
-            findAndBindRecyclerView(module, itemView, targetFlatIndex)
+            findAndBindRecyclerView(module, itemView, candidatePositions)
         }
     }
 
@@ -324,28 +326,39 @@ object MineMenuInjector {
         }
     }
 
-    private fun findAndBindRecyclerView(module: XposedModule, view: View, settingIndex: Int) {
+    private fun findAndBindRecyclerView(module: XposedModule, view: View, candidatePositions: Set<Int>) {
         if (view.javaClass.name.contains("RecyclerView")) {
-            bindItemClick(module, view, settingIndex)
+            bindItemClick(module, view, candidatePositions)
         } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                findAndBindRecyclerView(module, view.getChildAt(i), settingIndex)
+                findAndBindRecyclerView(module, view.getChildAt(i), candidatePositions)
             }
         }
     }
 
-    private fun bindItemClick(module: XposedModule, recyclerView: View, flatPosition: Int) {
-        // 延迟一下确保View已经渲染
-        recyclerView.postDelayed({
-            try {
-                val layoutManager = recyclerView.javaClass.getMethod("getLayoutManager").invoke(recyclerView)
-                if (layoutManager != null) {
-                    val findViewMethod = layoutManager.javaClass.getMethod("findViewByPosition", Int::class.javaPrimitiveType)
-                    // flatPosition 是按「各 group itemList 尺寸累加」算出的全局位置;
-                    // 拿到 itemView 后按兄弟行做内容校验,防止口径与宿主真实 layout 有偏差时绑错行
-                    val itemView = findViewMethod.invoke(layoutManager, flatPosition) as? View
+    private fun bindItemClick(module: XposedModule, recyclerView: View, candidatePositions: Set<Int>) {
+        // 对每个候选 position 轮询重试（延迟递增），哪个能找到视图就绑哪个。
+        // 全部候选全部重试都失败才记 miss。
+        val delaysMs = longArrayOf(100, 300, 600, 1200)
+        var bound = false
 
-                    if (itemView != null) {
+        fun attempt(index: Int) {
+            if (bound) return
+            if (index >= delaysMs.size) {
+                HookProbe.miss(module, "mineMenuBindClick", "no candidate view found after ${delaysMs.size} retries, positions=$candidatePositions")
+                return
+            }
+            recyclerView.postDelayed({
+                if (bound) return@postDelayed
+                try {
+                    val layoutManager = recyclerView.javaClass.getMethod("getLayoutManager").invoke(recyclerView) ?: run {
+                        attempt(index + 1)
+                        return@postDelayed
+                    }
+                    val findViewMethod = layoutManager.javaClass.getMethod("findViewByPosition", Int::class.javaPrimitiveType)
+
+                    for (pos in candidatePositions) {
+                        val itemView = findViewMethod.invoke(layoutManager, pos) as? View ?: continue
                         itemView.setOnClickListener {
                             val context = it.context as? Activity
                             if (context != null) {
@@ -355,16 +368,17 @@ object MineMenuInjector {
                                 module.warn("Context is not Activity: ${it.context.javaClass.name}")
                             }
                         }
-
-                        module.info("Attached click listener to Bili2233 setting item (position=$flatPosition)")
-                    } else {
-                        HookProbe.miss(module, "mineMenuBindClick", "findViewByPosition($flatPosition) = null")
+                        bound = true
+                        module.info("Attached click listener to Bili2233 setting item (position=$pos, attempt=${index + 1})")
+                        return@postDelayed
                     }
+                    attempt(index + 1)
+                } catch (e: Throwable) {
+                    module.warn("Failed to attach click: ${e.javaClass.name}: ${e.message}")
                 }
-            } catch (e: Throwable) {
-                module.warn("Failed to attach click: ${e.javaClass.name}: ${e.message}")
-            }
-        }, 100)
+            }, delaysMs[index])
+        }
+        attempt(0)
     }
 
     private fun hookUriRouter(module: XposedModule, classLoader: ClassLoader) {
