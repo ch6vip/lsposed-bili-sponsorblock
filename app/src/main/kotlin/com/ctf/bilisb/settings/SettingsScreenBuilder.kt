@@ -158,6 +158,18 @@ object SettingsScreenBuilder {
     }
 
     private fun buildStats(activity: Activity, parent: LinearLayout) {
+        // SkipStatsStore 的数据文件在宿主数据目录(HostTargets.HOST_DATA_DIRS),record 只发生在
+        // 宿主进程 —— 模块 APK 进程读不到,这里会永远显示 0 且「重置」清的是空内存写不进宿主目录。
+        // 模块进程下显示说明文案,不显示假数据。
+        if (activity.packageName != SettingsSyncBridge.MODULE_PACKAGE) {
+            parent.addView(TextView(activity).apply {
+                text = "统计只记录在宿主进程内,请在播放器「空降助手」面板查看。"
+                textSize = 12f
+                setTextColor(Color.GRAY)
+                setPadding(0, 0, 0, dp(activity, 8))
+            })
+            return
+        }
         val summary = TextView(activity).apply {
             textSize = 15f
             setPadding(0, dp(activity, 4), 0, dp(activity, 4))
@@ -271,8 +283,9 @@ object SettingsScreenBuilder {
                 setOnFocusChangeListener { _, hasFocus ->
                     if (!hasFocus) {
                         val fallback = defaultValue.toFloatOrNull() ?: 0f
-                        val normalized =
-                            (text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: fallback).toString()
+                        val value = text.toString().trim().toFloatOrNull()?.coerceAtLeast(0f) ?: fallback
+                        // 整数值去掉 ".0":Float.toString() 会把 "60" 回显成 "60.0",与 hint 不一致
+                        val normalized = if (value % 1f == 0f) value.toLong().toString() else value.toString()
                         setText(normalized)
                         prefs.edit().putString(key, normalized).apply()
                     }

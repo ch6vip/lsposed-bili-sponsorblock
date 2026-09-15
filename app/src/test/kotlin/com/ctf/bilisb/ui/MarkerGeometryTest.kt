@@ -81,7 +81,7 @@ class MarkerGeometryTest {
 
     @Test
     fun enforcesMinimumOnePixelWidthNearRightEdge() {
-        // 片段尾部离结束只剩 0.5px：xStart + 1f > boundsRight
+        // 片段尾部离结束只剩 0.5px：保证至少 1px 可视宽度,画 [right-1f, right]
         val ranges = MarkerGeometry.markerRanges(
             boundsLeft = 0f,
             boundsRight = 100f,
@@ -90,8 +90,9 @@ class MarkerGeometryTest {
         )
 
         val range = ranges.single()
-        assertEquals(100f, range.xStart, epsilon)
+        assertEquals(99f, range.xStart, epsilon)
         assertEquals(100f, range.xEnd, epsilon)
+        assertTrue(range.xEnd - range.xStart >= 1f - epsilon)
     }
 
     @Test

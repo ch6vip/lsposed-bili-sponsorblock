@@ -120,6 +120,12 @@ class SponsorBlockController(
             }
             // 过期的提交草稿一并丢弃:用户可能在上一集点了「标记起点」。
             submissionDraftController.clear(videoKey(previous))
+        } else {
+            // 重看/循环播放同一视频:onVideoIds 是「播放条目重新就绪」的信号,语义是
+            // 「重新开始播放」—— 同一视频从头看也应重新可跳,否则 skippedSegmentsByVideo
+            // 里的 key 会让整个片段在重看时永远不跳/不再弹倒计时。清掉该视频的跳过记录。
+            val key = videoKey(state)
+            skippedSegmentsByVideo[key]?.clear()
         }
 
         val query = SponsorBlockQuery(state.bvid, state.cid)
@@ -213,7 +219,9 @@ class SponsorBlockController(
         if (closed.get()) return false
         val handle = playerHandles[contextHash] ?: return false
         val state = latestStateByContext[contextHash] ?: return false
-        val target = endMs.coerceIn(0L, state.durationMs.takeIf { it > 0 } ?: endMs)
+        // 先夹负数再夹时长上限:durationMs 未知(0)时若直接 coerceIn(0, 负的 endMs) 会因 min>max 抛异常
+        val sanitized = endMs.coerceAtLeast(0L)
+        val target = sanitized.coerceIn(0L, state.durationMs.takeIf { it > 0 } ?: sanitized)
         PlayerActions.seekTo(module, handle.core, target)
         module.info("manual sheet skip video=${state.bvid} cid=${state.cid} to=$target")
         return true
@@ -267,7 +275,8 @@ class SponsorBlockController(
                     "status=${result.statusCode} start=${submission.startMs} end=${submission.endMs} " +
                     "category=${submission.category}",
             )
-            if (result.statusCode == 200) {
+            // 用 client 定义的 isSuccess(2xx),不要只认 200:服务端返回 201/204 时也要清缓存
+            if (result.isSuccess) {
                 repository.clear(SponsorBlockQuery(state.bvid, state.cid))
             }
         }
@@ -333,7 +342,11 @@ class SponsorBlockController(
         val query = SponsorBlockQuery(state.bvid, state.cid)
         repository.clear(query)
         val key = videoKey(state)
-        inFlight.remove(key)
+        // 与 onVideoIds 的 in-flight 防并发保持一致:add 失败说明同一视频已在拉取,跳过,
+        // 避免并发时 refresh 与常规 fetch 对同一视频各发一次请求
+        if (!inFlight.add(key)) {
+            return true
+        }
         executor.execute {
             if (closed.get()) return@execute
             try {
@@ -361,7 +374,9 @@ class SponsorBlockController(
         // 进度文本 hook 的 duration 比 onStart 时刻更准(首帧已就绪),
         // 持续把非零 duration 回填到 state,供进度条标记与提交使用。
         if (durationMs > 0 && state.durationMs != durationMs) {
-            latestStateByContext[contextHash] = state.copy(durationMs = durationMs)
+            // 回写前校验 map 里仍是同一个 state:onVideoIds(可能在不同线程)若已把该
+            // context 换成新视频的 state,这里用旧 state 覆盖会串台(旧 bvid 查缓存/旧片段 seek)。
+            latestStateByContext.replace(contextHash, state, state.copy(durationMs = durationMs))
         }
         val handle = playerHandles[contextHash] ?: return
 
@@ -655,9 +670,10 @@ class SponsorBlockController(
             }
         }
 
-        if (latestStateByContext.isEmpty()) {
-            close()
-        }
+        // 不在 destroy 路径 close():executor 被 shutdown 后 closed 置位,bindPlayerHandle/
+        // onVideoIds 全部静默失效。宿主 onVideoIds 未到就先触发 destroy 时(时序不确定),
+        // 后续播放会整体失活且无日志。close 只由显式生命周期入口(模块关闭)调用,
+        // destroy 路径只清理 per-context 状态。
     }
 
     private fun removeContext(contextHash: Int) {

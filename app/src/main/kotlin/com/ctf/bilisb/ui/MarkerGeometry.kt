@@ -83,10 +83,13 @@ object MarkerGeometry {
         if (xEnd < xStart) {
             return null
         }
-        // 至少 1px 宽（保证极短片段可见），但绝不越过右边界。
-        // clamp 保证 xStart < right，所以 xStart + 1f 一定 > xStart >= left，min/max 不会反转。
+        // 至少 1px 宽（保证极短片段可见），但绝不越过右边界:
+        // 贴近右边缘、(right - xStart) < 1f 时改画 [right-1f, right],否则按 minOf 压回后
+        // 实际宽度 <1px(0 可视宽度),与「至少 1px」的承诺矛盾。
         val safeEnd = maxOf(xEnd, xStart + 1f)
-        return MarkerRange(segment.category, false, xStart, minOf(safeEnd, right))
+        val end = if (right - xStart < 1f) right else minOf(safeEnd, right)
+        val start = if (right - xStart < 1f) (right - 1f).coerceAtLeast(left) else xStart
+        return MarkerRange(segment.category, false, start, end)
     }
 
     /**

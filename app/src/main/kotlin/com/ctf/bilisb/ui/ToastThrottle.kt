@@ -8,8 +8,8 @@ import java.util.concurrent.ConcurrentHashMap
  * 进度回调 / 倒计时结束可能在同一秒内连着触发多次，宿主 Toast 队列会排成长串。
  * 这里按文案记账：窗口内重复的直接丢弃（调用方不应因此写日志，否则日志比 Toast 还吵）。
  *
- * 纯 Kotlin（时间由调用方注入），因此可以直接 JVM 单测；时间源用
- * `System.currentTimeMillis()` 而不是 `SystemClock`，避免依赖 android.os。
+ * 纯 Kotlin（时间由调用方注入），因此可以直接 JVM 单测。记录随条目增长,
+ * 由调用方在 UI 生命周期点调用 [clear]（PlayerToastBridge 已挂接）。
  */
 class ToastThrottle(private val windowMs: Long = DEFAULT_WINDOW_MS) {
 

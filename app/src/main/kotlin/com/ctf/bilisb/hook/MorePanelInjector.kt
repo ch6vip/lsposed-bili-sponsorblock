@@ -193,9 +193,19 @@ object MorePanelInjector {
         val classLoader = itemInterface.classLoader
             ?: holderInterface.classLoader
             ?: ClassLoader.getSystemClassLoader()
+        // kotlin.Unit 优先用**本模块**的 ClassLoader 加载(LSPosed 模块打进自己的 kotlin-stdlib),
+        // 宿主 ClassLoader 未必暴露该类;加载不到时 fallback 到宿主 CL,再不行打 probe 留痕。
         val unit = runCatching {
-            Class.forName("kotlin.Unit", false, classLoader).getField("INSTANCE").get(null)
-        }.getOrNull()
+            Class.forName("kotlin.Unit", false, MorePanelInjector::class.java.classLoader)
+                .getField("INSTANCE").get(null)
+        }.getOrElse {
+            runCatching {
+                Class.forName("kotlin.Unit", false, classLoader).getField("INSTANCE").get(null)
+            }.getOrElse {
+                HookProbe.miss(module, "morePanelUnit", "kotlin.Unit not loadable from module nor host CL")
+                null
+            }
+        }
 
         return Proxy.newProxyInstance(
             classLoader,
@@ -213,7 +223,8 @@ object MorePanelInjector {
                                     buildHolderProxy(classLoader, holderInterface, context, parent, module, onOpenPanel)
                                 }
                             }
-                            // 绑定回调：宿主在 onBindViewHolder 里调用，返回 Unit 即可
+                            // 绑定回调：宿主在 onBindViewHolder 里调用，返回 Unit 即可；
+                            // unit 加载不到时返回 null —— 绑定回调的返回值被宿主协程忽略,风险可接受(有 probe 留痕)
                             "e" -> unit
                             // 视图类型 key：默认实现返回 getClass()，这里显式返回代理类，语义一致
                             "a" -> proxy.javaClass

@@ -47,6 +47,11 @@ class SponsorBlockRepository(
 
     fun fetchAndCache(query: SponsorBlockQuery, ignoreCache: Boolean = false): SponsorBlockClient.FetchResult {
         val result = client.fetchSkipSegments(query, ignoreCache)
+        // 200 但解析失败(截断/CDN 错误页)的响应不可信:不能当「该视频无片段」缓存满一个 TTL,
+        // 否则期间所有跳过/静音整体失效且命中缓存后连重拉都不发生。只返回不缓存。
+        if (result.parseFailed) {
+            return result
+        }
         if (cacheTtlMs > 0 && (result.statusCode == 200 || result.statusCode == 404)) {
             val key = cacheKey(query)
             evictIfNeeded()

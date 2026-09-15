@@ -36,6 +36,9 @@ object SkipCountdownOverlay {
     /** 倒计时结束后同样要抑制：seek 生效前的进度回调会让浮层重开。 */
     private const val COMPLETE_SUPPRESS_MS = 2_000L
 
+    /** 倒计时上限:设置侧已有 600s clamp,这里再兜一道防溢出。 */
+    private const val MAX_COUNTDOWN_MS = 10L * 60_000L
+
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     private data class CountdownState(
@@ -81,8 +84,10 @@ object SkipCountdownOverlay {
                 }
 
                 val scope = System.identityHashCode(activity)
+                // 抑制窗口统一用 SystemClock.uptimeMillis(单调):wall clock 被 NTP/回拨时
+                // currentTimeMillis 会让窗口异常拉长/缩短
                 if (segmentKey.isNotEmpty() &&
-                    suppression.isSuppressed(scope, segmentKey, System.currentTimeMillis())
+                    suppression.isSuppressed(scope, segmentKey, SystemClock.uptimeMillis())
                 ) {
                     return@post
                 }
@@ -98,7 +103,10 @@ object SkipCountdownOverlay {
                 val cancelBtn = row.getChildAt(1) as Button
 
                 // deadline 驱动：文本永远由 (deadline - now) 反算，不依赖 tick 次数。
-                val deadline = SystemClock.uptimeMillis() + totalMs.coerceAtLeast(0L)
+                // totalMs 饱和夹取:超大值会让 uptimeMillis+totalMs 回绕成负数,
+                // now >= deadline 立即成立 → 倒计时 0 秒直接触发跳过(比不倒计时更糟)。
+                val total = totalMs.coerceIn(0L, MAX_COUNTDOWN_MS)
+                val deadline = SystemClock.uptimeMillis() + total
 
                 cancelBtn.setOnClickListener {
                     cancelTicker(state)
@@ -126,7 +134,7 @@ object SkipCountdownOverlay {
                             state.ticker = null
                             // 只有拿到片段标识才记账，否则不同片段会互相压制。
                             if (segmentKey.isNotEmpty()) {
-                                suppression.suppress(scope, segmentKey, System.currentTimeMillis())
+                                suppression.suppress(scope, segmentKey, SystemClock.uptimeMillis())
                             }
                             onComplete()
                             return

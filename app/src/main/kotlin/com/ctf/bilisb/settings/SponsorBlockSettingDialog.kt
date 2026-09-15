@@ -63,6 +63,9 @@ object SponsorBlockSettingDialog {
         val dialogRef = arrayOfNulls<AlertDialog>(1)
         fun back() {
             dialogRef[0]?.currentFocus?.clearFocus()
+            // 先 dismiss 当前 detail 弹窗再导航:onClick 返回后 AOSP 会自动 dismiss,
+            // 直接 showMain 会造成短暂双弹窗叠加(与 showMain 的导航写法保持一致)
+            dialogRef[0]?.dismiss()
             showMain(activity, onDismiss)
         }
 

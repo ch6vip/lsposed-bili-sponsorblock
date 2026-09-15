@@ -1,5 +1,6 @@
 package com.ctf.bilisb.sponsor
 
+import android.os.SystemClock
 import com.ctf.bilisb.model.SponsorBlockSubmission
 import com.ctf.bilisb.player.PlayerState
 import java.util.concurrent.ConcurrentHashMap
@@ -10,9 +11,13 @@ import java.util.concurrent.ConcurrentHashMap
  * 草稿必须会「过期」:点第一次后用户可能直接去看别的视频、或者隔了很久才点第二次,
  * 那样拼出来的区间没有意义(甚至会把两个不相关的位置当成一个片段提交上去)。
  * 所以每次取出草稿都要经过 [isUsable] 校验,不通过就丢弃并重新开始。
+ *
+ * 时钟用**单调时钟** [SystemClock.elapsedRealtime](与 [SponsorBlockRepository] 一致):
+ * 墙钟被 NTP/手动回拨后 `now - createdAtMs` 为负,10 分钟过期永不生效,旧草稿可能
+ * 与不相关位置拼成片段提交。纯 JVM 单测里 android.jar 是 stub,退化为墙钟。
  */
 class SubmissionDraftController(
-    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val nowMs: () -> Long = defaultClock(),
 ) {
     private val drafts = ConcurrentHashMap<String, Draft>()
 
@@ -115,7 +120,7 @@ class SubmissionDraftController(
         val positionMs: Long,
         val category: String,
         val epId: Int,
-        /** 草稿创建时刻(墙钟),用于 10 分钟过期判定。 */
+        /** 草稿创建时刻(单调时钟 elapsedRealtime,见 [defaultClock]),用于 10 分钟过期判定。 */
         val createdAtMs: Long,
         val bvid: String,
         val cid: Long,
@@ -124,5 +129,15 @@ class SubmissionDraftController(
     companion object {
         /** 草稿有效期:超过 10 分钟视为用户已经放弃这次标记。 */
         private const val DRAFT_TTL_MS = 10L * 60_000L
+
+        /** 单调时钟;JVM 单测里 android.jar 是 stub(调用会抛 "not mocked"),退化为墙钟。 */
+        private fun defaultClock(): () -> Long {
+            val monotonicAvailable = runCatching { SystemClock.elapsedRealtime() }.isSuccess
+            return if (monotonicAvailable) {
+                { SystemClock.elapsedRealtime() }
+            } else {
+                { System.currentTimeMillis() }
+            }
+        }
     }
 }

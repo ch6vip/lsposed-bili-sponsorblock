@@ -62,6 +62,9 @@ object SponsorBlockPlayerSheet {
     /** 右侧说明文本最多占的宽度：避免长文案（服务信息）把左侧标题挤没。 */
     private const val VALUE_MAX_WIDTH_DP = 210
 
+    /** 面板内数值编辑的上限(秒),与 SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS(600)对齐。 */
+    private const val MAX_EDIT_NUMBER = 600f
+
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     /**
@@ -405,7 +408,8 @@ object SponsorBlockPlayerSheet {
                 toast(activity, "请输入数字")
                 false
             } else {
-                onConfirm(parsed.coerceAtLeast(0f))
+                // 与 SettingsKeys 的 MAX clamp 对齐:非法/超大输入(1e30)不原样回调
+                onConfirm(parsed.coerceIn(0f, MAX_EDIT_NUMBER))
                 true
             }
         }
@@ -560,7 +564,11 @@ object SponsorBlockPlayerSheet {
         var maxHeight: Int = Int.MAX_VALUE
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val spec = MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST)
+            // 父容器给定更小的精确高度时不能测出超过父约束的尺寸:
+            // maxHeight 与父约束取 min,再交给 AT_MOST
+            val parentLimit = MeasureSpec.getSize(heightMeasureSpec)
+            val effective = minOf(maxHeight, parentLimit).coerceAtLeast(0)
+            val spec = MeasureSpec.makeMeasureSpec(effective, MeasureSpec.AT_MOST)
             super.onMeasure(widthMeasureSpec, spec)
         }
     }
@@ -576,7 +584,7 @@ object SponsorBlockPlayerSheet {
 data class PlayerSheetState(
     /** 当前视频的片段总数。 */
     val segmentCount: Int,
-    /** 播放头是否落在某个片段里（决定 [insideSegmentLabel] 是否有意义）。 */
+    /** 播放头是否落在某个片段里（[insideSegmentLabel] 非 null 即等价于 true，保留用于显式判断）。 */
     val playheadInsideSegment: Boolean,
     /** 所在片段描述，例如 `"赞助/恰饭 300.0-600.0s"`；不在片段内为 null。 */
     val insideSegmentLabel: String?,

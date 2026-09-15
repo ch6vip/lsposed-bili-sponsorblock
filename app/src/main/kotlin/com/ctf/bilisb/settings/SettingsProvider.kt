@@ -58,6 +58,12 @@ class SettingsProvider : ContentProvider() {
                         prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
                     ),
                 )
+                // 值完全相同则跳过 apply：SharedPreferencesImpl 即使值相同也会回调变更监听器，
+                // 模块进程内同步写回会自激循环（writer 又把同样内容推回来），这里在源头剪断。
+                val current = SettingsCodec.snapshotFromPreferences(prefs)
+                if (current == snapshot) {
+                    return Bundle().apply { putBoolean(RESULT_OK, true) }
+                }
                 SettingsCodec.writeSnapshotToPreferences(prefs, snapshot)
                 Bundle().apply { putBoolean(RESULT_OK, true) }
             }
