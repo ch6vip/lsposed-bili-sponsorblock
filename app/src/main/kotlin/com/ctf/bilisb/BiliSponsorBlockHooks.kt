@@ -231,7 +231,12 @@ object BiliSponsorBlockHooks {
      */
     private fun scheduleDeferredTeardown(module: XposedModule, host: Any, container: Any?): Boolean {
         val hash = teardownHashOf(host, container)
-        if (hash == 0) return false
+        if (hash == 0) {
+            // 拿不到 context:按 hash 的撤销/清理都不可靠,留探针便于定位状态泄漏。
+            HookProbe.first(module, "teardownNoHash", 3) { "host=${host.javaClass.name}" }
+            module.info("player left: teardown skipped, no context hash from host=${host.javaClass.name}")
+            return false
+        }
         val first = pendingTeardowns.putIfAbsent(
             hash, PendingTeardown(hash, android.os.SystemClock.uptimeMillis()),
         ) == null
@@ -256,7 +261,9 @@ object BiliSponsorBlockHooks {
     private fun performTeardown(module: XposedModule, host: Any, contextHash: Int) {
         pendingBindRef.set(null)
         VideoDirectorListener.unregister(host)
-        sponsorBlockController?.onPlayerDestroyed(contextHash)
+        // 必须走按 hash 的清理:此间宿主 widget 多半已 detach,反射取 Context 会失败,
+        // onPlayerDestroyed(host) 会把 Int 当 host 用(hash=0 → 状态不清理/静音不解除)。
+        sponsorBlockController?.onPlayerContextDestroyed(contextHash)
         module.info("player left: teardown done context=$contextHash host=${host.javaClass.name}")
     }
 
@@ -369,7 +376,9 @@ object BiliSponsorBlockHooks {
     private fun ensureRebindAfterTeardown(module: XposedModule, widget: Any, contextHash: Int) {
         val core = PlayerBridge.coreService(widget)
             ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService()) ?: return
-        val container = VideoDirectorListener.lastDirectorService() ?: widget
+        // container 必须是 widget 本身(是 View,必有 Context):director 服务不是容器,
+        // 对它反射取 Context 会失败,补绑后的 Toast/静音/后续补绑会静默失效。
+        val container = widget
         sponsorBlockController?.bindPlayerHandle(PlayerHandle(contextHash, container, core))
         VideoDirectorListener.noteContextHash(contextHash)
         HookProbe.first(module, "rebindAfterTeardown", 3) {

@@ -50,6 +50,41 @@ object AudioMuteController {
         }
     }
 
+    /**
+     * 解除指定 context 的静音记账;只有所有 context 都不再需要时才真正 unmute 流。
+     *
+     * 与 [unmute] 的区别:不从 host 上重新算 hash。播放器销毁路径传入的可能是
+     * contextHash 本身(此时宿主 widget 已 detach,反射取 Context 会失败拿到 0),
+     * 按 hash 解除才是可靠路径。
+     *
+     * @param audioHost 可用于拿 AudioManager 的宿主对象(可为 null:null 时只清记账,
+     *                  流层面的 unmute 由剩余 context 的下一次回调完成)。
+     * @return 是否真的解除了流静音(供调用方留日志)。
+     */
+    fun unmuteContext(module: XposedModule, contextHash: Int, audioHost: Any?): Boolean {
+        val lastRemaining: Boolean
+        synchronized(lock) {
+            val removed = mutedContexts.remove(contextHash)
+            if (!removed) return false
+            lastRemaining = mutedContexts.isNotEmpty()
+        }
+        if (lastRemaining) {
+            module.info("audio unmute deferred for context=$contextHash (other contexts still muted)")
+            return false
+        }
+        val am = audioHost?.let { audioManager(it) }
+        if (am != null) {
+            runCatching {
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+            }.onSuccess {
+                module.info("audio unmuted")
+            }.onFailure {
+                module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
+            }
+        }
+        return true
+    }
+
     /** 解除该 context 的静音记账;只有所有 context 都不再需要时才真正 unmute 流。 */
     fun unmute(module: XposedModule, host: Any) {
         val contextHash = PlayerBridge.contextHash(host)
