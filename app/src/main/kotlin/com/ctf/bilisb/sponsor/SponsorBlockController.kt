@@ -282,6 +282,10 @@ class SponsorBlockController(
         }
     }
 
+    /** 该 context 是否还有播放状态（供 Hook 侧判断要不要补绑）。 */
+    fun latestStateExists(contextHash: Int): Boolean =
+        !closed.get() && latestStateByContext.containsKey(contextHash)
+
     fun progressMarkers(contextHash: Int): Pair<Long, List<SponsorSegment>>? {
         if (closed.get()) return null
         val state = latestStateByContext[contextHash] ?: return null
@@ -707,3 +711,5 @@ class SponsorBlockController(
         private const val MIN_SEGMENT_MS = 250L
     }
 }
+
+
