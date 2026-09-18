@@ -17,6 +17,19 @@ import android.content.SharedPreferences
  * [SettingsScreenBuilder] 构建，和模块入口 Activity 共用同一套 UI。
  */
 object SponsorBlockSettingDialog {
+
+    /**
+     * 弹窗 R 角:窗口背景置透明,内容根容器(biliPage/buildMain 的 12dp 圆角)即弹窗轮廓。
+     * AlertDialog 默认窗口底是主题的方角白底,会把圆角内容衬成方角。
+     */
+    private fun applyRoundedWindow(dialog: AlertDialog, activity: Activity) {
+        runCatching {
+            dialog.window?.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+            )
+        }
+    }
+
     @Volatile
     private var writer: SettingsWriter? = null
 
@@ -67,12 +80,13 @@ object SponsorBlockSettingDialog {
             onEnhanceClick = { forward { showEnhance(activity, onDismiss) } },
         )
 
+        // 控制中心:主弹窗的专名(2026-09-19 起,不再与模块名 Bili2233 混用)。
+        // 标题即内容里的品牌粉头图;不再用 AlertDialog 原生标题/按钮 ——
+        // 透明窗口下它们会露出宿主主题的深色样式(2026-09-19 截图回归)。
         val dialog = AlertDialog.Builder(activity)
-            // 控制中心:主弹窗的专名(2026-09-19 起,不再与模块名 Bili2233 混用)
-            .setTitle("控制中心")
             .setView(SettingsScreenBuilder.wrapScroll(activity, root))
-            .setPositiveButton("关闭", null)
             .create()
+        dialog.setCanceledOnTouchOutside(true)
         dialog.setOnDismissListener {
             if (dialogRef[0] === currentDialog) {
                 currentDialog = null
@@ -88,6 +102,7 @@ object SponsorBlockSettingDialog {
         dialogRef[0] = dialog
         currentDialog = dialog
         currentActivity = activity
+        applyRoundedWindow(dialog, activity)
         dialog.show()
     }
 
@@ -103,9 +118,12 @@ object SponsorBlockSettingDialog {
         }
 
         val dialog = AlertDialog.Builder(activity)
-            .setTitle("SponsorBlock")
-            .setView(SettingsScreenBuilder.wrapScroll(activity, SettingsScreenBuilder.buildDetail(activity, prefs(activity))))
-            .setPositiveButton("返回") { _, _ -> back() }
+            .setView(
+                SettingsScreenBuilder.detailPage(
+                    activity, "SponsorBlock", onBack = { back() },
+                    SettingsScreenBuilder.buildDetail(activity, prefs(activity)),
+                )
+            )
             .create()
         dialog.setOnCancelListener { back() }
         dialog.setOnDismissListener {
@@ -118,6 +136,7 @@ object SponsorBlockSettingDialog {
         dialogRef[0] = dialog
         currentDialog = dialog
         currentActivity = activity
+        applyRoundedWindow(dialog, activity)
         dialog.show()
     }
 
@@ -134,9 +153,12 @@ object SponsorBlockSettingDialog {
         }
 
         val dialog = AlertDialog.Builder(activity)
-            .setTitle("B 站增强")
-            .setView(SettingsScreenBuilder.wrapScroll(activity, SettingsScreenBuilder.buildEnhance(activity, prefs(activity))))
-            .setPositiveButton("返回") { _, _ -> back() }
+            .setView(
+                SettingsScreenBuilder.detailPage(
+                    activity, "B 站增强", onBack = { back() },
+                    SettingsScreenBuilder.buildEnhance(activity, prefs(activity)),
+                )
+            )
             .create()
         dialog.setOnCancelListener { back() }
         dialog.setOnDismissListener {
@@ -149,6 +171,7 @@ object SponsorBlockSettingDialog {
         dialogRef[0] = dialog
         currentDialog = dialog
         currentActivity = activity
+        applyRoundedWindow(dialog, activity)
         dialog.show()
     }
 }
