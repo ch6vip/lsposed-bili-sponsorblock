@@ -327,9 +327,18 @@ flowchart LR
   以及用于标识片段的分类体系，也都沿用了它。这是一款移植自 SponsorBlock 的浏览器插件，
   本项目相当于把同样的能力搬到了 Android 客户端的 LSPosed 侧。
 - [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议（上面两个项目的共同上游）
-- [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT）——
-  「B 站增强」功能的实现蓝本：评论/主页 IP 属地（请求身份改写）、隐藏互动提示、
-  首页不自动刷新、分享面板补回 QQ、首页顶栏消息入口、底栏删 tab。
+- [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT，
+  Copyright (c) 2026 mengwuzhuanshou）——「B 站增强」功能组的实现蓝本。
+  下列文件移植自其同名 Java hook（Java → Kotlin，落点/候选表/逆向结论保留，
+  按本项目 6.5.0 目标与设置管线适配，文件头部均保留「移植自 BiliTamer (MIT)」标注）：
+  - `hook/IpLocationHooks.kt` ← `IpLocationHooks.java`（评论/主页 IP 属地：请求身份改写）
+  - `hook/InteractHintHooks.kt` ← `InteractHintHooks.java`（隐藏互动提示）
+  - `hook/HomeNoAutoRefreshHooks.kt` ← `HomeNoAutoRefreshHooks.java`（首页不自动刷新）
+  - `hook/ShareQqHooks.kt` ← `ShareHooks.java`（分享面板补回 QQ；与上游的差异：
+    本项目宿主为官方签名包，保留了 6.4.0+ 的渠道注入，tauth 兜底照常）
+  - `hook/HomeTabHooks.kt` ← `HomeUxHooks.java`（首页顶栏消息入口 + 底栏删 tab，
+    仅保留这两个功能，头像入口/角标轮询等未移植）
+  感谢原作者的逆向工作 —— 类名候选表与协议结论是这些功能能落地 6.5.0 的关键。
 - [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— B 站客户端改动的思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) 与 [libxposed](https://github.com/libxposed) —— 框架与 API
 
