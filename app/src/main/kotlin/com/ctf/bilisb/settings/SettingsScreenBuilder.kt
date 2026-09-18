@@ -59,6 +59,41 @@ object SettingsScreenBuilder {
         setBackgroundColor(BILI_DIVIDER)
     }
 
+    /**
+     * 详情弹窗整页(B 站配色):浅灰圆角页面底 + 「‹ 返回」标题栏 + 可滚动内容。
+     * 子页不再使用 AlertDialog 原生标题/按钮 —— 透明窗口下它们会露出宿主主题的深色样式。
+     */
+    fun detailPage(activity: Activity, title: String, onBack: () -> Unit, content: View): View {
+        fun header(): View = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(activity, 6), dp(activity, 8), dp(activity, 14), dp(activity, 8))
+            addView(TextView(activity).apply {
+                text = "‹ 返回"
+                textSize = 15f
+                setTextColor(BILI_PINK)
+                setTypeface(typeface, Typeface.BOLD)
+                isClickable = true
+                isFocusable = true
+                background = selectableItemBackground(activity)
+                setPadding(dp(activity, 8), dp(activity, 4), dp(activity, 12), dp(activity, 4))
+                setOnClickListener { onBack() }
+            })
+            addView(TextView(activity).apply {
+                text = title
+                textSize = 17f
+                setTextColor(BILI_TEXT_PRIMARY)
+                setTypeface(typeface, Typeface.BOLD)
+            })
+        }
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = biliCard(activity, BILI_PAGE_BG, 12)
+            addView(header())
+            addView(wrapScroll(activity, content))
+        }
+    }
+
     /** 详情页容器:与控制中心同源的浅灰页面底。 */
     fun biliPage(activity: Activity, block: LinearLayout.() -> Unit): LinearLayout =
         LinearLayout(activity).apply {
