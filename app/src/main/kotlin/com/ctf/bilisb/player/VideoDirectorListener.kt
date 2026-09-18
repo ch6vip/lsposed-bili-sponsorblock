@@ -40,7 +40,7 @@ object VideoDirectorListener {
      * 弱引用同时避免长期强引用 director 服务（它间接持有 Activity/View）。
      */
     private val registeredHosts: MutableSet<Any> =
-        Collections.newSetFromMap(WeakHashMap<Any, Boolean>())
+        Collections.newSetFromMap(Collections.synchronizedMap(WeakHashMap<Any, Boolean>()))
 
     /** 最近一次绑定的播放器 contextHash（0 表示还没有播放器）。 */
     @Volatile
@@ -60,7 +60,18 @@ object VideoDirectorListener {
     private var pendingIds: Pair<Long, Long>? = null
 
     /** pendingIds 的采集时刻(uptimeMillis):补发前做时效校验,上一播放会话的残留 id 不再补发。 */
+    @Volatile
     private var pendingIdsAtMs: Long = 0L
+
+    /**
+     * 已收到过 ids 的 contextHash → ids。
+     *
+     * dispatch 直接派发 / flushPendingIds 补发成功后都记一笔;flush 重发前先查账,
+     * 同一 context 拿过同一份 ids 就跳过 —— 否则每次 bindPlayer(全屏切换会反复 bind)
+     * 都会把同一视频重喂一遍,onVideoIds 的「同一视频重进」分支会清空已跳过记录
+     * (倒计时重弹等)。不同 context(玩家重建后 Context 实例变了、hash 变了)仍会正常补发。
+     */
+    private val deliveredIdsByContext = java.util.concurrent.ConcurrentHashMap<Int, Pair<Long, Long>>()
 
     /** pendingIds 有效期:超过它认为残留自上一播放会话,丢弃(足够覆盖 bind 早于 director 回调的正常窗口)。 */
     private const val PENDING_TTL_MS = 10_000L
@@ -94,7 +105,16 @@ object VideoDirectorListener {
             }
             return
         }
+        // 同一 context 已经拿过同一份 ids:重发只会触发 onVideoIds 的「同视频重进」
+        // 清空已跳过记录,跳过。玩家重建后是新 context(hash 变了),不会被这里挡住。
+        if (deliveredIdsByContext[contextHash] == ids) {
+            HookProbe.first(module, "flushPendingIdsSkipped", 3) {
+                "context=$contextHash already delivered aid=${ids.first} cid=${ids.second}"
+            }
+            return
+        }
         module.info("videoDirector: flush pending aid=${ids.first} cid=${ids.second} context=$contextHash")
+        deliveredIdsByContext[contextHash] = ids
         sink(contextHash, ids.first, ids.second)
     }
 
@@ -354,7 +374,25 @@ object VideoDirectorListener {
             "videoDirector: FOUND aid=${ids.first} cid=${ids.second} context=$contextHash " +
                 "(dispatch #${dispatchCount.incrementAndGet()})",
         )
+        // 不清 pendingIds:玩家重建(全屏切换/重进)会换新的 Context 实例(contextHash 变了),
+        // 而这里的派发用的是「当时」的 lastContextHash —— 新 context 只能靠 bindPlayer 时的
+        // flushPendingIds 补发。清了它,context 一换 ids 就断链,功能死到下一集
+        // (2026-09-19 真机复现)。重发危害由 deliveredIdsByContext 按账去重兜住。
+        deliveredIdsByContext[contextHash] = ids
         sink(contextHash, ids.first, ids.second)
+    }
+
+    /**
+     * 从最近一次注册的 director 服务上直接提取当前条目的 aid/cid。
+     *
+     * 供「state 缺失后的补绑」使用:补绑时进度回调已经在飞,但 director 回调不一定会再来
+     * (dispatch 已经消费过、或 pendingIds 已过期),这里主动拉一次当前视频,
+     * 补绑路径才能自愈。取不到返回 null(服务未注册/条目未就绪)。
+     */
+    fun currentIdsFromService(module: XposedModule): Pair<Long, Long>? {
+        val service = lastService ?: return null
+        val video = currentVideoOf(service) ?: return null
+        return extractVideoIds(module, video)
     }
 
     private class ObserverHandler(private val module: XposedModule) : InvocationHandler {

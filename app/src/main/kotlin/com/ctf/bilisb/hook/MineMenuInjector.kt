@@ -3,6 +3,7 @@ package com.ctf.bilisb.hook
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import com.ctf.bilisb.host.HookProbe
 import com.ctf.bilisb.host.HookResolve
 import com.ctf.bilisb.host.HostTargets
@@ -30,6 +31,14 @@ object MineMenuInjector {
     private const val SETTING_TITLE = "Bili2233"
     // 宿主“我的”页按钮图标链路实际接受远程图片 URL。
     private const val SETTING_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
+
+    /** 内容精确绑定是否成功过:成功后其它行的 bind 不再走轮询兜底(入口已可用)。 */
+    @Volatile
+    private var directBindSucceeded: Boolean = false
+
+    /** 正在跑重试链的 RecyclerView 实例(弱引用):防止滚动中每个 item 各起一条重试链。 */
+    private val clickBindInFlight: MutableMap<View, Boolean> =
+        java.util.Collections.synchronizedMap(java.util.WeakHashMap<View, Boolean>())
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         try {
@@ -140,7 +149,12 @@ object MineMenuInjector {
         // 记录adapter类名用于后续hook点击
         HookProbe.first(module, "mineAdapterFound", 3) { adapter.javaClass.name }
 
-        // 注入设置项
+        // 注入设置项(injectSettingItem 内部按 uri 幂等,已存在直接返回)。
+        //
+        // 注意:这里**不能**按「adapter + 列表实例(+尺寸)」缓存注入状态 ——
+        // 宿主会异步刷新「我的」页远程配置,把同一个列表实例 clear+重填(尺寸可能都不变),
+        // 我们注入的条目会被冲掉;缓存版会导致入口从此消失(2026-09-19 真机回归复现)。
+        // 每次 notify 都走一遍存在性检查,是已知最低成本的正确实现。
         injectSettingItem(module, data, menuItemClass)
     }
 
@@ -266,10 +280,34 @@ object MineMenuInjector {
         val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
         if (data.isEmpty()) return
 
-        // 宿主 adapter 的 position 口径未知（可能是 ConcatAdapter 按 group 分段、也可能拍平），
-        // 之前只按「group 拍平累加」算 global=8，真机实测 findViewByPosition(8) 永远 null，
-        // 而用户看得到入口 —— 说明真实 position 是别的口径（日志显示 adapterPos 与 groupIdx 吻合）。
-        // 这里同时收集多个候选位置（组内下标 / 拍平累加），绑定轮询里哪个能找到视图就绑哪个。
+        // 获取ViewHolder的itemView
+        val itemView = try {
+            val field = holder.javaClass.getDeclaredField("itemView").apply { isAccessible = true }
+            field.get(holder) as? View
+        } catch (e: Throwable) {
+            try {
+                holder.javaClass.getField("itemView").get(holder) as? View
+            } catch (e2: Throwable) {
+                null
+            }
+        } ?: return
+
+        // 首选:内容精确判定。hook 在 onBindViewHolder after 上,宿主已经把标题渲染进行内
+        // TextView —— 行内文本等于我们的标题就说明**这一行就是我们的条目**,直接挂监听。
+        // 与位置口径(分组/拍平)无关、不受 ViewHolder 复用影响;绑到别行的老轮询方案
+        // 曾把监听挂到 adapter 位置 2 的无关行上,导致入口点击无反应(2026-09-19 真机)。
+        if (isOurRow(itemView)) {
+            bindSelfClick(module, itemView)
+            directBindSucceeded = true
+            HookProbe.first(module, "mineMenuDirectBind", 3) { "position=$position" }
+            return
+        }
+        if (directBindSucceeded) return
+
+        // 兜底:直接判定从未命中(宿主改版导致标题渲染方式与预期不符)时,沿用旧的
+        // 「候选位置 + findViewByPosition 轮询」。宿主 adapter 的 position 口径未知
+        // (可能是 ConcatAdapter 按 group 分段、也可能拍平),这里同时收集多个候选
+        // (组内下标 / 拍平累加),绑定轮询里哪个能找到视图就绑哪个。
         var flatIndex = 0
         var targetItemIndexInGroup = -1
         val candidatePositions = LinkedHashSet<Int>()
@@ -289,21 +327,33 @@ object MineMenuInjector {
             "candidates=$candidatePositions adapterPos=$position groupIdx=$targetItemIndexInGroup"
         }
 
-        // 获取ViewHolder的itemView
-        val itemView = try {
-            val field = holder.javaClass.getDeclaredField("itemView").apply { isAccessible = true }
-            field.get(holder) as? View
-        } catch (e: Throwable) {
-            try {
-                holder.javaClass.getField("itemView").get(holder) as? View
-            } catch (e2: Throwable) {
-                null
-            }
-        } ?: return
-
         // 延迟查找内部RecyclerView并按候选位置绑定
         itemView.post {
             findAndBindRecyclerView(module, itemView, candidatePositions)
+        }
+    }
+
+    /** 行内(递归)是否存在标题文本等于我们条目标题的 TextView。 */
+    private fun isOurRow(view: View): Boolean {
+        if (view is TextView && view.text?.toString() == SETTING_TITLE) return true
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                if (isOurRow(view.getChildAt(i))) return true
+            }
+        }
+        return false
+    }
+
+    /** 给我们的行挂点击监听(打开宿主内设置弹窗)。 */
+    private fun bindSelfClick(module: XposedModule, itemView: View) {
+        itemView.setOnClickListener {
+            val context = it.context as? Activity
+            if (context != null) {
+                SponsorBlockSettingDialog.show(context)
+                module.info("Showing Bili2233 settings dialog (direct bind)")
+            } else {
+                module.warn("Context is not Activity: ${it.context.javaClass.name}")
+            }
         }
     }
 
@@ -328,7 +378,12 @@ object MineMenuInjector {
 
     private fun findAndBindRecyclerView(module: XposedModule, view: View, candidatePositions: Set<Int>) {
         if (view.javaClass.name.contains("RecyclerView")) {
-            bindItemClick(module, view, candidatePositions)
+            // 只按「重试链在跑」去重;**不能**按「绑过就跳过」——轮询可能把监听绑到
+            // 位置恰好相同的无关行上(位置口径不可靠),一旦跳过,我们的行就永远绑不上
+            if (clickBindInFlight.putIfAbsent(view, true) != null) return
+            bindItemClick(module, view, candidatePositions) { succeeded ->
+                clickBindInFlight.remove(view)
+            }
         } else if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 findAndBindRecyclerView(module, view.getChildAt(i), candidatePositions)
@@ -336,7 +391,7 @@ object MineMenuInjector {
         }
     }
 
-    private fun bindItemClick(module: XposedModule, recyclerView: View, candidatePositions: Set<Int>) {
+    private fun bindItemClick(module: XposedModule, recyclerView: View, candidatePositions: Set<Int>, onDone: (Boolean) -> Unit) {
         // 对每个候选 position 轮询重试（延迟递增），哪个能找到视图就绑哪个。
         // 全部候选全部重试都失败才记 miss。
         val delaysMs = longArrayOf(100, 300, 600, 1200)
@@ -346,6 +401,7 @@ object MineMenuInjector {
             if (bound) return
             if (index >= delaysMs.size) {
                 HookProbe.miss(module, "mineMenuBindClick", "no candidate view found after ${delaysMs.size} retries, positions=$candidatePositions")
+                onDone(false)
                 return
             }
             recyclerView.postDelayed({
@@ -370,11 +426,13 @@ object MineMenuInjector {
                         }
                         bound = true
                         module.info("Attached click listener to Bili2233 setting item (position=$pos, attempt=${index + 1})")
+                        onDone(true)
                         return@postDelayed
                     }
                     attempt(index + 1)
                 } catch (e: Throwable) {
                     module.warn("Failed to attach click: ${e.javaClass.name}: ${e.message}")
+                    onDone(false)
                 }
             }, delaysMs[index])
         }

@@ -80,6 +80,16 @@ class SubmissionDraftController(
         drafts.remove(videoKey)
     }
 
+    /**
+     * 继承上一个实例的草稿(设置变更重建 controller 时调用)。
+     *
+     * 用户可能刚点了「标记起点」,controller 被重建后草稿若丢失,第二次点按会变成
+     * 「重新记起点」,用户围出的片段静默作废。
+     */
+    fun adoptFrom(previous: SubmissionDraftController) {
+        drafts.putAll(previous.drafts)
+    }
+
     /** 草稿是否仍然可用:未超时、区间合法、且不越过已知的视频总时长。 */
     private fun isUsable(
         draft: Draft,

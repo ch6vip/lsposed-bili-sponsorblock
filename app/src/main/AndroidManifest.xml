@@ -19,7 +19,7 @@
         </activity>
         <provider
             android:name=".settings.SettingsProvider"
-            android:authorities="io.github.ch6vip.bilisb.settings"
+            android:authorities="${applicationId}.settings"
             android:exported="true" />
     </application>
 </manifest>

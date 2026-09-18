@@ -62,8 +62,9 @@ object SponsorBlockPlayerSheet {
     /** 右侧说明文本最多占的宽度：避免长文案（服务信息）把左侧标题挤没。 */
     private const val VALUE_MAX_WIDTH_DP = 210
 
-    /** 面板内数值编辑的上限(秒),与 SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS(600)对齐。 */
-    private const val MAX_EDIT_NUMBER = 600f
+    /** 面板内数值编辑的默认上限(秒)。具体行的上限由 [PlayerSheetState.minSkipDurationMaxSec] 传入,
+     *  与 SettingsKeys 里各字段自己的 MAX_* 对齐 —— 不能一刀切 600:最短片段时长在设置页允许到 3600。 */
+    private const val DEFAULT_MAX_EDIT_NUMBER = 600f
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
@@ -74,6 +75,10 @@ object SponsorBlockPlayerSheet {
      */
     @Volatile
     private var current: Dialog? = null
+
+    /** [current] 挂靠的 Activity:宿主播放页被直接销毁(无 dismiss 回调)时用它识别 stale 面板。 */
+    @Volatile
+    private var currentOwnerActivity: Activity? = null
 
     /**
      * 展示面板。
@@ -96,6 +101,15 @@ object SponsorBlockPlayerSheet {
         if (activity.isFinishing || isDestroyed(activity)) {
             log("player sheet show rejected: activity finishing/destroyed")
             return false
+        }
+        // 上一个面板的挂靠 Activity 已经销毁(宿主直接 finish,没有 dismiss 回调):
+        // 此时 isShowing 仍为 true,不清掉的话本面板永远被拒 + 静态引用泄漏死 Activity。
+        val stale = current
+        val staleOwner = currentOwnerActivity
+        if (stale != null && staleOwner != null && (staleOwner.isFinishing || isDestroyed(staleOwner))) {
+            runCatching { stale.dismiss() }
+            current = null
+            currentOwnerActivity = null
         }
         if (current?.isShowing == true) {
             log("player sheet show rejected: already showing")
@@ -127,13 +141,17 @@ object SponsorBlockPlayerSheet {
 
             dialog.setOnDismissListener {
                 // 只有当前登记的还是自己时才清空：避免把后来者的登记清掉
-                if (current === dialog) current = null
+                if (current === dialog) {
+                    current = null
+                    currentOwnerActivity = null
+                }
                 runCatching { callbacks.onDismiss() }
                     .onFailure { log("player sheet onDismiss callback failed: ${it.javaClass.name}") }
             }
 
             dialog.show()
             current = dialog
+            currentOwnerActivity = activity
             // 出入场：从屏幕底部滑入，替代没有的 BottomSheetBehavior。
             slideIn(dialog, content)
             true
@@ -221,7 +239,8 @@ object SponsorBlockPlayerSheet {
         body.addView(row(activity, "⏱", "最短片段时长", valueText(activity, "${state.minSkipDurationLabel} ›")) {
             // 回调按约定的签名不带值：面板不掌握持久化，弹窗里的输入通过可选接口
             // ValueEditingCallbacks 额外回传，调用方按自己支持的能力决定实现哪个。
-            editNumber(activity, "最短片段时长（秒）", state.minSkipDurationLabel, dialog, log) { value ->
+            editNumber(activity, "最短片段时长（秒）", state.minSkipDurationLabel, dialog, log,
+                maxValue = state.minSkipDurationMaxSec) { value ->
                 (callbacks as? ValueEditingCallbacks)?.onMinSkipDurationEdited(value)
                 callbacks.onEditMinSkipDuration()
             }
@@ -393,6 +412,7 @@ object SponsorBlockPlayerSheet {
         current: String,
         parent: Dialog,
         log: (String) -> Unit,
+        maxValue: Float = DEFAULT_MAX_EDIT_NUMBER,
         onConfirm: (Float) -> Unit,
     ) {
         val input = EditText(activity).apply {
@@ -409,7 +429,7 @@ object SponsorBlockPlayerSheet {
                 false
             } else {
                 // 与 SettingsKeys 的 MAX clamp 对齐:非法/超大输入(1e30)不原样回调
-                onConfirm(parsed.coerceIn(0f, MAX_EDIT_NUMBER))
+                onConfirm(parsed.coerceIn(0f, maxValue))
                 true
             }
         }
@@ -603,6 +623,8 @@ data class PlayerSheetState(
     val showSkipStats: Boolean,
     /** 「最短片段时长」右侧值，例如 `"0.0s"`（建议用 [SheetStateFormatter.formatSeconds] 生成）。 */
     val minSkipDurationLabel: String,
+    /** 面板内编辑「最短片段时长」的合法上限(秒)。须与设置页该字段的 MAX 对齐(3600),默认 600 仅为兜底。 */
+    val minSkipDurationMaxSec: Float = 600f,
     /** 「用户 ID」右侧值（原始值即可，面板会截断展示）。 */
     val userIdLabel: String,
 )

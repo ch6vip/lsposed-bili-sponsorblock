@@ -1,5 +1,6 @@
 package com.ctf.bilisb.ui
 
+import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.model.SponsorSegment
 
 /**
@@ -96,8 +97,7 @@ object MarkerGeometry {
      * 是否作为 POI 圆点绘制。
      *
      * 对应 APK `an.d()`：`actionType == "poi"` 或分类为 highlight。
-     * 这里的分类字面量与 [RemainingTimeFormatter] 的排除集一致，暂无法引用
-     * `SponsorCategories.POI_HIGHLIGHT`（该文件不在本次改动范围内）。
+     * 分类字面量统一引用 [SponsorCategories.POI_HIGHLIGHT]。
      */
     private fun isPoi(segment: SponsorSegment): Boolean {
         return segment.actionType == "poi" || segment.category == POI_HIGHLIGHT
@@ -105,5 +105,5 @@ object MarkerGeometry {
 
     private fun clamp(value: Float, min: Float, max: Float): Float = minOf(maxOf(value, min), max)
 
-    private const val POI_HIGHLIGHT = "poi_highlight"
+    private val POI_HIGHLIGHT = SponsorCategories.POI_HIGHLIGHT
 }

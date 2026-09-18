@@ -1,5 +1,7 @@
 package com.ctf.bilisb.settings
 
+import com.ctf.bilisb.BuildConfig
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -94,6 +96,22 @@ class SettingsProviderAccessTest {
                 uidPackages = arrayOf(SettingsSyncBridge.HOST_PACKAGE, "com.example.shared"),
                 selfPackage = SettingsSyncBridge.MODULE_PACKAGE,
             )
+        )
+    }
+
+    /**
+     * authority 双向一致性守卫(应用 ID 改过一次 com.ctf → io.github.ch6vip,漏改会导致
+     * 宿主端 IPC 静默失败):
+     *   1. 代码侧 AUTHORITY 必须由 BuildConfig.APPLICATION_ID 派生;
+     *   2. Manifest 侧必须用 `${applicationId}.settings` 占位符,不允许再写字面量。
+     */
+    @Test
+    fun providerAuthorityMatchesApplicationId() {
+        assertEquals("${BuildConfig.APPLICATION_ID}.settings", SettingsSyncBridge.AUTHORITY)
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue(
+            "manifest must declare authorities=\"\${applicationId}.settings\"",
+            manifest.contains("""android:authorities="${'$'}{applicationId}.settings""""),
         )
     }
 }

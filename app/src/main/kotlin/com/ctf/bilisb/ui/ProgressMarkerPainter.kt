@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.Drawable
+import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.model.SponsorSegment
 
 /**
@@ -37,7 +38,7 @@ object ProgressMarkerPainter {
         "preview" to Color.rgb(255, 128, 0),         // 橙色
         "music_offtopic" to Color.rgb(255, 0, 180),  // 粉色
         "filler" to Color.rgb(127, 0, 255),          // 深紫
-        "poi_highlight" to Color.rgb(255, 30, 30),   // 红色
+        SponsorCategories.POI_HIGHLIGHT to Color.rgb(255, 30, 30),   // 红色
     )
 
     private val defaultColor = Color.rgb(255, 196, 0)

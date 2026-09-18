@@ -91,7 +91,7 @@ class SponsorBlockClient(
     }
 
     private fun fetchSegmentsInternal(query: SponsorBlockQuery, ignoreCache: Boolean): FetchResult {
-        val url = URL(endpointForBvid(query.bvid) + buildQuery())
+        val url = URL(endpointForBvid(query.bvid))
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = CONNECT_TIMEOUT_MS
@@ -193,7 +193,9 @@ class SponsorBlockClient(
             }
             val status = conn.responseCode
             val responseBody = readBody(conn, status, "submit($method)")
-            log("submit $method $url -> status=$status body=${responseBody?.take(LOG_BODY_PREVIEW_CHARS)}")
+            // 日志里的 URL 必须脱敏:userID 是提交身份凭据,GET 降级时它拼在 query 里,
+            // 明文进 logcat 会被复制 LSPosed 日志求助的用户一起带走
+            log("submit $method ${redactUserId(url)} -> status=$status body=${responseBody?.take(LOG_BODY_PREVIEW_CHARS)}")
             SubmitResult(status, responseBody, method)
         } finally {
             conn.disconnect()
@@ -420,10 +422,9 @@ class SponsorBlockClient(
         return if (json.isNull(key)) null else json.optString(key)
     }
 
-    /**
-     * 拉取接口的 query 参数。
-     *
-     * **必须为空** —— 真机实测（6.5.0 + `https://bsbsb.top`）：
+    /*
+     * 拉取接口不带任何 query 参数(历史注记,参数实测全部 400)。
+     * 真机实测（6.5.0 + `https://bsbsb.top`）：
      *   `?videoID=...&cid=...&actionType=skip` → HTTP 400
      *   `?videoID=...` / `?cid=...`          → HTTP 400
      *   `?actionType=skip` / 无 query         → HTTP 200（返回该 hash 前缀下所有视频的片段）
@@ -432,7 +433,6 @@ class SponsorBlockClient(
      * 并不存在 `videoID` / `cid` 这两个参数（[parseSegmentsForVideo] 负责过滤）。
      * 另外不带 `actionType=skip` 还能拿到 `actionType=poi` 的 POI 片段，供进度条圆点标记使用。
      */
-    private fun buildQuery(): String = ""
 
     /**
      * 降级用的 GET 提交 URL：保持原有的参数形态不变，仅在服务端不支持 POST(405/501)时使用。
@@ -493,6 +493,14 @@ class SponsorBlockClient(
 
     private fun formatSeconds(valueMs: Long): String {
         return String.format(Locale.US, "%.3f", valueMs / 1000.0)
+    }
+
+    /** 日志脱敏:把 URL query 里的 userID 值替换成前 4 位 + 省略号(保留排障所需的最小信息)。 */
+    private fun redactUserId(url: String): String {
+        return USER_ID_QUERY_REGEX.replace(url) { match ->
+            val value = match.groupValues[2]
+            "${match.groupValues[1]}${value.take(4)}…"
+        }
     }
 
     private fun log(message: String) {
@@ -556,6 +564,9 @@ class SponsorBlockClient(
         private const val MAX_RESPONSE_BYTES = 4 * 1024 * 1024
         private const val READ_BUFFER_BYTES = 8 * 1024
         private const val LOG_BODY_PREVIEW_CHARS = 200
+
+        /** 日志脱敏用:匹配 query 里的 userID 参数(名、值两组)。 */
+        private val USER_ID_QUERY_REGEX = Regex("""(userID=)([^&]*)""")
 
         /** 短于 250ms 的片段直接丢弃(跳过/静音没有意义,还会让进度条抖动)。 */
         private const val MIN_SEGMENT_DURATION_MS = 250L
