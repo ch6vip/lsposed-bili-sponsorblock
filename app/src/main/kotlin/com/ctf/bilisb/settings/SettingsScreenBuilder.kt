@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.InputType
 import android.util.TypedValue
@@ -35,6 +36,28 @@ object SettingsScreenBuilder {
     @Volatile
     private var sharedStatusWriter: SettingsWriter? = null
 
+    // ---- B 站视觉规范(控制中心专用):品牌粉、白色圆角卡片、浅灰页面底 ----
+    private val BILI_PINK = 0xFFFB7299.toInt()
+    private val BILI_PINK_LIGHT = 0xFFFF9EB4.toInt()
+    private val BILI_TEXT_PRIMARY = 0xFF18191C.toInt()
+    private val BILI_TEXT_SECONDARY = 0xFF61666D.toInt()
+    private val BILI_CARD_BG = 0xFFFFFFFF.toInt()
+    private val BILI_PAGE_BG = 0xFFF1F2F3.toInt()
+    private val BILI_DIVIDER = 0xFFE3E5E7.toInt()
+
+    private fun biliCard(activity: Activity, color: Int, radiusDp: Int): GradientDrawable =
+        GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = dp(activity, radiusDp).toFloat()
+        }
+
+    private fun biliDivider(activity: Activity): View = View(activity).apply {
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 1),
+        ).apply { setMargins(dp(activity, 14), 0, dp(activity, 14), 0) }
+        setBackgroundColor(BILI_DIVIDER)
+    }
 
     fun buildMain(
         activity: Activity,
@@ -43,21 +66,74 @@ object SettingsScreenBuilder {
         onSponsorBlockClick: () -> Unit,
         onEnhanceClick: (() -> Unit)? = null,
     ): LinearLayout {
-        return column(activity).apply {
+        // 控制中心 = B 站风格:浅灰页面底(#F1F2F3)+ 白色圆角卡片 + 品牌粉头图(#FB7299)。
+        // 行内文字用 B 站 App 的固定色板,不跟随宿主主题(与播放器面板的浅色卡片取舍一致)。
+        fun card(block: LinearLayout.() -> Unit): LinearLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = biliCard(activity, BILI_CARD_BG, 10)
+            block()
+        }
+
+        fun cardLayoutParams(): LinearLayout.LayoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(activity, 10) }
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = biliCard(activity, BILI_PAGE_BG, 12)
+            setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 4))
+
+            // 品牌头图(粉渐变)
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    orientation = GradientDrawable.Orientation.TL_BR
+                    colors = intArrayOf(BILI_PINK, BILI_PINK_LIGHT)
+                    cornerRadius = dp(activity, 12).toFloat()
+                }
+                setPadding(dp(activity, 16), dp(activity, 14), dp(activity, 16), dp(activity, 14))
+                addView(TextView(activity).apply {
+                    text = "Bili2233"
+                    textSize = 20f
+                    setTextColor(Color.WHITE)
+                    setTypeface(typeface, Typeface.BOLD)
+                })
+                addView(TextView(activity).apply {
+                    text = "SponsorBlock · B 站增强 —— 开源 LSPosed 模块(MIT)"
+                    textSize = 12f
+                    setTextColor(0xE6FFFFFF.toInt())
+                    setPadding(0, dp(activity, 2), 0, 0)
+                })
+            }, cardLayoutParams())
+
             if (showStatusPanel) {
-                addView(statusPanel(activity, statusWriter))
+                addView(card { addView(statusPanel(activity, statusWriter)) }, cardLayoutParams())
             }
-            addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
-            if (onEnhanceClick != null) {
-                addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ · 底栏 tab", onEnhanceClick))
-            }
-            addView(sectionTitle(activity, "关于"))
-            // 版本行可点击 → 跳转 GitHub 项目页。原「更新」行移除:发版说明以
-            // GitHub Releases 为单一来源,不再在应用内双轨维护(CHANGELOG 常量一并删除)
-            addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE}) ›") {
-                openUrl(activity, REPO_URL)
+
+            // 功能卡片:SponsorBlock / B 站增强
+            addView(card {
+                addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
+                if (onEnhanceClick != null) {
+                    addView(biliDivider(activity))
+                    addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ · 底栏 tab", onEnhanceClick))
+                }
+            }, cardLayoutParams())
+
+            // 关于卡片(版本行可点击 → 跳转 GitHub 项目页;发版说明以 GitHub Releases 为单一来源)
+            addView(TextView(activity).apply {
+                text = "关于"
+                textSize = 13f
+                setTextColor(BILI_TEXT_SECONDARY)
+                setPadding(dp(activity, 4), dp(activity, 2), 0, dp(activity, 6))
             })
-            addView(aboutItem(activity, "作者", "ch6vip"))
+            addView(card {
+                addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})") {
+                    openUrl(activity, REPO_URL)
+                })
+                addView(biliDivider(activity))
+                addView(aboutItem(activity, "作者", "ch6vip"))
+            })
         }
     }
 
@@ -514,28 +590,30 @@ object SettingsScreenBuilder {
         return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(activity, 16), 0, dp(activity, 16))
+            setPadding(dp(activity, 14), dp(activity, 13), dp(activity, 12), dp(activity, 13))
             isClickable = true
+            isFocusable = true
             background = selectableItemBackground(activity)
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 addView(TextView(activity).apply {
                     text = title
-                    textSize = 18f
-                    setTextColor(Color.parseColor("#FF6699"))
+                    textSize = 16f
+                    setTextColor(BILI_TEXT_PRIMARY)
                     setTypeface(typeface, Typeface.BOLD)
                 })
                 addView(TextView(activity).apply {
                     text = summary
                     textSize = 12f
-                    setTextColor(Color.GRAY)
+                    setTextColor(BILI_TEXT_SECONDARY)
+                    setPadding(0, dp(activity, 2), 0, 0)
                 })
             })
             addView(TextView(activity).apply {
                 text = "›"
-                textSize = 24f
-                setTextColor(Color.GRAY)
+                textSize = 22f
+                setTextColor(BILI_PINK)
             })
             setOnClickListener { onClick() }
         }
@@ -554,21 +632,21 @@ object SettingsScreenBuilder {
             orientation = LinearLayout.VERTICAL
             addView(TextView(activity).apply {
                 text = title
-                textSize = 16f
-                setTextColor(primaryTextColor(activity))
+                textSize = 15f
+                setTextColor(BILI_TEXT_PRIMARY)
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(activity).apply {
                 text = value
                 textSize = 13f
-                setTextColor(Color.GRAY)
+                setTextColor(BILI_TEXT_SECONDARY)
                 setPadding(0, dp(activity, 2), 0, 0)
             })
         }
         return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(activity, 10), 0, dp(activity, 10))
+            setPadding(dp(activity, 14), dp(activity, 10), dp(activity, 12), dp(activity, 10))
             textCol.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             addView(textCol)
             if (onClick != null) {
@@ -576,8 +654,8 @@ object SettingsScreenBuilder {
                 background = selectableItemBackground(activity)
                 addView(TextView(activity).apply {
                     text = "›"
-                    textSize = 24f
-                    setTextColor(Color.GRAY)
+                    textSize = 22f
+                    setTextColor(BILI_PINK)
                 })
                 setOnClickListener { onClick() }
             }
