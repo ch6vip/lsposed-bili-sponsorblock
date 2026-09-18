@@ -7,8 +7,14 @@ import android.content.SharedPreferences
 /**
  * 宿主内设置弹窗。
  *
- * 只负责弹窗导航和 [SettingsWriter] 生命周期；具体设置内容由 [SettingsScreenBuilder]
- * 构建，和模块入口 Activity 共用同一套 UI。
+ * 弹窗层级(每层都有专名,文档/日志/沟通统一用这套叫法):
+ *   - **控制中心**(`showMain`,标题「控制中心」):总入口,聚合 SponsorBlock、
+ *     B 站增强两个入口行与「关于」;
+ *   - **SponsorBlock 详情**(`showDetail`,标题「SponsorBlock」):跳过/静音/统计/服务器等;
+ *   - **B 站增强详情**(`showEnhance`,标题「B 站增强」):移植自 BiliTamer 的增强开关。
+ *
+ * 本类只负责弹窗导航和 [SettingsWriter] 生命周期；具体设置内容由
+ * [SettingsScreenBuilder] 构建，和模块入口 Activity 共用同一套 UI。
  */
 object SponsorBlockSettingDialog {
     @Volatile
@@ -62,7 +68,8 @@ object SponsorBlockSettingDialog {
         )
 
         val dialog = AlertDialog.Builder(activity)
-            .setTitle("Bili2233")
+            // 控制中心:主弹窗的专名(2026-09-19 起,不再与模块名 Bili2233 混用)
+            .setTitle("控制中心")
             .setView(SettingsScreenBuilder.wrapScroll(activity, root))
             .setPositiveButton("关闭", null)
             .create()
