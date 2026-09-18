@@ -478,30 +478,63 @@ object SponsorBlockPlayerSheet {
         if (activity.isFinishing || isDestroyed(activity)) return
         runCatching {
             lateinit var dialog: AlertDialog
+            // B 站风格:透明窗口 + 白色圆角卡片,标题/按钮画在内容里
+            // (原生标题/按钮会露出宿主主题样式,与面板的浅色卡片设计冲突)
+            fun textButton(label: String, color: Int, bold: Boolean, onClick: () -> Unit): TextView =
+                TextView(activity).apply {
+                    text = label
+                    textSize = 15f
+                    setTextColor(color)
+                    setTypeface(typeface, if (bold) Typeface.BOLD else Typeface.NORMAL)
+                    isClickable = true
+                    isFocusable = true
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(activity, 20).toFloat()
+                        setColor(if (bold) 0x14FB7299.toInt() else Color.TRANSPARENT)
+                    }
+                    setPadding(dp(activity, 18), dp(activity, 8), dp(activity, 18), dp(activity, 8))
+                    setOnClickListener { onClick() }
+                }
+
             dialog = AlertDialog.Builder(activity)
-                .setTitle(title)
                 .setView(LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0)
-                    addView(input)
-                })
-                .setPositiveButton("保存", null)
-                .setNegativeButton("取消", null)
-                .create()
-            dialog.setOnShowListener {
-                dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
-                    // 校验与回调都可能抛（调用方写入失败），就地兜住，不然会崩在主线程
-                    val ok = runCatching { onConfirm() }
-                        .onFailure { log("edit dialog confirm failed: ${it.javaClass.name}: ${it.message}") }
-                        .getOrDefault(false)
-                    if (ok) {
-                        dialog.dismiss()
-                        // 值可能已经变了（用户 ID 重新生成 / 时长被夹到 0），
-                        // 关掉面板让调用方用最新快照重开，避免残留旧值。
-                        runCatching { parent.dismiss() }
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(activity, 12).toFloat()
                     }
-                }
-            }
+                    setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 8))
+                    addView(TextView(activity).apply {
+                        text = title
+                        textSize = 17f
+                        setTextColor(0xFF18191C.toInt())
+                        setTypeface(typeface, Typeface.BOLD)
+                    })
+                    addView(input)
+                    addView(LinearLayout(activity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.END
+                        addView(textButton("取消", 0xFF61666D.toInt(), false) { dialog.dismiss() })
+                        addView(textButton("保存", BRAND_PINK, true) {
+                            // 校验与回调都可能抛（调用方写入失败），就地兜住，不然会崩在主线程
+                            val ok = runCatching { onConfirm() }
+                                .onFailure { log("edit dialog confirm failed: ${it.javaClass.name}: ${it.message}") }
+                                .getOrDefault(false)
+                            if (ok) {
+                                dialog.dismiss()
+                                // 值可能已经变了（用户 ID 重新生成 / 时长被夹到 0），
+                                // 关掉面板让调用方用最新快照重开，避免残留旧值。
+                                runCatching { parent.dismiss() }
+                            }
+                        })
+                    })
+                })
+                .create()
+            dialog.window?.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+            )
             dialog.show()
         }.onFailure { log("edit dialog failed: ${it.javaClass.name}: ${it.message}") }
     }

@@ -2,9 +2,9 @@ package com.ctf.bilisb.settings
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.DialogInterface
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.view.Gravity
@@ -146,24 +146,65 @@ object ColorPickerDialog {
             addView(hexInput)
         }
 
-        // 用 create() + 自定义确认按钮：非法输入时不关闭弹窗（setPositiveButton 会自动 dismiss）
-        val dialog = AlertDialog.Builder(activity)
-            .setTitle("选择颜色")
-            .setView(ScrollView(activity).apply { addView(content) })
-            .setPositiveButton("确定", null)
-            .setNegativeButton("取消", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
-                val picked = parseHexOrNull(hexInput.text.toString())
-                if (picked == null) {
-                    Toast.makeText(activity, "颜色格式应为 #RRGGBB", Toast.LENGTH_SHORT).show()
-                } else {
-                    onPick(picked)
-                    dialog.dismiss()
+        // B 站风格(与设置弹窗体系一致):透明窗口 + 白色圆角卡片,
+        // 标题/按钮画在内容里 —— 原生标题/按钮在透明窗口下会露出宿主主题的深色样式
+        val dialogRef = java.util.concurrent.atomic.AtomicReference<AlertDialog?>()
+        fun textButton(label: String, color: Int, bold: Boolean, onClick: () -> Unit): TextView =
+            TextView(activity).apply {
+                text = label
+                textSize = 15f
+                setTextColor(color)
+                setTypeface(typeface, if (bold) Typeface.BOLD else Typeface.NORMAL)
+                isClickable = true
+                isFocusable = true
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(20).toFloat()
+                    setColor(if (bold) 0x14FB7299.toInt() else Color.TRANSPARENT)
                 }
+                setPadding(dp(18), dp(8), dp(18), dp(8))
+                setOnClickListener { onClick() }
             }
+
+        val page = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(Color.WHITE)
+                cornerRadius = dp(12).toFloat()
+            }
+            setPadding(dp(16), dp(12), dp(16), dp(10))
+            addView(TextView(activity).apply {
+                text = "选择颜色"
+                textSize = 17f
+                setTextColor(0xFF18191C.toInt())
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            addView(ScrollView(activity).apply { addView(content) })
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                addView(textButton("取消", 0xFF61666D.toInt(), false) { dialogRef.get()?.dismiss() })
+                addView(textButton("确定", 0xFFFB7299.toInt(), true) {
+                    val picked = parseHexOrNull(hexInput.text.toString())
+                    if (picked == null) {
+                        Toast.makeText(activity, "颜色格式应为 #RRGGBB", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onPick(picked)
+                        dialogRef.get()?.dismiss()
+                    }
+                })
+            })
         }
+
+        // create() + 自绘按钮:非法输入时弹窗不关闭(setPositiveButton 会自动 dismiss)
+        val dialog = AlertDialog.Builder(activity)
+            .setView(page)
+            .create()
+        dialogRef.set(dialog)
+        dialog.window?.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+        )
         dialog.show()
     }
 
