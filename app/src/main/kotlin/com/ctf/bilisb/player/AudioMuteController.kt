@@ -29,8 +29,18 @@ object AudioMuteController {
     /** 按 contextHash 记账:哪些播放器 context 正处于「我们静音」状态。 */
     private val mutedContexts = HashSet<Int>()
 
-    fun mute(module: XposedModule, host: Any) {
-        val contextHash = PlayerBridge.contextHash(host)
+    /**
+     * 对某个 context 记账静音。
+     *
+     * @param contextHashHint 调用方已知的 contextHash(如 [PlayerHandle.contextHash])。
+     *   传 0 时才从 host 反射推算 —— 每个 tick 一次反射 BFS 是可省的。
+     */
+    fun mute(module: XposedModule, host: Any, contextHashHint: Int = 0) {
+        val contextHash = if (contextHashHint != 0) contextHashHint else PlayerBridge.contextHash(host)
+        // 流级 mute/unmute 必须与记账在**同一把锁**内完成:
+        // 之前「锁内判定 + 锁外动流」存在 TOCTOU —— A 的 unmute 判完「最后一个」释放锁后,
+        // B 的 mute 看到空账、把流 mute 并记上账,随后 A 的 UNMUTE 落地把刚静音的流放开,
+        // 而 B 的记账还在,后续 mute() 全部命中 contains 短路,该片段从此以有声播放。
         synchronized(lock) {
             if (mutedContexts.contains(contextHash)) return
             // 已有别的 context 在静音中:只记账,不动流(它已经在静音状态)
@@ -38,15 +48,20 @@ object AudioMuteController {
                 mutedContexts.add(contextHash)
                 return
             }
-        }
-        val am = audioManager(host) ?: return
-        runCatching {
-            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
-        }.onSuccess {
-            synchronized(lock) { mutedContexts.add(contextHash) }
-            module.info("audio muted for mute-segment (context=$contextHash)")
-        }.onFailure {
-            module.info("audio mute failed: ${it.javaClass.name}: ${it.message}")
+            val am = audioManager(host)
+            if (am == null) {
+                // 拿不到 AudioManager:不记账,下次进度回调还会重试
+                module.info("audio mute skipped: no audio manager from ${host.javaClass.name}")
+                return
+            }
+            runCatching {
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+            }.onSuccess {
+                mutedContexts.add(contextHash)
+                module.info("audio muted for mute-segment (context=$contextHash)")
+            }.onFailure {
+                module.info("audio mute failed: ${it.javaClass.name}: ${it.message}")
+            }
         }
     }
 
@@ -62,53 +77,33 @@ object AudioMuteController {
      * @return 是否真的解除了流静音(供调用方留日志)。
      */
     fun unmuteContext(module: XposedModule, contextHash: Int, audioHost: Any?): Boolean {
-        val lastRemaining: Boolean
+        var am: AudioManager? = null
         synchronized(lock) {
             val removed = mutedContexts.remove(contextHash)
             if (!removed) return false
-            lastRemaining = mutedContexts.isNotEmpty()
-        }
-        if (lastRemaining) {
-            module.info("audio unmute deferred for context=$contextHash (other contexts still muted)")
-            return false
-        }
-        val am = audioHost?.let { audioManager(it) }
-        if (am != null) {
-            runCatching {
-                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-            }.onSuccess {
-                module.info("audio unmuted")
-            }.onFailure {
-                module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
+            if (mutedContexts.isNotEmpty()) {
+                module.info("audio unmute deferred for context=$contextHash (other contexts still muted)")
+                return false
+            }
+            // 流级 unmute 也要在锁内:理由见 [mute] 的 TOCTOU 说明
+            am = audioHost?.let { audioManager(it) }
+            if (am != null) {
+                runCatching {
+                    am!!.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                }.onSuccess {
+                    module.info("audio unmuted")
+                }.onFailure {
+                    module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
+                }
             }
         }
         return true
     }
 
     /** 解除该 context 的静音记账;只有所有 context 都不再需要时才真正 unmute 流。 */
-    fun unmute(module: XposedModule, host: Any) {
-        val contextHash = PlayerBridge.contextHash(host)
-        val lastRemaining: Boolean
-        synchronized(lock) {
-            val removed = mutedContexts.remove(contextHash)
-            if (!removed) return
-            lastRemaining = mutedContexts.isNotEmpty()
-        }
-        if (lastRemaining) {
-            // 还有别的播放器需要静音:保持流静音,只清本 context 的记账
-            module.info("audio unmute deferred for context=$contextHash (other contexts still muted)")
-            return
-        }
-        val am = audioManager(host)
-        if (am != null) {
-            runCatching {
-                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-            }.onSuccess {
-                module.info("audio unmuted")
-            }.onFailure {
-                module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
-            }
-        }
+    fun unmute(module: XposedModule, host: Any, contextHashHint: Int = 0) {
+        val contextHash = if (contextHashHint != 0) contextHashHint else PlayerBridge.contextHash(host)
+        unmuteContext(module, contextHash, host)
     }
 
     private fun audioManager(host: Any): AudioManager? {

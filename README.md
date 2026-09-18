@@ -172,7 +172,7 @@ export ANDROID_HOME=/path/to/android-sdk
 
 ./gradlew :app:assembleDebug        # debug APK
 ./gradlew :app:assembleRelease      # release APK（没有签名材料时产出未签名包）
-./gradlew :app:testDebugUnitTest    # 单元测试（119 例）
+./gradlew :app:testDebugUnitTest    # 单元测试（126 例）
 ```
 
 release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接宿主被混淆的类名，

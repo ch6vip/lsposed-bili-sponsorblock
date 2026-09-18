@@ -35,6 +35,10 @@ val hasReleaseSigning = releaseStorePath != null &&
     releaseKeyAlias != null &&
     releaseKeyPassword != null
 
+// 版本单一来源(与 META-INF/xposed/module.prop 由下方 checkModuleProp 守卫一致性)
+val MODULE_VERSION_CODE = 7
+val MODULE_VERSION_NAME = "0.6.1"
+
 android {
     namespace = "com.ctf.bilisb"
     compileSdk = 35
@@ -47,8 +51,8 @@ android {
         applicationId = "io.github.ch6vip.bilisb"
         minSdk = 23
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.6.1"
+        versionCode = MODULE_VERSION_CODE
+        versionName = MODULE_VERSION_NAME
     }
 
     signingConfigs {
@@ -89,6 +93,37 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+// ---------------------------------------------------------------------------
+// module.prop 版本一致性守卫
+//
+// 0.6.1 升版时漏改过 module.prop(LSPosed 管理器读它,APK 读 gradle,两边对不上),
+// 且 release CI 只校验签名不校验这里。挂到 `check`/assemble 上:版本不同步直接构建失败。
+// ---------------------------------------------------------------------------
+val checkModuleProp = tasks.register("checkModuleProp") {
+    val propFile = file("src/main/resources/META-INF/xposed/module.prop")
+    inputs.file(propFile)
+    doLast {
+        val props = Properties()
+        propFile.inputStream().use { props.load(it) }
+        val propVersionName = props.getProperty("versionName")
+        val propVersionCode = props.getProperty("versionCode")?.toIntOrNull()
+        if (propVersionName != MODULE_VERSION_NAME || propVersionCode != MODULE_VERSION_CODE) {
+            throw GradleException(
+                "module.prop 版本($propVersionName/$propVersionCode)与 build.gradle.kts " +
+                    "($MODULE_VERSION_NAME/$MODULE_VERSION_CODE) 不一致,请同步修改",
+            )
+        }
+    }
+}
+tasks.named("check") { dependsOn(checkModuleProp) }
+// 只挂在打包任务上:`bundle*Classes*` 是 AGP 内部的 class 打包任务(测试编译也走),
+// 误挂会让"版本不一致"连单元测试都跑不了,与"守卫打包产物"的意图不符。
+tasks.matching {
+    it.name.startsWith("assemble") || it.name == "bundleDebug" || it.name == "bundleRelease"
+}.configureEach {
+    dependsOn(checkModuleProp)
 }
 
 dependencies {

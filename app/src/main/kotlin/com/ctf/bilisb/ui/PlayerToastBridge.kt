@@ -31,10 +31,6 @@ object PlayerToastBridge {
         showToast(module, host, "跳过: $message")
     }
 
-    fun showMarkToast(module: XposedModule, host: Any, message: String) {
-        showToast(module, host, message)
-    }
-
     private fun showToast(module: XposedModule, host: Any, message: String) {
         val context: Context = PlayerBridge.context(host) ?: run {
             module.info("showToast skipped: no context from ${host.javaClass.name}")

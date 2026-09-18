@@ -93,6 +93,22 @@ class SponsorBlockRepositoryTest {
         assertEquals(0, repository.cacheSize)
     }
 
+    /**
+     * 缓存 key 只按 bvid:协议按 bvid hash 前缀拉取、客户端按 videoID 过滤,
+     * 同一 bvid 不同 cid(分P)是同一份数据,切 P 不应重发网络请求。
+     */
+    @Test
+    fun sameBvidSharesSingleCacheEntryAcrossCids() {
+        val api = FakeApi(fetchResults = ArrayDeque(listOf(fetchResult(200, listOf(segment("u1"))))))
+        val repository = SponsorBlockRepository(api, cacheTtlMs = 60_000L)
+
+        repository.fetchAndCache(SponsorBlockQuery("BV17x411w7KC", 1L))
+
+        assertNotNull(repository.getCached(SponsorBlockQuery("BV17x411w7KC", 2L)))
+        assertEquals(1, repository.cacheSize)
+        assertEquals(1, api.fetchCalls.size)
+    }
+
     /** 缓存条目上限:超过上限时按最旧淘汰,不会随观看量单调增长。 */
     @Test
     fun evictsOldestEntriesWhenCacheExceedsCapacity() {
@@ -102,14 +118,14 @@ class SponsorBlockRepositoryTest {
 
         for (index in 0 until 40) {
             clock.advanceBy(1L)
-            val query = SponsorBlockQuery("BV17x411w7KC", index.toLong())
+            val query = SponsorBlockQuery("BV1test0000$index", index.toLong())
             repository.fetchAndCache(query)
             assertTrue("cache grew past capacity at index=$index", repository.cacheSize <= 32)
         }
 
         // 保留的是最近写入的一批。
-        assertNotNull(repository.getCached(SponsorBlockQuery("BV17x411w7KC", 39L)))
-        assertNull(repository.getCached(SponsorBlockQuery("BV17x411w7KC", 0L)))
+        assertNotNull(repository.getCached(SponsorBlockQuery("BV1test000039", 39L)))
+        assertNull(repository.getCached(SponsorBlockQuery("BV1test00000", 0L)))
     }
 
     /** 写入新条目时顺带清理已过期条目。 */
@@ -120,12 +136,12 @@ class SponsorBlockRepositoryTest {
         val repository = SponsorBlockRepository(api, cacheTtlMs = 100L, nowMs = clock::now)
 
         for (index in 0 until 10) {
-            repository.fetchAndCache(SponsorBlockQuery("BV17x411w7KC", index.toLong()))
+            repository.fetchAndCache(SponsorBlockQuery("BV1test0000$index", index.toLong()))
         }
         assertEquals(10, repository.cacheSize)
 
         clock.advanceBy(1_000L)
-        repository.fetchAndCache(SponsorBlockQuery("BV17x411w7KC", 999L))
+        repository.fetchAndCache(SponsorBlockQuery("BV1test000999", 999L))
 
         // 10 条过期 + 1 条新写入。
         assertEquals(1, repository.cacheSize)

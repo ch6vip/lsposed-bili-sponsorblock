@@ -96,11 +96,24 @@ class SponsorBlockRepository(
     }
 
     private fun cacheKey(query: SponsorBlockQuery): String {
-        return "${query.bvid}:${query.cid}:${query.actionType}"
+        // 只按 bvid 缓存:协议按 bvid hash 前缀拉取、客户端按 videoID 过滤,同一 bvid 的
+        // 不同 cid(分P)拿到的是同一份数据 —— cid 进 key 会让切P白白重发网络请求。
+        return query.bvid
+    }
+
+    /** 停掉底层 client 的网络线程池(controller 关闭时调用;测试用 Fake client 无需处理)。 */
+    fun close() {
+        (client as? SponsorBlockClient)?.close()
+    }
+
+    /** 继承上一个实例的缓存(controller 因设置变更重建时调用,避免当前视频片段短暂丢失)。 */
+    internal fun transferCacheFrom(previous: SponsorBlockRepository) {
+        cache.putAll(previous.cache)
+        fetchedAt.putAll(previous.fetchedAt)
     }
 
     companion object {
-        /** 缓存条目上限(bvid:cid:actionType 维度)。 */
+        /** 缓存条目上限(bvid 维度)。 */
         private const val MAX_CACHE_ENTRIES = 32
 
         /** 触发淘汰后保留的条目数(给下一批写入留余量)。 */

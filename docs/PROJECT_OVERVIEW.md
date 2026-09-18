@@ -3,7 +3,8 @@
 > **目标口径（2026-09 起）**：唯一目标宿主是 `bilibili 6.5.0` / `com.bilibili.app.in` /
 > 安装包 `<APK目录>\bilibili_6.5.0.apks`。
 > 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)。
-> 本文档描述**当前仓库代码**（commit 64bdc01，versionName 0.5.0）与**目标**之间的差距。
+> 迁移已完成:当前仓库代码(0.6.1 / versionCode 7)已按上述目标跑通主链路,
+> 差距清单以 [`docs/ROADMAP.md`](./ROADMAP.md) 与 [`docs/STATUS.md`](./STATUS.md) 为准。
 
 ## 1. 项目定位与基本信息
 
@@ -16,7 +17,7 @@
 | **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi） |
 | 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36，33 个 dex |
 | 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
-| 当前版本 | 0.5.0（versionCode 5）——**代码仍停在旧目标，尚未迁移** |
+| 当前版本 | 0.6.1（versionCode 7）——**6.5.0 迁移已完成,主链路真机跑通** |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
 | 构建 | AGP 8.7.3 / Kotlin 2.0.21 / Gradle 8.12 / compileSdk 35 / minSdk 23 / JDK 17 |
@@ -61,7 +62,11 @@ app/src/main/
 │   │   └── SponsorBlockClient.kt       SponsorBlock 协议：hash 前缀、拉取、提交、JSON 解析
 │   ├── model/                          数据模型 + 分类中文名单一来源 SponsorCategories
 │   ├── settings/                       设置存储 + 设置 UI
-│   │   ├── SettingsStore.kt            Keys / Writer / Codec / SyncBridge / ProviderAccess
+│   │   ├── SettingsKeys.kt             键名/默认值/clamp 上限
+│   │   ├── SettingsWriter.kt           变更监听 → 镜像文件 + provider 推送
+│   │   ├── SettingsCodec.kt            Bundle/JSON/prefs 三通道字段映射
+│   │   ├── SettingsSyncBridge.kt       Hook 端 ↔ 模块端 IPC 桥
+│   │   ├── SettingsProviderAccess.kt   provider 调用方准入校验
 │   │   ├── ModuleSettings.kt           Hook 端读取器（三级 fallback）+ SettingsSnapshot
 │   │   ├── SettingsProvider.kt         exported ContentProvider（IPC 读写设置）
 │   │   ├── LauncherActivity.kt         模块独立入口设置页
@@ -73,7 +78,6 @@ app/src/main/
 │   │   ├── RemainingTimeFormatter.kt   剩余时长扣减文本
 │   │   ├── ManualSkipButton.kt         手动跳过胶囊按钮
 │   │   ├── SkipCountdownOverlay.kt     倒计时取消浮层
-│   │   ├── SubmissionButtonInjector.kt 播放器内 SB 标记按钮 + 类别选择
 │   │   └── PlayerToastBridge.kt        原生 Toast 封装
 │   └── util/
 │       ├── AidBvidConverter.kt         aid -> BV 号
@@ -81,9 +85,9 @@ app/src/main/
 │       └── ModuleLog.kt                Xposed 日志封装
 ├── res/                                主题、字符串、图标
 └── resources/META-INF/xposed/          模块元数据 module.prop / scope.list / java_init.list
-                                           → scope.list 当前为 tv.danmaku.bili，需改为 com.bilibili.app.in
+                                           → scope.list 已是 com.bilibili.app.in
 
-app/src/test/kotlin/...                 JUnit 单测（当前 7 个文件）
+app/src/test/kotlin/...                 JUnit 单测（当前 14 个文件 / 126 例）
 docs/                                   计划与状态文档
 tools/dexscan/                          目标 APK 静态分析工具
 ```
@@ -108,13 +112,13 @@ SharedPreferences 变更
   -> syncSnapshotToModule()   走 ContentProvider putSettings
 ```
 
-读取端 ModuleSettings（Hook 端，宿主进程）：
+读取端 ModuleSettings（Hook 端，宿主进程）—— **IPC 权威,文件兜底**：
 
-1. JSON 镜像文件（候选 `/data/data/io.github.ch6vip.bilisb/files/...`、**`/data/data/com.bilibili.app.in/...`**）
-2. ContentProvider `call(getSettings)`
+1. ContentProvider `call(getSettings)`（权威存储,模块进程存活时）
+2. JSON 镜像文件（候选 `/data/data/io.github.ch6vip.bilisb/files/...`、**`/data/data/com.bilibili.app.in/...`**）
 3. SettingsSnapshot.DEFAULT
 
-> 现有代码里镜像/统计路径与 `HOST_PACKAGE` 仍写死 `tv.danmaku.bili`，属于 P0 迁移项（见 ROADMAP M6）。
+> 镜像/统计路径由 `HOST_PACKAGE` 派生(目标 `com.bilibili.app.in`),迁移已完成。
 
 生效语义：修改后 **重新进入播放页生效**（进入播放页时 reload），无需重启宿主。
 

@@ -31,7 +31,14 @@ import com.ctf.bilisb.sponsor.UserIdentityStore
 object SettingsScreenBuilder {
     private const val REPO_URL = "https://github.com/ch6vip/lsposed-bili-sponsorblock"
 
+    /** statusPanel 的兜底单例(模块进程内复用,避免反复 new SettingsWriter 泄漏线程/监听器)。 */
+    @Volatile
+    private var sharedStatusWriter: SettingsWriter? = null
+
     private val CHANGELOG = listOf(
+        "修复:面板改设置后当前视频跳过失效;关总开关后静音/倒计时残留",
+        "修复:播放页销毁后播放器面板可能再也打不开",
+        "性能/安全:绘制与进度路径减分配;日志脱敏 userID",
         "新增「关于」页(版本 / 作者 / 更新)",
         "设置界面改为单入口 + 详情页",
         "新增 片段统计(已跳过时长累计)",
@@ -42,11 +49,12 @@ object SettingsScreenBuilder {
     fun buildMain(
         activity: Activity,
         showStatusPanel: Boolean = false,
+        statusWriter: SettingsWriter? = null,
         onSponsorBlockClick: () -> Unit,
     ): LinearLayout {
         return column(activity).apply {
             if (showStatusPanel) {
-                addView(statusPanel(activity))
+                addView(statusPanel(activity, statusWriter))
             }
             addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
             addView(sectionTitle(activity, "关于"))
@@ -58,8 +66,13 @@ object SettingsScreenBuilder {
         }
     }
 
-    private fun statusPanel(activity: Activity): View {
-        val writer = SettingsWriter(activity)
+    /**
+     * 状态面板。优先复用调用方传入的 [statusWriter](LauncherActivity 持有);
+     * 不传时用进程级缓存单例 —— 之前这里每次 buildMain 都 new 一个 SettingsWriter,
+     * 反复进出主页会持续累积「单线程 IO 线程 + prefs 监听器」。
+     */
+    private fun statusPanel(activity: Activity, statusWriter: SettingsWriter? = null): View {
+        val writer = statusWriter ?: sharedStatusWriter ?: SettingsWriter(activity).also { sharedStatusWriter = it }
         val prefs = writer.sharedPreferences
         val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
         val userIdState = when {

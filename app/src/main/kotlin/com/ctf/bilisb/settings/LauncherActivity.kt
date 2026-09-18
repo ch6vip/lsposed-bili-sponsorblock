@@ -37,6 +37,15 @@ class LauncherActivity : Activity() {
         clearFocusRecursively(window?.decorView)
     }
 
+    override fun onDestroy() {
+        // 每个 Activity 实例一个 writer;不 close 的话旋转/深色切换每次泄漏
+        // 一条守护 IO 线程 + 一个 prefs 监听器,还会让每次改动重复做镜像写与 provider 推送。
+        if (::settingsWriter.isInitialized) {
+            settingsWriter.close()
+        }
+        super.onDestroy()
+    }
+
     private fun clearFocusRecursively(view: View?) {
         view ?: return
         if (view.hasFocus()) {
@@ -51,7 +60,11 @@ class LauncherActivity : Activity() {
 
     private fun showMain() {
         detailVisible = false
-        val content = SettingsScreenBuilder.buildMain(this, showStatusPanel = true) {
+        val content = SettingsScreenBuilder.buildMain(
+            this,
+            showStatusPanel = true,
+            statusWriter = settingsWriter,
+        ) {
             showDetail()
         }
         setContentView(SettingsScreenBuilder.wrapScroll(this, content))

@@ -109,6 +109,9 @@ object HookProbe {
     private val results = LinkedHashMap<String, String>()
     private val firstCounters = ConcurrentHashMap<String, Int>()
 
+    /** first() 计数键的软上限:超过即整体清零(键多为按实例生成的临时探针,重打一轮无害)。 */
+    private const val MAX_TRACKED_KEYS = 256
+
     @Synchronized
     fun ok(module: XposedModule, key: String, target: String) {
         results[key] = "OK   $target"
@@ -145,15 +148,21 @@ object HookProbe {
      * 这里统一兜住（曾经因为探针里一个非空 lambda 参数把宿主进程崩掉过，见 docs/STATUS.md）。
      */
     fun first(module: XposedModule, key: String, times: Int, message: () -> String) {
+        // 已封顶的键直接返回:防止 merge 在每帧路径上无意义地累加计数(Int 迟早溢出)。
+        val pinned = firstCounters[key]
+        if (pinned != null && pinned > times) return
         val count = firstCounters.merge(key, 1, Int::plus) ?: 1
-        if (count == times + 1) {
-            // 记满后从 map 移除键:probe 键(如 seekDraw:$className:$instanceId)按实例生成,
-            // 长会话会缓慢累积;计数已达上限时最后一次 merge 的值就是 times+1,移除防止无界增长
-            firstCounters.remove(key, count)
+        if (count > times) {
+            // 记满后把键钉在 times+1:不能 remove(key) —— 那会让限频日志周期性重打,
+            // 挂在每帧 draw 回调上的探针会变成高频日志 IO。键按实例生成(如
+            // seekDraw:$className:$instanceId)会缓慢累积,这里顺带按上限清扫防无界增长。
+            firstCounters[key] = times + 1
+            if (firstCounters.size > MAX_TRACKED_KEYS) {
+                firstCounters.clear()
+            }
+            return
         }
-        if (count <= times) {
-            module.info("[probe] $key #$count: ${safeMessage(message)}")
-        }
+        module.info("[probe] $key #$count: ${safeMessage(message)}")
     }
 
     private fun safeMessage(message: () -> String): String {

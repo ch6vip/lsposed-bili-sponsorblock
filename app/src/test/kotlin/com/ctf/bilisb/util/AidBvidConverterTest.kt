@@ -1,6 +1,7 @@
 package com.ctf.bilisb.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AidBvidConverterTest {
@@ -27,10 +28,15 @@ class AidBvidConverterTest {
         assertEquals("BV1xx411c7mX", AidBvidConverter.aidToBvid(1L shl 51))
     }
 
-    /** 极端输入:Long.MAX_VALUE 不能崩(旧实现这里会 IndexOutOfBoundsException)。 */
+    /**
+     * 极端输入:Long.MAX_VALUE 不能崩(旧实现这里会 IndexOutOfBoundsException),
+     * 且编码位只写 9 个(3..11)—— 高位溢出直接丢弃,不写穿 `BV1` 前缀(官方语义)。
+     */
     @Test
     fun convertsLongMaxValueWithoutCrash() {
-        assertEquals("BHWkGuhRkyzb", AidBvidConverter.aidToBvid(Long.MAX_VALUE))
+        val bvid = AidBvidConverter.aidToBvid(Long.MAX_VALUE)
+        assertEquals("BV1kGuhRkyzb", bvid)
+        assertTrue("must keep BV1 prefix: $bvid", bvid.startsWith("BV1"))
     }
 
     @Test

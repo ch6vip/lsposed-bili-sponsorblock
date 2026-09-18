@@ -237,13 +237,16 @@ object BiliSponsorBlockHooks {
             module.info("player left: teardown skipped, no context hash from host=${host.javaClass.name}")
             return false
         }
-        val first = pendingTeardowns.putIfAbsent(
-            hash, PendingTeardown(hash, android.os.SystemClock.uptimeMillis()),
-        ) == null
+        val pending = PendingTeardown(hash, android.os.SystemClock.uptimeMillis())
+        val first = pendingTeardowns.putIfAbsent(hash, pending) == null
         if (!first) return false
         mainHandler.postDelayed({
-            val pending = pendingTeardowns.remove(hash) ?: return@postDelayed
-            performTeardown(module, host, hash)
+            // 必须按 (hash, 本次登记的那一条) 精确移除:detach→attach→detach 叠加时,
+            // remove(hash) 会取走**后来者**的登记并用本次闭包里的旧 host 执行清理,
+            // 把仍存活的 context 状态删空(症状:当前视频跳过/静音失效)。
+            if (pendingTeardowns.remove(hash, pending)) {
+                performTeardown(module, host, hash)
+            }
         }, TEARDOWN_DELAY_MS)
         return true
     }
@@ -264,6 +267,12 @@ object BiliSponsorBlockHooks {
         // 必须走按 hash 的清理:此间宿主 widget 多半已 detach,反射取 Context 会失败,
         // onPlayerDestroyed(host) 会把 Int 当 host 用(hash=0 → 状态不清理/静音不解除)。
         sponsorBlockController?.onPlayerContextDestroyed(contextHash)
+        // 播放器面板与播放页共存亡:播放页离开时若面板还开着(比如 Activity 直接被销毁),
+        // 静态 current 会永久 isShowing=true,之后面板再也打不开 + 泄漏已死的 Activity。
+        // dismiss 内部自己切主线程、幂等。
+        com.ctf.bilisb.ui.SponsorBlockPlayerSheet.dismiss { message ->
+            module.info(message)
+        }
         module.info("player left: teardown done context=$contextHash host=${host.javaClass.name}")
     }
 
@@ -379,8 +388,22 @@ object BiliSponsorBlockHooks {
         // container 必须是 widget 本身(是 View,必有 Context):director 服务不是容器,
         // 对它反射取 Context 会失败,补绑后的 Toast/静音/后续补绑会静默失效。
         val container = widget
-        sponsorBlockController?.bindPlayerHandle(PlayerHandle(contextHash, container, core))
+        val controller = sponsorBlockController ?: return
+        controller.bindPlayerHandle(PlayerHandle(contextHash, container, core))
         VideoDirectorListener.noteContextHash(contextHash)
+        // 光有 handle 不够:state 只能由 onVideoIds 创建。玩家重建后 Context 实例换了
+        // (contextHash 变了),director 回调却只会带着「当时」的旧 hash —— 新 context
+        // 永远拿不到 ids,这里每个进度 tick 都会进来空转(真机日志每秒一条 rebound)。
+        // 主动从 director 服务的当前条目提取 aid/cid 喂给 onVideoIds,补绑才算闭环。
+        if (!controller.latestStateExists(contextHash)) {
+            val ids = VideoDirectorListener.currentIdsFromService(module)
+            if (ids != null && ids.first > 0 && ids.second > 0) {
+                controller.onVideoIds(contextHash, ids.first, ids.second)
+                HookProbe.first(module, "rebindFeedIds", 3) {
+                    "context=$contextHash aid=${ids.first} cid=${ids.second}"
+                }
+            }
+        }
         HookProbe.first(module, "rebindAfterTeardown", 3) {
             "context=$contextHash widget=${widget.javaClass.name} core=${core.javaClass.name}"
         }
@@ -431,12 +454,30 @@ object BiliSponsorBlockHooks {
         module.info("player bound context=$contextHash host=${host.javaClass.name} core=${core.javaClass.name}")
     }
 
+    /**
+     * reload 的最小间隔:bindPlayerContainer 在每次全屏切换/竖屏旋转都会触发,
+     * 每次都无条件同步走跨进程 IPC(失败再同步读盘)会把主线程卡在 Binder 上。
+     * 间隔内改走 [ModuleSettings.load](命中进程内缓存,零 IPC);设置变更的即时生效
+     * 不受影响 —— 面板路径直接 applySnapshot,不走这里。
+     */
+    private const val SETTINGS_RELOAD_MIN_INTERVAL_MS = 3_000L
+
+    @Volatile
+    private var lastSettingsReloadAtMs: Long = 0L
+
     private fun ensureSettingsLoaded(module: XposedModule, containerContext: android.content.Context) {
-        val freshSettings = runCatching {
-            com.ctf.bilisb.settings.ModuleSettings.reload(module, containerContext)
-        }.getOrElse {
-            module.info("ModuleSettings reload failed, using defaults: ${it.message}")
-            com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
+        val reloadDue = android.os.SystemClock.uptimeMillis() - lastSettingsReloadAtMs >=
+            SETTINGS_RELOAD_MIN_INTERVAL_MS
+        val freshSettings = if (reloadDue) {
+            lastSettingsReloadAtMs = android.os.SystemClock.uptimeMillis()
+            runCatching {
+                com.ctf.bilisb.settings.ModuleSettings.reload(module, containerContext)
+            }.getOrElse {
+                module.info("ModuleSettings reload failed, using defaults: ${it.message}")
+                com.ctf.bilisb.settings.SettingsSnapshot.DEFAULT
+            }
+        } else {
+            com.ctf.bilisb.settings.ModuleSettings.load(module, containerContext)
         }
 
         // 注意：必须先拿旧快照再赋值。`settings` 是同一个字段，若先赋值再比较，
@@ -469,8 +510,14 @@ object BiliSponsorBlockHooks {
 
         val currentController = sponsorBlockController
         if (currentController == null || previousSettings != freshSettings) {
+            val replacement = SponsorBlockController(module, freshSettings)
+            // 状态迁移必须在 close 之前:onVideoIds 只在播放条目变化时触发,同一视频内不会再来,
+            // 不迁移的话改任意开关后,当前视频的跳过/静音/手动按钮会整体失效到下一集。
+            currentController?.let { replacement.adoptStateFrom(it) }
+            // 先赋值再关旧:close→assign 间隙里到来的进度/director 回调会落在已 close 的
+            // 旧 controller 上被丢弃;先切换引用则窗口内事件直接进新 controller。
+            sponsorBlockController = replacement
             currentController?.close()
-            sponsorBlockController = SponsorBlockController(module, freshSettings)
             module.info("SponsorBlock controller initialized settingsChanged=${currentController != null} ($source)")
         } else {
             module.info("SponsorBlock controller reused ($source)")
@@ -534,6 +581,7 @@ object BiliSponsorBlockHooks {
             showSeekbarMarker = settings.showSeekbarMarker,
             showSkipStats = settings.showSkipStats,
             minSkipDurationLabel = SheetStateFormatter.formatSeconds((settings.minSkipDurationSec * 1000).toLong()),
+            minSkipDurationMaxSec = SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
             userIdLabel = settings.userId,
         )
 
@@ -847,14 +895,17 @@ object BiliSponsorBlockHooks {
 
             hookAfter(module, method, "seekTrack:$className") { chain ->
                 val target = chain.getThisObject() ?: return@hookAfter
+
+                // 探针开关判定必须放在探针**之前**:draw 回调每帧都来,用户关掉标记后
+                // 探针日志照样每帧打(即使有限频)纯属浪费。
+                if (!settings.showSeekbarMarker) {
+                    return@hookAfter
+                }
                 // 探针：按类名分开记录，才能看出「薄轨道 drawable(g)」和「SeekBar 本体(f/子类)」
                 // 哪一个在带片段数据的情况下真正在画（原来共用 key，被 first(5/8) 上限吃掉了）
                 val targetName = target.javaClass.name
                 HookProbe.first(module, "seekTrackCalled:$className", 3) { targetName }
 
-                if (!settings.showSeekbarMarker) {
-                    return@hookAfter
-                }
                 val canvas = chain.getArgs().getOrNull(0) as? Canvas ?: return@hookAfter
 
                 val contextHash = contextHash(target)
@@ -873,11 +924,12 @@ object BiliSponsorBlockHooks {
                 val ownerView = ownerViewOf(target)
                 if (isDrawableTarget) {
                     if (ownerView != null) {
-                        thinTrackPaintedAtByOwner[ownerView] = System.currentTimeMillis()
+                        // 单调时钟:墙钟会被 NTP/改时间回拨,窗口计算失真(与其余抑制窗口口径一致)
+                        thinTrackPaintedAtByOwner[ownerView] = android.os.SystemClock.uptimeMillis()
                     }
                 } else if (ownerView != null) {
                     val lastThin = thinTrackPaintedAtByOwner[ownerView] ?: 0L
-                    if (System.currentTimeMillis() - lastThin < THIN_TRACK_PREFERENCE_MS) {
+                    if (android.os.SystemClock.uptimeMillis() - lastThin < THIN_TRACK_PREFERENCE_MS) {
                         return@hookAfter
                     }
                 }

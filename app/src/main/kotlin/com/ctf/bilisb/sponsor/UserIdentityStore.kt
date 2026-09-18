@@ -26,11 +26,11 @@ class UserIdentityStore(
     /**
      * 取当前 userID,没有就生成并尽力持久化。
      *
-     * `synchronized`:首次调用可能同时来自提交按钮(主线程)与后台 executor,
-     * 不加锁会生成两个不同 ID 并各自写盘。命中缓存后开销只是一次 volatile 读。
+     * 用**类级**锁而不是实例级 `@Synchronized`:controller 每次缓存 miss 都会新建实例,
+     * 实例锁拦不住「两个实例并发首次调用」—— 会生成两个不同 ID 并各自写盘。
+     * 命中缓存后开销只是一次锁竞争(纳秒级)。
      */
-    @Synchronized
-    fun getOrCreateUserId(): String {
+    fun getOrCreateUserId(): String = synchronized(UserIdentityStore::class.java) {
         cachedUserId?.let { return it }
 
         val prefs = context.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)

@@ -1,5 +1,6 @@
 package com.ctf.bilisb.sponsor
 
+import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.model.SponsorSegment
 
 object SkipDecision {
@@ -7,7 +8,7 @@ object SkipDecision {
     private const val LOOKAHEAD_MS = 250L
 
     // 对应 APK `an.d()` = highlight/poi 分类,只标记不自动跳过。
-    private val highlightCategory = "poi_highlight"
+    private val highlightCategory = SponsorCategories.POI_HIGHLIGHT
 
     /**
      * 找当前位置命中的可跳过片段(自动跳过与手动跳过共用)。

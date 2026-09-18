@@ -195,7 +195,7 @@ const-string ", extension="                + l:Object
 | `player/PlayerActions.kt` | `o(int,boolean)` 优先，`seekTo(int)` 兜底 ✅ |
 | `player/PlayerBridge.kt` | Context 取法 `t()`/`getContext()` 候选 ✅ |
 | `hook/MineMenuInjector.kt` | adapter 候选 `…mine.d`；路由拦截候选化 + 探针 ✅ |
-| `settings/SettingsStore.kt` / `settings/ModuleSettings.kt` / `sponsor/SkipStatsStore.kt` | 路径改由 `HostTargets.HOST_DATA_DIRS` 派生 ✅ |
+| `settings/SettingsWriter.kt`(原 SettingsStore.kt,已按类型拆分) / `settings/ModuleSettings.kt` / `sponsor/SkipStatsStore.kt` | 路径改由 `HostTargets.HOST_DATA_DIRS` 派生 ✅ |
 | `ui/ProgressMarkerPainter.kt` | 新增 `drawInBounds`（支持非 Drawable 的 SeekBar 本体） ✅ |
 | `README.md` / `docs/*` | 目标口径、状态、路线图、真机 runbook ✅ |
 

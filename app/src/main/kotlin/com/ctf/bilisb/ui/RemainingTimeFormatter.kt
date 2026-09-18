@@ -1,15 +1,14 @@
 package com.ctf.bilisb.ui
 
 import android.text.SpannableStringBuilder
+import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.model.SponsorSegment
 import java.util.Locale
 
 object RemainingTimeFormatter {
     // 对应 APK `an.d()` = `this == s`(highlight/poi 分类)。
     // 高亮片段只标记不跳过,不应从剩余时长里扣减。
-    // 与 SponsorCategories.POI_HIGHLIGHT 保持一致（这里不加公开常量，避免跨文件耦合）。
-    private const val POI_HIGHLIGHT = "poi_highlight"
-    private val nonDeductibleCategories = setOf(POI_HIGHLIGHT)
+    private val nonDeductibleCategories = setOf(SponsorCategories.POI_HIGHLIGHT)
 
     /**
      * 扣除「实际会被跳过」的时长后的剩余时长。

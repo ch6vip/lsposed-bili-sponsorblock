@@ -21,14 +21,16 @@ object AidBvidConverter {
      *   - aid 超过 51 位可表示范围(≥ 2^51)时,`aid or 2^51` 之后再异或常量会得到**负数**,
      *     而负数取余在 Kotlin 里是负值,直接拿去索引 [table] 会 `IndexOutOfBoundsException`。
      *     所以这里统一用 [java.lang.Long.remainderUnsigned] 取无符号余数,顺带覆盖
-     *     `Long.MAX_VALUE` 这类极端输入(结果与官方实现对 2^51 的退化输出一致)。
+     *     `Long.MAX_VALUE` 这类极端输入。
+     *   - 循环下界是 `index >= 3`:官方实现固定写 9 个编码位(3..11),超出 58^9 的高位
+     *     直接丢弃,**不能写穿 `BV1` 前缀**(写穿会产出非法 bvid)。
      */
     fun aidToBvid(aid: Long): String {
         if (aid <= 0L) return ""
         val chars = charArrayOf('B', 'V', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0')
         var value = (aid or 2251799813685248L) xor 23442827791579L
         var index = 11
-        while (value != 0L && index >= 0) {
+        while (value != 0L && index >= 3) {
             chars[index] = table[java.lang.Long.remainderUnsigned(value, BASE).toInt()]
             value /= BASE
             index--

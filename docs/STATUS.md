@@ -3,7 +3,7 @@
 > **目标口径（2026-09 起）**：模块只以 `bilibili 6.5.0` / `com.bilibili.app.in` / `<APK目录>\bilibili_6.5.0.apks` 为目标。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：0.6.0（Bili2233，applicationId 已迁移为 `io.github.ch6vip.bilisb` / versionCode 6）——**主链路已在 6.5.0 真机跑通**，并完成一轮全项目 code review 修复
+模块版本：0.6.1（Bili2233，applicationId 已迁移为 `io.github.ch6vip.bilisb` / versionCode 7）——**主链路已在 6.5.0 真机跑通**，并完成两轮全项目 code review 修复
 最近变更：4 路并行 code review + 34 项问题修复（生命周期/设置热更新/提交协议/绘制几何/单测）
 最近 UI 修复：播放器「更多」面板「空降助手」行左侧对齐 —— 卡片外边距 12→16dp、竖直间距 12→0（宿主已自套 16dp）、
 标题 16→15sp、图标改 `TargetIconDrawable` 现画（不再运行期解析矢量 XML）。
@@ -82,7 +82,7 @@
 | M6 进度条标记 | ✅ | `source=progressDrawable+pad rect=Rect(27, 32 - 2466, 40)`，与实测轨道 y 1007–1015 对齐 |
 | M7 我的页入口 | ✅ | 注入 + 点击监听 + `Showing Bili2233 settings dialog` |
 | 播放器「更多」面板入口行（空降助手） | ✅ | 注入 `morePanelItems size=18` → `morePanelInjected <- size=19`；点击后 `sheetContextHash host=233035869`。UI 几何按截图量值对齐（卡片 16dp 外边距 / 间距 16dp / 图标 20dp / 标题 15sp），18:31 装机复验通过 |
-| Toast / 提交按钮 | ✅ | `showToast: 跳过: 开场动画 (30.0秒)`、`标记 赞助/恰饭`、`已取消标记` |
+| Toast / 提交 | ✅ | `showToast: 跳过: 开场动画 (30.0秒)`。注:播放器内 SB 提交按钮入口已移除(commit e9c2c32),「标记/取消标记」记录为历史验证,提交链路保留等待新入口 |
 
 ### 仍未在真机验证
 
@@ -174,7 +174,7 @@
   （顺序/单位已由字节码确认：参数直接来自 `core.getCurrentPosition()` / `getDuration()`）
 - `bindPlayerContainer` 在真实播放路径上是否被调用、Context 是否拿到 → `player bound context=<非0>`
 - `E0#b(current, previous)` 回调是否携带可用 `Video$e` → `[probe] directorCallback` / `directorCurrentVideo`
-- 薄轨道实际是哪个类、bounds 多少（`g` / `f` / `q`） → `[probe] seekTrackDrawn`
+- 薄轨道实际是哪个类、bounds 多少（`g` / `f` / `q`） → `[probe] seekTrackCalled:<类名>` / `[probe] seekDraw:<类名>:<实例>`
 - `bilisb://settings` 在新宿主的拦截落点 → `[probe] uriRouter`（预期 MISS；入口点击本身由我方监听器兜底）
 
 ## 本次迁移改动（M1/M2 + 探针版）

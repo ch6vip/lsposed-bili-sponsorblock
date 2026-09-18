@@ -54,7 +54,7 @@ $adb = "C:\android-sdk\platform-tools\adb.exe"
 | 6 | `[probe] directorCallback`、`videoDirector: FOUND aid=... cid=...` | M5 观察者回调是否携带 aid/cid | 有 `b(...)`/`c(...)`/`e(...)` 回调且能提取出 id |
 | 7 | `[probe] extractVideoIdsFailed` | M5 兜底也失败时的证据 | 出现即说明需要换提取路径（附 `video=` 类名） |
 | 8 | `segments fetched video=... status=200 count=N` | 整条拉取链路（BV→前缀→服务端） | count>0 |
-| 9 | `[probe] seekTrackDrawn: <类名> bounds=[...]` | M6 标记实际画在哪个类、bounds 是否薄轨道 | `v3.g` + 高度≈轨道高；若 bounds 高度很大说明画到了 SeekBar 本体 |
+| 9 | `[probe] seekTrackCalled:<类名>`、`[probe] seekDraw:<类名>:<实例>` | M6 标记实际画在哪个类、bounds 是否薄轨道 | `v3.g` + 高度≈轨道高；若 bounds 高度很大说明画到了 SeekBar 本体 |
 | 10 | `[probe] mineAdapterFound`、`Injected Bili2233 setting item at position N` | M7 我的页入口 | 出现在「我的」页刷新时 |
 | 11 | `[probe] uriRouter` | M8 路由拦截是否可用 | 大概率 MISS（`Router`/`BLRouter` 类名在 6.5.0 不存在） |
 

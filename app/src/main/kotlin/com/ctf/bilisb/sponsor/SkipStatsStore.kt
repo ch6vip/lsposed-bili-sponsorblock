@@ -42,8 +42,8 @@ object SkipStatsStore {
     /** 损坏文件的备份后缀(JSON 解析失败时保留现场,方便排查)。 */
     private const val BAK_SUFFIX = ".bak"
 
-    /** snapshot/record 等待后台加载的最长时间。 */
-    private const val LOAD_WAIT_MS = 2_000L
+    /** snapshot/record 等待后台加载的最长时间。别太长:调用方(主线程的跳过回调/面板点击)在等。 */
+    private const val LOAD_WAIT_MS = 500L
 
     private val lock = Any()
     private val io = Executors.newSingleThreadExecutor()
@@ -214,10 +214,17 @@ object SkipStatsStore {
      *
      * 直接 `writeText` 覆盖时,进程若在写到一半被杀,留下的半截 JSON 会让下次启动解析失败、
      * 统计整个归零。rename 在同一文件系统内是原子的,失败时退回直接写并打日志。
+     *
+     * 候选目录先按 canonical path 去重(`/data/data/X` 与 `/data/user/0/X` 是同一目录),
+     * 并且**首个写成功即停**:读侧([readFromDisk])本来就按同样顺序取第一个可读文件,
+     * 后续候选只是兜底,不需要每次统计都陪跑(不可写的 legacy 目录还会每次吐两条 warn)。
      */
     private fun writeAtomically(content: String) {
+        val seen = HashSet<String>()
         for (file in candidates) {
-            runCatching {
+            val path = runCatching { file.canonicalPath }.getOrDefault(file.absolutePath)
+            if (!seen.add(path)) continue
+            val written = runCatching {
                 file.parentFile?.mkdirs()
                 val tmp = File(file.parentFile, file.name + TMP_SUFFIX)
                 tmp.writeText(content)
@@ -227,9 +234,11 @@ object SkipStatsStore {
                     tmp.delete()
                     Log.w(TAG, "atomic rename failed, fell back to direct write: ${file.absolutePath}")
                 }
+                true
             }.onFailure {
                 Log.w(TAG, "failed to persist stats to ${file.absolutePath}", it)
-            }
+            }.getOrDefault(false)
+            if (written) return
         }
     }
 
