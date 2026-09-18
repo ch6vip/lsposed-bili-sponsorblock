@@ -97,6 +97,9 @@ object HomeTabHooks {
     // ------------------------------------------------------------------ 入口
 
     fun install(module: XposedModule, cl: ClassLoader) {
+        // 嗅探失败时的直连兜底用:6.5.0 真机实测 main2 类经默认加载器可达
+        // (MineMenuInjector 用同一加载器直接 Class.forName 到 tv.danmaku.bili.ui.main2.mine.d)
+        defaultCl = cl
         // 每个子功能独立 try 安装：某一类找不到/不可 hook 时不能连带丢掉其它功能
         runCatching { installLoaderSniffer(module) }.onFailure {
             HookProbe.miss(module, "homeLoaderSniffer", "install threw: ${it.javaClass.simpleName}: ${it.message}")
@@ -118,6 +121,10 @@ object HomeTabHooks {
     /** 真实运行时加载器（MainFragment 的定义加载器）。 */
     @Volatile
     private var mainUiLoader: ClassLoader? = null
+
+    /** 模块默认加载器(嗅探失败时的直连兜底)。 */
+    @Volatile
+    private var defaultCl: ClassLoader? = null
 
     /**
      * 挂 java.lang.ClassLoader.loadClass(String,boolean)：MainFragment 首次加载时
@@ -168,6 +175,15 @@ object HomeTabHooks {
     private fun scheduleFunnelWatchdog(module: XposedModule, attempt: Int = 1) {
         if (main2FunnelsDone.get()) return
         if (attempt >= RETRY_MAX) {
+            // 6.5.0 真机回归(2026-09-19):嗅探 30 轮未观察到 MainFragment 的 loadClass ——
+            // main2 类经默认加载器即可达,嗅探前提不成立。用默认加载器直连兜底,
+            // 装上了就照常记 ok;真找不到才记 miss。
+            val cl = defaultCl
+            if (cl != null && tryInstallTabListFilter(module, cl)) {
+                main2FunnelsDone.set(true)
+                HookProbe.ok(module, "homeMain2Funnels", "main2 funnel installed via default classloader (sniffer bypass)")
+                return
+            }
             HookProbe.miss(module, "homeMain2Funnels", "MainFragment not observed after $RETRY_MAX checks")
             return
         }
