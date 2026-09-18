@@ -36,6 +36,7 @@ object SettingsScreenBuilder {
     private var sharedStatusWriter: SettingsWriter? = null
 
     private val CHANGELOG = listOf(
+        "设置弹窗更名为「控制中心」:聚合 SponsorBlock 与 B 站增强两个入口",
         "新增 B 站增强:IP 属地 / 隐藏互动提示 / 首页不自动刷新 / 分享到 QQ / 顶栏消息入口 / 底栏删 tab",
         "修复:「我的」页入口偶发消失 / 点击无反应(绑定改为按行内容精确判定)",
         "修复:全屏切换/重进播放页后自动跳过偶发失效(播放器重建后 ids 重连)",

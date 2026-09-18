@@ -70,7 +70,7 @@ app/src/main/
 │   │   ├── ModuleSettings.kt           Hook 端读取器（三级 fallback）+ SettingsSnapshot
 │   │   ├── SettingsProvider.kt         exported ContentProvider（IPC 读写设置）
 │   │   ├── LauncherActivity.kt         模块独立入口设置页
-│   │   ├── SponsorBlockSettingDialog.kt 宿主内设置弹窗
+│   │   ├── SponsorBlockSettingDialog.kt 宿主内设置弹窗(控制中心/详情层导航)
 │   │   ├── SettingsScreenBuilder.kt    主/详情/关于 UI 构建器（两端共用）
 │   │   └── ColorPickerDialog.kt        纯代码颜色选择器
 │   ├── ui/                             播放器内 UI 与绘制
