@@ -51,7 +51,6 @@
   - **隐藏互动提示** —— 一键三连提示 / UP 关注气泡 / 互动弹幕投票
   - **首页不自动刷新** —— 切回首页/从后台返回不重置列表（下拉仍可手动刷新）
   - **分享到 QQ** —— 分享面板补回 QQ 入口
-  - **首页顶栏消息入口** / **底栏删除「消息」tab** —— 对齐国内版布局
 - **B 站风格 UI** —— 控制中心 / SponsorBlock / B 站增强三弹窗与全部子弹窗统一品牌粉 + 圆角卡片
 
 可识别的分类：赞助/恰饭、自我推广、互动提醒、开场动画、结束画面、回顾/概要、非音乐片段、填充内容、精彩时刻。
@@ -140,8 +139,6 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 | | 隐藏一键三连提示 / UP 提示 / 投票 | 关 | 播放器内互动提示逐项隐藏 |
 | | 首页不自动刷新 | 关 | 切回首页/从后台返回不重置列表 |
 | | 分享到 QQ | 关 | 分享面板补回 QQ 入口（需已安装 QQ） |
-| | 首页顶栏消息入口 | 关 | 搜索栏右侧加消息图标；**重启宿主生效** |
-| | 底栏删除「消息」tab | 关 | 需重启宿主 |
 
 ## 数据与隐私
 
@@ -267,8 +264,7 @@ app/src/main/kotlin/com/ctf/bilisb/
 │   ├── IpLocationHooks.kt     #   IP 属地:请求身份改写(moss/gRPC/REST 多路径)
 │   ├── InteractHintHooks.kt   #   隐藏互动提示(三连/UP 气泡/互动弹幕)
 │   ├── HomeNoAutoRefreshHooks.kt # 首页不自动刷新
-│   ├── ShareQqHooks.kt        #   分享面板补回 QQ + tauth 兜底
-│   └── HomeTabHooks.kt        #   首页顶栏消息入口 + 底栏删 tab
+│   └── ShareQqHooks.kt        #   分享面板补回 QQ + tauth 兜底
 ├── host/                      # 宿主契约
 │   ├── HostTargets.kt         #   类名/方法名候选表（改版先改这里）
 │   └── HookProbe.kt           #   命中率探针，日志 `[probe] hook summary: N/M hit`
@@ -333,10 +329,8 @@ flowchart LR
   - `hook/IpLocationHooks.kt` ← `IpLocationHooks.java`（评论/主页 IP 属地：请求身份改写）
   - `hook/InteractHintHooks.kt` ← `InteractHintHooks.java`（隐藏互动提示）
   - `hook/HomeNoAutoRefreshHooks.kt` ← `HomeNoAutoRefreshHooks.java`（首页不自动刷新）
-  - `hook/ShareQqHooks.kt` ← `ShareHooks.java`（分享面板补回 QQ；与上游的差异：
+  - `hook/ShareQqHooks.kt` ← `ShareHooks.java`（本项目宿主为官方签名包，保留 6.4.0+ 渠道注入，tauth 兜底照常）（分享面板补回 QQ；与上游的差异：
     本项目宿主为官方签名包，保留了 6.4.0+ 的渠道注入，tauth 兜底照常）
-  - `hook/HomeTabHooks.kt` ← `HomeUxHooks.java`（首页顶栏消息入口 + 底栏删 tab，
-    仅保留这两个功能，头像入口/角标轮询等未移植）
   感谢原作者的逆向工作 —— 类名候选表与协议结论是这些功能能落地 6.5.0 的关键。
 - [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— B 站客户端改动的思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) 与 [libxposed](https://github.com/libxposed) —— 框架与 API
