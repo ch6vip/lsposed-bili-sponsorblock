@@ -71,8 +71,11 @@ app/src/main/
 │   │   ├── SettingsProvider.kt         exported ContentProvider（IPC 读写设置）
 │   │   ├── LauncherActivity.kt         模块独立入口设置页
 │   │   ├── SponsorBlockSettingDialog.kt 宿主内设置弹窗(控制中心/详情层导航)
+│   │   ├── EnhanceFlags.kt             B 站增强开关读取器(TTL + IPC/镜像兜底)
 │   │   ├── SettingsScreenBuilder.kt    主/详情/关于 UI 构建器（两端共用）
 │   │   └── ColorPickerDialog.kt        纯代码颜色选择器
+│   ├── hook/                           宿主 UI 注入(MineMenu/MorePanel)+ B 站增强五件套
+│   │                                   (IpLocation/InteractHint/HomeNoAutoRefresh/ShareQq/HomeTab)
 │   ├── ui/                             播放器内 UI 与绘制
 │   │   ├── ProgressMarkerPainter.kt    进度条片段标记（实色矩形 / POI 圆点）
 │   │   ├── RemainingTimeFormatter.kt   剩余时长扣减文本
@@ -192,6 +195,7 @@ SharedPreferences 变更
 | show_time_deduction | bool | true | 剩余时长扣减 |
 | show_submit_button | bool | true | 播放器内标记按钮 |
 | color_<category> | string hex | 见内置配色 | 各分类标记颜色 |
+| enhance_ip_location 等 9 项 | bool | false | B 站增强开关(见 README「设置项·B 站增强」) |
 
 分类：sponsor / selfpromo / interaction / intro / outro / preview /
 music_offtopic / filler / poi_highlight
