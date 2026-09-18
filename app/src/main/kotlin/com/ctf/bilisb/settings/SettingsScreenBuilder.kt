@@ -59,6 +59,46 @@ object SettingsScreenBuilder {
         setBackgroundColor(BILI_DIVIDER)
     }
 
+    /** 详情页容器:与控制中心同源的浅灰页面底。 */
+    fun biliPage(activity: Activity, block: LinearLayout.() -> Unit): LinearLayout =
+        LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = biliCard(activity, BILI_PAGE_BG, 12)
+            setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 4))
+            block()
+        }
+
+    /** 卡片内的行间分割线(卡片自带水平内边距,不再额外缩进)。 */
+    private fun biliDividerInner(activity: Activity): View = View(activity).apply {
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 1),
+        )
+        setBackgroundColor(BILI_DIVIDER)
+    }
+
+    /** 小节:灰色小标题 + 白色圆角卡片(卡片自带水平内边距,行由 [block] 填充)。 */
+    private fun biliSection(
+        parent: LinearLayout,
+        activity: Activity,
+        title: String,
+        block: LinearLayout.() -> Unit,
+    ) {
+        parent.addView(TextView(activity).apply {
+            text = title
+            textSize = 13f
+            setTextColor(BILI_TEXT_SECONDARY)
+            setPadding(dp(activity, 4), dp(activity, 2), 0, dp(activity, 6))
+        })
+        parent.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 14), dp(activity, 6), dp(activity, 14), dp(activity, 6))
+            background = biliCard(activity, BILI_CARD_BG, 10)
+            block()
+        }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { bottomMargin = dp(activity, 10) })
+    }
+
     fun buildMain(
         activity: Activity,
         showStatusPanel: Boolean = false,
@@ -143,17 +183,25 @@ object SettingsScreenBuilder {
      * 的 showEnhance 导航,模块设置页由 LauncherActivity 直接 setContentView。
      */
     fun buildEnhance(activity: Activity, prefs: SharedPreferences): LinearLayout {
-        return column(activity).apply {
-            addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false))
+        return biliPage(activity) {
+            biliSection(this, activity, "增强开关") {
+                addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
+                val rows = listOf(
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false),
+                )
+                rows.forEachIndexed { index, row ->
+                    if (index > 0) addView(biliDividerInner(activity))
+                    addView(row)
+                }
+            }
         }
     }
 
@@ -200,18 +248,29 @@ object SettingsScreenBuilder {
     }
 
     fun buildDetail(activity: Activity, prefs: SharedPreferences): LinearLayout {
-        return column(activity).apply {
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENABLED, "启用 SponsorBlock", "关闭后模块不工作", true))
+        return biliPage(activity) {
+            biliSection(this, activity, "SponsorBlock") {
+                addView(createCheckBox(activity, prefs, SettingsKeys.ENABLED, "启用 SponsorBlock", "关闭后模块不工作", true))
+            }
 
-            addView(sectionTitle(activity, "自动跳过"))
-            addView(createCheckBox(activity, prefs, SettingsKeys.AUTO_SKIP, "自动跳过", "检测到片段时自动跳过", true))
-            addView(createCheckBox(activity, prefs, SettingsKeys.MANUAL_SKIP, "手动跳过", "片段内显示跳过按钮,点按才跳(覆盖自动跳过)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过", false))
-            addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)：", "0"))
-            addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)：", "0"))
+            biliSection(this, activity, "自动跳过") {
+                val rows = listOf(
+                    createCheckBox(activity, prefs, SettingsKeys.AUTO_SKIP, "自动跳过", "检测到片段时自动跳过", true),
+                    createCheckBox(activity, prefs, SettingsKeys.MANUAL_SKIP, "手动跳过", "片段内显示跳过按钮,点按才跳(覆盖自动跳过)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过", false),
+                )
+                rows.forEachIndexed { index, row ->
+                    if (index > 0) addView(biliDividerInner(activity))
+                    addView(row)
+                }
+                addView(biliDividerInner(activity))
+                addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)：", "0"))
+                addView(biliDividerInner(activity))
+                addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)：", "0"))
+            }
 
-            addView(sectionTitle(activity, "跳过类别"))
-            val categories = listOf(
+            biliSection(this, activity, "跳过类别") {
+                val categories = listOf(
                 Triple(SettingsKeys.CAT_SPONSOR, "赞助/恰饭", "付费推广、赞助商"),
                 Triple(SettingsKeys.CAT_SELFPROMO, "自我推广", "自己的商品、链接"),
                 Triple(SettingsKeys.CAT_INTERACTION, "互动提醒", "点赞、关注提示"),
@@ -222,35 +281,50 @@ object SettingsScreenBuilder {
                 Triple(SettingsKeys.CAT_FILLER, "填充内容", "笑话、重复片段"),
                 Triple(SettingsKeys.CAT_POI_HIGHLIGHT, "精彩时刻", "视频精彩部分"),
             )
-            for ((key, title, summary) in categories) {
+            categories.forEachIndexed { index, (key, title, summary) ->
+                if (index > 0) addView(biliDividerInner(activity))
                 addView(createCheckBox(activity, prefs, key, title, summary, true))
             }
+        }
 
-            addView(sectionTitle(activity, "标记颜色"))
-            addView(hint(activity, "点击色块自定义各分类在进度条上的标记颜色"))
-            for ((category, name) in SponsorCategories.displayNames) {
-                addView(ColorPickerDialog.colorRow(activity, prefs, category, name))
+            biliSection(this, activity, "标记颜色") {
+                addView(hint(activity, "点击色块自定义各分类在进度条上的标记颜色"))
+                SponsorCategories.displayNames.entries.forEachIndexed { index, (category, name) ->
+                    if (index > 0) addView(biliDividerInner(activity))
+                    addView(ColorPickerDialog.colorRow(activity, prefs, category, name))
+                }
             }
 
-            addView(sectionTitle(activity, "界面显示"))
-            addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_TOAST, "跳过提示", "跳过时显示 Toast", true))
-            addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_SEEKBAR_MARKER, "进度条标记", "标记片段位置", true))
-            addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_TIME_DEDUCTION, "时间扣减", "总时长减去跳过时长", true))
-            addView(createCheckBox(activity, prefs, SettingsKeys.SHOW_SKIP_STATS, "跳过次数统计", "累计跳过次数与节省时长", true))
-            // 播放器内的「标记按钮」已按需求移除，对应开关不再展示；
-            // SettingsKeys.SHOW_SUBMIT_BUTTON 暂时保留以兼容旧配置与编解码。
+            biliSection(this, activity, "界面显示") {
+                val rows = listOf(
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TOAST, "跳过提示", "跳过时显示 Toast", true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SEEKBAR_MARKER, "进度条标记", "标记片段位置", true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TIME_DEDUCTION, "时间扣减", "总时长减去跳过时长", true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SKIP_STATS, "跳过次数统计", "累计跳过次数与节省时长", true),
+                )
+                rows.forEachIndexed { index, row ->
+                    if (index > 0) addView(biliDividerInner(activity))
+                    addView(row)
+                }
+                // 播放器内的「标记按钮」已按需求移除，对应开关不再展示；
+                // SettingsKeys.SHOW_SUBMIT_BUTTON 暂时保留以兼容旧配置与编解码。
+            }
 
-            addView(sectionTitle(activity, "统计"))
-            buildStats(activity, this)
+            biliSection(this, activity, "统计") {
+                buildStats(activity, this)
+            }
 
-            addView(sectionTitle(activity, "提交配置"))
-            addView(userIdRow(activity, prefs))
-            addView(defaultSubmitCategoryRow(activity, prefs))
+            biliSection(this, activity, "提交配置") {
+                addView(userIdRow(activity, prefs))
+                addView(biliDividerInner(activity))
+                addView(defaultSubmitCategoryRow(activity, prefs))
+            }
 
-            addView(sectionTitle(activity, "服务器"))
-            addView(serverRow(activity, prefs))
-            addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
-
+            biliSection(this, activity, "服务器") {
+                addView(serverRow(activity, prefs))
+                addView(biliDividerInner(activity))
+                addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
+            }
         }
     }
 
@@ -342,6 +416,14 @@ object SettingsScreenBuilder {
         val checkBox = CheckBox(activity).apply {
             text = title
             textSize = 15f
+            setTextColor(BILI_TEXT_PRIMARY)
+            // 勾选态用品牌粉,对齐 B 站 App 的开关/勾选视觉
+            runCatching {
+                buttonTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(BILI_PINK, 0xFFCCCCCC.toInt()),
+                )
+            }
             isChecked = prefs.getBoolean(key, defaultValue)
             setOnCheckedChangeListener { _, isChecked ->
                 prefs.edit().putBoolean(key, isChecked).apply()
@@ -350,7 +432,7 @@ object SettingsScreenBuilder {
         val summaryView = TextView(activity).apply {
             text = summary
             textSize = 12f
-            setTextColor(Color.GRAY)
+            setTextColor(BILI_TEXT_SECONDARY)
             setPadding(checkBox.paddingLeft + dp(activity, 32), 0, 0, 0)
         }
         layout.addView(checkBox)
