@@ -64,6 +64,24 @@ object SettingsKeys {
     const val CAT_FILLER = "cat_filler"
     const val CAT_POI_HIGHLIGHT = "cat_poi_highlight"
 
+    // B 站增强功能(移植自 BiliTamer,MIT):全部默认关闭,按需开启
+    const val ENHANCE_IP_LOCATION = "enhance_ip_location"          // 评论/主页 IP 属地
+    const val ENHANCE_HIDE_TRIPLE = "enhance_hide_triple"          // 隐藏一键三连提示
+    const val ENHANCE_HIDE_UP_PROMPT = "enhance_hide_up_prompt"    // 隐藏 UP 提示(关注引导气泡)
+    const val ENHANCE_HIDE_VOTE = "enhance_hide_vote"              // 隐藏投票/互动弹幕
+    const val ENHANCE_NO_AUTO_REFRESH = "enhance_no_auto_refresh"  // 首页不自动刷新
+    const val ENHANCE_SHARE_QQ = "enhance_share_qq"                // 分享面板补回「分享到 QQ」
+    const val ENHANCE_HOME_TOPBAR_MESSAGE = "enhance_home_topbar_message" // 首页顶栏消息入口
+    const val ENHANCE_HOME_TAB_REMOVE_MESSAGE = "enhance_home_tab_remove_message" // 底栏删除「消息」tab
+    const val ENHANCE_HOME_TAB_REMOVE_MINE = "enhance_home_tab_remove_mine"       // 底栏删除「我的」tab
+
+    /** 增强功能开关的 key 集合(Codec 字段映射用)。 */
+    val ENHANCE_KEYS = listOf(
+        ENHANCE_IP_LOCATION, ENHANCE_HIDE_TRIPLE, ENHANCE_HIDE_UP_PROMPT, ENHANCE_HIDE_VOTE,
+        ENHANCE_NO_AUTO_REFRESH, ENHANCE_SHARE_QQ, ENHANCE_HOME_TOPBAR_MESSAGE,
+        ENHANCE_HOME_TAB_REMOVE_MESSAGE, ENHANCE_HOME_TAB_REMOVE_MINE,
+    )
+
     // UI 开关
     const val SHOW_TOAST = "show_toast"
     const val SHOW_SEEKBAR_MARKER = "show_seekbar_marker"

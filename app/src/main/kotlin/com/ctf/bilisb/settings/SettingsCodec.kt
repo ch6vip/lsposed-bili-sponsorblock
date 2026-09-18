@@ -35,6 +35,15 @@ object SettingsCodec {
             categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
                 parseColor(prefs.getString(SettingsKeys.colorKey(category), def), def)
             },
+            ipLocation = prefs.getBoolean(SettingsKeys.ENHANCE_IP_LOCATION, false),
+            hideTriple = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_TRIPLE, false),
+            hideUpPrompt = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, false),
+            hideVote = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_VOTE, false),
+            noAutoRefresh = prefs.getBoolean(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
+            shareQq = prefs.getBoolean(SettingsKeys.ENHANCE_SHARE_QQ, false),
+            homeTopbarMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
+            homeTabRemoveMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
+            homeTabRemoveMine = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, false),
         )
     }
 
@@ -68,7 +77,22 @@ object SettingsCodec {
             SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
                 put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
             }
+            SettingsKeys.ENHANCE_KEYS.forEach { key -> put(key, enhanceFlag(snapshot, key)) }
         }
+    }
+
+    /** 增强开关统一取值(映射快照字段,新增开关只改这里)。 */
+    private fun enhanceFlag(snapshot: SettingsSnapshot, key: String): Boolean = when (key) {
+        SettingsKeys.ENHANCE_IP_LOCATION -> snapshot.ipLocation
+        SettingsKeys.ENHANCE_HIDE_TRIPLE -> snapshot.hideTriple
+        SettingsKeys.ENHANCE_HIDE_UP_PROMPT -> snapshot.hideUpPrompt
+        SettingsKeys.ENHANCE_HIDE_VOTE -> snapshot.hideVote
+        SettingsKeys.ENHANCE_NO_AUTO_REFRESH -> snapshot.noAutoRefresh
+        SettingsKeys.ENHANCE_SHARE_QQ -> snapshot.shareQq
+        SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE -> snapshot.homeTopbarMessage
+        SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE -> snapshot.homeTabRemoveMessage
+        SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE -> snapshot.homeTabRemoveMine
+        else -> false
     }
 
     /**
@@ -113,6 +137,15 @@ object SettingsCodec {
             categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
                 parseColor(str(SettingsKeys.colorKey(category), def), def)
             },
+            ipLocation = bool(SettingsKeys.ENHANCE_IP_LOCATION, false),
+            hideTriple = bool(SettingsKeys.ENHANCE_HIDE_TRIPLE, false),
+            hideUpPrompt = bool(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, false),
+            hideVote = bool(SettingsKeys.ENHANCE_HIDE_VOTE, false),
+            noAutoRefresh = bool(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
+            shareQq = bool(SettingsKeys.ENHANCE_SHARE_QQ, false),
+            homeTopbarMessage = bool(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
+            homeTabRemoveMessage = bool(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
+            homeTabRemoveMine = bool(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, false),
         )
     }
 
@@ -169,6 +202,15 @@ object SettingsCodec {
         showSkipStats = true,
         showSubmitButton = true,
         categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) -> parseColor(hex, "#808080") },
+        ipLocation = false,
+        hideTriple = false,
+        hideUpPrompt = false,
+        hideVote = false,
+        noAutoRefresh = false,
+        shareQq = false,
+        homeTopbarMessage = false,
+        homeTabRemoveMessage = false,
+        homeTabRemoveMine = false,
     )
 
     private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {

@@ -36,6 +36,7 @@ object SettingsScreenBuilder {
     private var sharedStatusWriter: SettingsWriter? = null
 
     private val CHANGELOG = listOf(
+        "新增 B 站增强:IP 属地 / 隐藏互动提示 / 首页不自动刷新 / 分享到 QQ / 顶栏消息入口 / 底栏删 tab",
         "修复:「我的」页入口偶发消失 / 点击无反应(绑定改为按行内容精确判定)",
         "修复:全屏切换/重进播放页后自动跳过偶发失效(播放器重建后 ids 重连)",
         "修复:面板改设置后当前视频跳过失效;关总开关后静音/倒计时残留",
@@ -161,6 +162,18 @@ object SettingsScreenBuilder {
             addView(sectionTitle(activity, "服务器"))
             addView(serverRow(activity, prefs))
             addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
+
+            addView(sectionTitle(activity, "B 站增强"))
+            addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false))
+            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false))
         }
     }
 

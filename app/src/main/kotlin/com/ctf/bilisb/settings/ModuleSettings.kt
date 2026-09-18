@@ -61,6 +61,9 @@ object ModuleSettings {
         return defaults
     }
 
+    /** 只读镜像文件(不走 IPC)。增强功能 hook 在拿不到 Context 时用这条兜底通道。 */
+    fun loadFromMirror(module: XposedModule): SettingsSnapshot? = tryFileFallback(module)
+
     /** 强制重新加载(配置变化后调用):清空进程内缓存后按 [load] 的来源顺序重新解析。 */
     fun reload(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached = null
@@ -140,6 +143,16 @@ data class SettingsSnapshot(
     val showSubmitButton: Boolean,
     /** 分类标记颜色:category 字符串 → ARGB int。缺省由 CATEGORY_COLOR_DEFAULTS 填充。 */
     val categoryColors: Map<String, Int>,
+    // ---- B 站增强功能(全部默认关闭) ----
+    val ipLocation: Boolean = false,
+    val hideTriple: Boolean = false,
+    val hideUpPrompt: Boolean = false,
+    val hideVote: Boolean = false,
+    val noAutoRefresh: Boolean = false,
+    val shareQq: Boolean = false,
+    val homeTopbarMessage: Boolean = false,
+    val homeTabRemoveMessage: Boolean = false,
+    val homeTabRemoveMine: Boolean = false,
 ) {
     companion object {
         val DEFAULT = SettingsCodec.defaultSnapshot()
