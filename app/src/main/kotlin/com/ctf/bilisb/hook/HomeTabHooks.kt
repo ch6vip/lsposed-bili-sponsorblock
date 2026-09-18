@@ -20,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.host.HookResolve
 import com.ctf.bilisb.settings.EnhanceFlags
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -101,6 +102,18 @@ object HomeTabHooks {
         // (MineMenuInjector 用同一加载器直接 Class.forName 到 tv.danmaku.bili.ui.main2.mine.d)
         defaultCl = cl
         // 每个子功能独立 try 安装：某一类找不到/不可 hook 时不能连带丢掉其它功能
+        // 6.5.0 主路径:main2 类经默认加载器可达,安装期直接把 tab 过滤装上 ——
+        // 必须赶在宿主首次构建底栏(启动后几秒)之前;等嗅探/看门狗会永远错过首建
+        // (2026-09-19 真机日志:兜底 60s 才装上,当轮底栏没被过滤)。
+        runCatching { installTabListFilter(module, cl) }.onFailure {
+            HookProbe.miss(module, "homeTabListDirect", "install threw: ${it.javaClass.simpleName}: ${it.message}")
+        }
+        // 6.5.0 Compose 底栏的主数据源(移植自 BiliTamer HomeUxHooks 的 9100300 管道):
+        // HomeTabServiceImpl 列表 / CachedResourceResolver 配置 / MainResourceManager 缓存。
+        // P#a() 老管道在 6.5.0 上不会被调用(真机日志:挂上后零调用),这三条才是底栏源头。
+        runCatching { installComposeTabFilters(module, cl) }.onFailure {
+            HookProbe.miss(module, "homeComposeFilters", "install threw: ${it.javaClass.simpleName}: ${it.message}")
+        }
         runCatching { installLoaderSniffer(module) }.onFailure {
             HookProbe.miss(module, "homeLoaderSniffer", "install threw: ${it.javaClass.simpleName}: ${it.message}")
         }
@@ -207,6 +220,131 @@ object HomeTabHooks {
         // 未找到目标时由 retryUntilDone 延迟重试；tryInstallTabListFilter 装上后
         // 置位 tabFilterHooked，重试自然短路为 true。
         retryUntilDone(module, "homeTabList") { tryInstallTabListFilter(module, uiCl) }
+    }
+
+    // ------------------------------------------------------------------ 6.5.0 Compose 底栏三漏斗(移植自 BiliTamer)
+
+    private val composeFiltersHooked = AtomicBoolean(false)
+
+    /**
+     * Compose 底栏的三条数据源全挂(真名类,resource 包跨构建稳):
+     *   1. [HomeTabServiceImpl] 无参返回 List 的方法(g()/k():实时配置 / 缓存)
+     *   2. [CachedResourceResolver] 无参返回 TabResponse 的方法(全局缓存单一实例,
+     *      原地删除 = 全链一致「看不到」被删 tab,等同服务端没下发)
+     *   3. [MainResourceManager].h(Z,Z) 后过滤其 d.a 列表(缓存唯一赋值点)
+     * 任何一条命中都足以拦住底栏;三条全挂是按 BiliTamer 的实测结论冗余覆盖。
+     */
+    private fun installComposeTabFilters(module: XposedModule, cl: ClassLoader) {
+        retryUntilDone(module, "homeComposeFilters") { tryInstallComposeTabFilters(module, cl) }
+    }
+
+    /** true=三条漏斗已装上(或并发已装);false=本次类/方法都没找到(继续重试)。 */
+    private fun tryInstallComposeTabFilters(module: XposedModule, cl: ClassLoader): Boolean {
+        if (composeFiltersHooked.get()) return true
+        var hooked = 0
+
+        // 1) HomeTabServiceImpl:无参 → java.util.List
+        runCatching {
+            val impl = Class.forName("tv.danmaku.bili.ui.main2.resource.HomeTabServiceImpl", false, cl)
+            for (m in impl.declaredMethods) {
+                if (m.parameterTypes.isNotEmpty() || m.returnType != java.util.List::class.java) continue
+                m.isAccessible = true
+                runCatching { module.deoptimize(m) }
+                module.hook(m)
+                    .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept { chain ->
+                        val result = chain.proceed()
+                        runCatching { return@intercept filterTabList(module, result as? List<Any>) }
+                            .onFailure {
+                                module.warn("homeTab: service list filter failed: ${it.message}")
+                            }
+                        result
+                    }
+                hooked++
+            }
+        }.onFailure { module.info("homeTab: HomeTabServiceImpl unavailable: ${it.message}") }
+
+        // 2) CachedResourceResolver:无参 → *TabResponse
+        runCatching {
+            val resolver = Class.forName("tv.danmaku.bili.ui.main2.resource.CachedResourceResolver", false, cl)
+            for (m in resolver.declaredMethods) {
+                if (m.parameterTypes.isNotEmpty() || !m.returnType.name.endsWith("MainResourceManager\$TabResponse")) continue
+                m.isAccessible = true
+                runCatching { module.deoptimize(m) }
+                module.hook(m)
+                    .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept { chain ->
+                        val resp = chain.proceed()
+                        runCatching { filterMessageTabsInPlace(module, resp, "tabData", "tab", "config") }
+                            .onFailure { module.warn("homeTab: tab config filter failed: ${it.message}") }
+                        resp
+                    }
+                hooked++
+            }
+        }.onFailure { module.info("homeTab: CachedResourceResolver unavailable: ${it.message}") }
+
+        // 3) MainResourceManager.h(Z,Z):缓存唯一赋值点
+        runCatching {
+            val mgrCls = Class.forName("tv.danmaku.bili.ui.main2.resource.MainResourceManager", false, cl)
+            val h = mgrCls.declaredMethods.firstOrNull { m ->
+                m.parameterTypes.size == 2 &&
+                    m.parameterTypes[0] == java.lang.Boolean.TYPE &&
+                    m.parameterTypes[1] == java.lang.Boolean.TYPE &&
+                    m.returnType == Void.TYPE
+            }
+            if (h != null) {
+                h.isAccessible = true
+                runCatching { module.deoptimize(h) }
+                module.hook(h)
+                    .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept { chain ->
+                        val result = chain.proceed()
+                        runCatching {
+                            val mgr = chain.getThisObject()
+                            filterMessageTabsInPlace(module, mgr, "d", "a", "rmcache")
+                        }.onFailure { module.warn("homeTab: rm cache filter failed: ${it.message}") }
+                        result
+                    }
+                hooked++
+            }
+        }.onFailure { module.info("homeTab: MainResourceManager unavailable: ${it.message}") }
+
+        if (hooked == 0) return false
+        composeFiltersHooked.set(true)
+        HookProbe.ok(module, "homeComposeFilters", "compose bottom bar filters hooked, methods=$hooked")
+        return true
+    }
+
+    /**
+     * 原地移除对象字段链([fieldA] → [fieldB])里的「消息」tab。
+     * BiliTamer 结论:配置/缓存对象是全局单一实例,改一次全链生效。
+     */
+    private fun filterMessageTabsInPlace(module: XposedModule, host: Any?, fieldA: String, fieldB: String, label: String) {
+        if (host == null) return
+        if (!EnhanceFlags.snapshot(module).homeTabRemoveMessage) return
+        runCatching {
+            val mid = HookResolve.readField(host, fieldA) ?: return
+            val listObj = HookResolve.readField(mid, fieldB) ?: return
+            val tabs = listObj as? MutableList<Any> ?: return
+            val probe = tabListProbe.compareAndSet(false, true)
+            var removed = 0
+            val it2 = tabs.iterator()
+            while (it2.hasNext()) {
+                val url = pageUrlOf(it2.next())
+                if (url != null && url.startsWith(TAB_URL_REMOVE_MESSAGE)) {
+                    it2.remove()
+                    removed++
+                }
+            }
+            if (removed > 0) {
+                module.info("homeTab: $label tab list filtered -$removed (kept=${tabs.size})")
+            } else if (probe) {
+                module.info("homeTab: $label tabs[${tabs.joinToString(",") { pageUrlOf(it) ?: "?" }}] (nothing to remove)")
+            }
+        }
     }
 
     /** true=已装上（或已被并发安装）；false=本次没找到目标（继续重试）。 */
