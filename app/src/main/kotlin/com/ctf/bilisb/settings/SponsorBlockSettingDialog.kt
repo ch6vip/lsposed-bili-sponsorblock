@@ -49,11 +49,17 @@ object SponsorBlockSettingDialog {
         if (activity.isFinishing || activity.isDestroyed) return
         val navigating = booleanArrayOf(false)
         val dialogRef = arrayOfNulls<AlertDialog>(1)
-        val root = SettingsScreenBuilder.buildMain(activity) {
+        // 统一的前进导航:先 dismiss 当前根弹窗再 show 子弹窗,避免短暂双弹窗叠加
+        fun forward(show: () -> Unit) {
             navigating[0] = true
             dialogRef[0]?.dismiss()
-            showDetail(activity, onDismiss)
+            show()
         }
+        val root = SettingsScreenBuilder.buildMain(
+            activity,
+            onSponsorBlockClick = { forward { showDetail(activity, onDismiss) } },
+            onEnhanceClick = { forward { showEnhance(activity, onDismiss) } },
+        )
 
         val dialog = AlertDialog.Builder(activity)
             .setTitle("Bili2233")
@@ -92,6 +98,37 @@ object SponsorBlockSettingDialog {
         val dialog = AlertDialog.Builder(activity)
             .setTitle("SponsorBlock")
             .setView(SettingsScreenBuilder.wrapScroll(activity, SettingsScreenBuilder.buildDetail(activity, prefs(activity))))
+            .setPositiveButton("返回") { _, _ -> back() }
+            .create()
+        dialog.setOnCancelListener { back() }
+        dialog.setOnDismissListener {
+            // 只有当前登记的弹窗才清空，避免导航时把新弹窗的登记清掉
+            if (dialogRef[0] === currentDialog) {
+                currentDialog = null
+                currentActivity = null
+            }
+        }
+        dialogRef[0] = dialog
+        currentDialog = dialog
+        currentActivity = activity
+        dialog.show()
+    }
+
+    /** 「B 站增强」详情弹窗(与 showDetail 同一套导航语义,返回键/「返回」回主页)。 */
+    private fun showEnhance(activity: Activity, onDismiss: (() -> Unit)?) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        val dialogRef = arrayOfNulls<AlertDialog>(1)
+        fun back() {
+            dialogRef[0]?.currentFocus?.clearFocus()
+            // 先 dismiss 当前 detail 弹窗再导航:onClick 返回后 AOSP 会自动 dismiss,
+            // 直接 showMain 会造成短暂双弹窗叠加(与 showDetail 的导航写法保持一致)
+            dialogRef[0]?.dismiss()
+            showMain(activity, onDismiss)
+        }
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("B 站增强")
+            .setView(SettingsScreenBuilder.wrapScroll(activity, SettingsScreenBuilder.buildEnhance(activity, prefs(activity))))
             .setPositiveButton("返回") { _, _ -> back() }
             .create()
         dialog.setOnCancelListener { back() }
