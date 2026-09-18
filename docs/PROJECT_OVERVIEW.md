@@ -195,7 +195,7 @@ SharedPreferences 变更
 | show_time_deduction | bool | true | 剩余时长扣减 |
 | show_submit_button | bool | true | 播放器内标记按钮 |
 | color_<category> | string hex | 见内置配色 | 各分类标记颜色 |
-| enhance_ip_location 等 9 项 | bool | false | B 站增强开关(见 README「设置项·B 站增强」) |
+| enhance_ip_location 等 8 项 | bool | false | B 站增强开关(见 README「设置项·B 站增强」) |
 
 分类：sponsor / selfpromo / interaction / intro / outro / preview /
 music_offtopic / filler / poi_highlight

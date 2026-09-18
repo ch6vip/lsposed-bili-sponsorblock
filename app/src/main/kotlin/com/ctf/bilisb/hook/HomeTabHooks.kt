@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 首页 UI 调整（移植自 BiliTamer (MIT) 的 HomeUxHooks，Java → Kotlin，只保留两个功能）：
  *
- *  A. 底栏删 tab（开关 homeTabRemoveMessage / homeTabRemoveMine）：
+ *  A. 底栏删 tab（开关 homeTabRemoveMessage；「我的」tab 移除能力已按需求删除）：
  *     hook tab 模型 provider 的「无参返回 ArrayList」方法（6.4.0/6.5.0 即
  *     tv.danmaku.bili.ui.main2.S 的静态方法 a()，返回 tab 模型 List），按 pageUrl
  *     前缀过滤（"bilibili://im/" / "bilibili://user_center/mine"）——底栏、pager、
@@ -75,7 +75,6 @@ object HomeTabHooks {
 
     /** 底栏要移除的 tab：pageUrl 前缀（运行时探针会打印真实值便于校准）。 */
     private const val TAB_URL_REMOVE_MESSAGE = "bilibili://im/"
-    private const val TAB_URL_REMOVE_MINE = "bilibili://user_center/mine"
 
     /** 顶栏消息图标点击后走的深链（实测落点=底栏「消息」同款页面）。 */
     private const val MESSAGE_ROUTE_URI = "bilibili://im/compat/home"
@@ -258,22 +257,17 @@ object HomeTabHooks {
         // 开关热生效：每次回调都读最新快照
         val snapshot = EnhanceFlags.snapshot(module)
         val rmMsg = snapshot.homeTabRemoveMessage
-        val rmMine = snapshot.homeTabRemoveMine
         val probe = tabListProbe.compareAndSet(false, true)
-        if (!rmMsg && !rmMine && !probe) return list
+        if (!rmMsg && !probe) return list
 
         val kept = ArrayList<Any>(list.size)
         var removedMsg = 0
-        var removedMine = 0
         var droppedMaxIdx = -1
         var keptMinAfterDrop = Int.MAX_VALUE
         for ((index, item) in list.withIndex()) {
             val url = pageUrlOf(item)
-            val drop = when {
-                url != null && rmMsg && url.startsWith(TAB_URL_REMOVE_MESSAGE) -> { removedMsg++; true }
-                url != null && rmMine && url.startsWith(TAB_URL_REMOVE_MINE) -> { removedMine++; true }
-                else -> false
-            }
+            val drop = url != null && rmMsg && url.startsWith(TAB_URL_REMOVE_MESSAGE)
+            if (drop) removedMsg++
             if (drop) {
                 droppedMaxIdx = maxOf(droppedMaxIdx, index)
             } else {
@@ -285,7 +279,7 @@ object HomeTabHooks {
         HookProbe.first(module, "homeTabUrls", 1) {
             "tabs[" + list.joinToString(",") { pageUrlOf(it) ?: "?" } + "]"
         }
-        if (removedMsg == 0 && removedMine == 0) return list
+        if (removedMsg == 0) return list
 
         // 尾缀守卫：只允许移除列表尾部的连续项（bar 索引与 pager 索引保持一致）。
         // 若被删项之后还有保留项（服务端调整了顺序），过滤会造成索引错位——放弃并告警。
@@ -296,7 +290,7 @@ object HomeTabHooks {
             )
             return list
         }
-        module.info("homeTab: tab list filtered ${list.size} -> ${kept.size} (msg=$removedMsg mine=$removedMine)")
+        module.info("homeTab: tab list filtered ${list.size} -> ${kept.size} (msg=$removedMsg)")
         return kept
     }
 

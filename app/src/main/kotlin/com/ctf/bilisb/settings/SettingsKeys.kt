@@ -73,13 +73,12 @@ object SettingsKeys {
     const val ENHANCE_SHARE_QQ = "enhance_share_qq"                // 分享面板补回「分享到 QQ」
     const val ENHANCE_HOME_TOPBAR_MESSAGE = "enhance_home_topbar_message" // 首页顶栏消息入口
     const val ENHANCE_HOME_TAB_REMOVE_MESSAGE = "enhance_home_tab_remove_message" // 底栏删除「消息」tab
-    const val ENHANCE_HOME_TAB_REMOVE_MINE = "enhance_home_tab_remove_mine"       // 底栏删除「我的」tab
 
     /** 增强功能开关的 key 集合(Codec 字段映射用)。 */
     val ENHANCE_KEYS = listOf(
         ENHANCE_IP_LOCATION, ENHANCE_HIDE_TRIPLE, ENHANCE_HIDE_UP_PROMPT, ENHANCE_HIDE_VOTE,
         ENHANCE_NO_AUTO_REFRESH, ENHANCE_SHARE_QQ, ENHANCE_HOME_TOPBAR_MESSAGE,
-        ENHANCE_HOME_TAB_REMOVE_MESSAGE, ENHANCE_HOME_TAB_REMOVE_MINE,
+        ENHANCE_HOME_TAB_REMOVE_MESSAGE,
     )
 
     // UI 开关

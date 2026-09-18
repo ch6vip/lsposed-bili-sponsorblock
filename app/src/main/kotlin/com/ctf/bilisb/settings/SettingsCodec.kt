@@ -43,7 +43,6 @@ object SettingsCodec {
             shareQq = prefs.getBoolean(SettingsKeys.ENHANCE_SHARE_QQ, false),
             homeTopbarMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
             homeTabRemoveMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
-            homeTabRemoveMine = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, false),
         )
     }
 
@@ -91,7 +90,6 @@ object SettingsCodec {
         SettingsKeys.ENHANCE_SHARE_QQ -> snapshot.shareQq
         SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE -> snapshot.homeTopbarMessage
         SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE -> snapshot.homeTabRemoveMessage
-        SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE -> snapshot.homeTabRemoveMine
         else -> false
     }
 
@@ -145,7 +143,6 @@ object SettingsCodec {
             shareQq = bool(SettingsKeys.ENHANCE_SHARE_QQ, false),
             homeTopbarMessage = bool(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
             homeTabRemoveMessage = bool(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
-            homeTabRemoveMine = bool(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, false),
         )
     }
 
@@ -210,7 +207,6 @@ object SettingsCodec {
         shareQq = false,
         homeTopbarMessage = false,
         homeTabRemoveMessage = false,
-        homeTabRemoveMine = false,
     )
 
     private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {
