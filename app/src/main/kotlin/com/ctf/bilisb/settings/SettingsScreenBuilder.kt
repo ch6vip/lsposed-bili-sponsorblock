@@ -230,7 +230,6 @@ object SettingsScreenBuilder {
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false),
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false),
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false),
                 )
                 rows.forEachIndexed { index, row ->
                     if (index > 0) addView(biliDividerInner(activity))
