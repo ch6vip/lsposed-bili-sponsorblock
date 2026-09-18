@@ -36,6 +36,8 @@ object SettingsScreenBuilder {
     private var sharedStatusWriter: SettingsWriter? = null
 
     private val CHANGELOG = listOf(
+        "修复:「我的」页入口偶发消失 / 点击无反应(绑定改为按行内容精确判定)",
+        "修复:全屏切换/重进播放页后自动跳过偶发失效(播放器重建后 ids 重连)",
         "修复:面板改设置后当前视频跳过失效;关总开关后静音/倒计时残留",
         "修复:播放页销毁后播放器面板可能再也打不开",
         "性能/安全:绘制与进度路径减分配;日志脱敏 userID",
