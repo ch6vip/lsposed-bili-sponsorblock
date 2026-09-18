@@ -60,6 +60,21 @@ object SettingsScreenBuilder {
                 addView(statusPanel(activity, statusWriter))
             }
             addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
+            addView(sectionTitle(activity, "B 站增强"))
+            addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
+            // buildMain 原本不持有 prefs:按同一个 PREFS_NAME 直取即可 —— 宿主内弹窗
+            // 路径上 SettingsWriter 的变更监听会照常接管镜像写与 provider 推送
+            val mainPrefs = statusWriter?.sharedPreferences
+                ?: activity.getSharedPreferences(SettingsKeys.PREFS_NAME, Context.MODE_PRIVATE)
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false))
+            addView(createCheckBox(activity, mainPrefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false))
             addView(sectionTitle(activity, "关于"))
             addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})"))
             addView(aboutItem(activity, "作者", "ch6vip\ngithub.com/ch6vip/lsposed-bili-sponsorblock"))
@@ -163,17 +178,6 @@ object SettingsScreenBuilder {
             addView(serverRow(activity, prefs))
             addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
 
-            addView(sectionTitle(activity, "B 站增强"))
-            addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false))
-            addView(createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MINE, "底栏删除「我的」tab", "删除后将无法从底栏进入我的页(需重启宿主)", false))
         }
     }
 
