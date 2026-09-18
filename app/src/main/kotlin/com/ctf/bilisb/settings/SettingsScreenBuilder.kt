@@ -191,7 +191,7 @@ object SettingsScreenBuilder {
                 addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
                 if (onEnhanceClick != null) {
                     addView(biliDivider(activity))
-                    addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ · 底栏 tab", onEnhanceClick))
+                    addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ", onEnhanceClick))
                 }
             }, cardLayoutParams())
 
@@ -228,8 +228,6 @@ object SettingsScreenBuilder {
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false),
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false),
                     createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, "首页顶栏消息入口", "搜索栏右侧加消息图标(需重启宿主)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, "底栏删除「消息」tab", "建议与顶栏消息入口同开(需重启宿主)", false),
                 )
                 rows.forEachIndexed { index, row ->
                     if (index > 0) addView(biliDividerInner(activity))

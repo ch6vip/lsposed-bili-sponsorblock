@@ -150,8 +150,6 @@ data class SettingsSnapshot(
     val hideVote: Boolean = false,
     val noAutoRefresh: Boolean = false,
     val shareQq: Boolean = false,
-    val homeTopbarMessage: Boolean = false,
-    val homeTabRemoveMessage: Boolean = false,
 ) {
     companion object {
         val DEFAULT = SettingsCodec.defaultSnapshot()

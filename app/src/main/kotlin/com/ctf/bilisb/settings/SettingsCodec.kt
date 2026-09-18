@@ -41,8 +41,6 @@ object SettingsCodec {
             hideVote = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_VOTE, false),
             noAutoRefresh = prefs.getBoolean(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
             shareQq = prefs.getBoolean(SettingsKeys.ENHANCE_SHARE_QQ, false),
-            homeTopbarMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
-            homeTabRemoveMessage = prefs.getBoolean(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
         )
     }
 
@@ -88,8 +86,6 @@ object SettingsCodec {
         SettingsKeys.ENHANCE_HIDE_VOTE -> snapshot.hideVote
         SettingsKeys.ENHANCE_NO_AUTO_REFRESH -> snapshot.noAutoRefresh
         SettingsKeys.ENHANCE_SHARE_QQ -> snapshot.shareQq
-        SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE -> snapshot.homeTopbarMessage
-        SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE -> snapshot.homeTabRemoveMessage
         else -> false
     }
 
@@ -141,8 +137,6 @@ object SettingsCodec {
             hideVote = bool(SettingsKeys.ENHANCE_HIDE_VOTE, false),
             noAutoRefresh = bool(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
             shareQq = bool(SettingsKeys.ENHANCE_SHARE_QQ, false),
-            homeTopbarMessage = bool(SettingsKeys.ENHANCE_HOME_TOPBAR_MESSAGE, false),
-            homeTabRemoveMessage = bool(SettingsKeys.ENHANCE_HOME_TAB_REMOVE_MESSAGE, false),
         )
     }
 
@@ -205,8 +199,6 @@ object SettingsCodec {
         hideVote = false,
         noAutoRefresh = false,
         shareQq = false,
-        homeTopbarMessage = false,
-        homeTabRemoveMessage = false,
     )
 
     private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {
