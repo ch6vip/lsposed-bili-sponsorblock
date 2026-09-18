@@ -35,20 +35,6 @@ object SettingsScreenBuilder {
     @Volatile
     private var sharedStatusWriter: SettingsWriter? = null
 
-    private val CHANGELOG = listOf(
-        "设置弹窗更名为「控制中心」:聚合 SponsorBlock 与 B 站增强两个入口",
-        "新增 B 站增强:IP 属地 / 隐藏互动提示 / 首页不自动刷新 / 分享到 QQ / 顶栏消息入口 / 底栏删 tab",
-        "修复:「我的」页入口偶发消失 / 点击无反应(绑定改为按行内容精确判定)",
-        "修复:全屏切换/重进播放页后自动跳过偶发失效(播放器重建后 ids 重连)",
-        "修复:面板改设置后当前视频跳过失效;关总开关后静音/倒计时残留",
-        "修复:播放页销毁后播放器面板可能再也打不开",
-        "性能/安全:绘制与进度路径减分配;日志脱敏 userID",
-        "新增「关于」页(版本 / 作者 / 更新)",
-        "设置界面改为单入口 + 详情页",
-        "新增 片段统计(已跳过时长累计)",
-        "新增 分类标记颜色自定义 + 颜色选择器",
-        "新增 片段静音 / 倒计时取消 / 手动跳过 / 最小片段时长过滤",
-    )
 
     fun buildMain(
         activity: Activity,
@@ -66,11 +52,12 @@ object SettingsScreenBuilder {
                 addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ · 底栏 tab", onEnhanceClick))
             }
             addView(sectionTitle(activity, "关于"))
-            addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})"))
-            addView(aboutItem(activity, "作者", "ch6vip\ngithub.com/ch6vip/lsposed-bili-sponsorblock"))
-            addView(aboutItem(activity, "更新", CHANGELOG.joinToString("\n") { "· $it" }) {
+            // 版本行可点击 → 跳转 GitHub 项目页。原「更新」行移除:发版说明以
+            // GitHub Releases 为单一来源,不再在应用内双轨维护(CHANGELOG 常量一并删除)
+            addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE}) ›") {
                 openUrl(activity, REPO_URL)
             })
+            addView(aboutItem(activity, "作者", "ch6vip"))
         }
     }
 
