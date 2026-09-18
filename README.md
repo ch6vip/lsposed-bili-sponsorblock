@@ -304,6 +304,9 @@ flowchart LR
   以及用于标识片段的分类体系，也都沿用了它。这是一款移植自 SponsorBlock 的浏览器插件，
   本项目相当于把同样的能力搬到了 Android 客户端的 LSPosed 侧。
 - [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议（上面两个项目的共同上游）
+- [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT）——
+  「B 站增强」功能的实现蓝本：评论/主页 IP 属地（请求身份改写）、隐藏互动提示、
+  首页不自动刷新、分享面板补回 QQ、首页顶栏消息入口、底栏删 tab。
 - [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— B 站客户端改动的思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) 与 [libxposed](https://github.com/libxposed) —— 框架与 API
 

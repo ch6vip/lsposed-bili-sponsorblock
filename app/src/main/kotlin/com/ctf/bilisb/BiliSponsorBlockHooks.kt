@@ -89,6 +89,9 @@ object BiliSponsorBlockHooks {
                 openPlayerSheet(module, rowView)
             }
         }
+        // B 站增强(移植自 BiliTamer,MIT):IP 属地/隐藏互动提示/首页不自动刷新/
+        // 分享到 QQ/顶栏消息入口/底栏删 tab。开关在各 hook 回调内实时读 EnhanceFlags。
+        installSafely(module, "enhanceHooks") { com.ctf.bilisb.hook.EnhanceHooks.install(module, cl) }
 
         module.info(HookProbe.summary())
     }
