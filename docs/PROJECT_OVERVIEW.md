@@ -3,7 +3,7 @@
 > **目标口径（2026-09 起）**：唯一目标宿主是 `bilibili 6.5.0` / `com.bilibili.app.in` /
 > 安装包 `<APK目录>\bilibili_6.5.0.apks`。
 > 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)。
-> 迁移已完成:当前仓库代码(0.6.1 / versionCode 7)已按上述目标跑通主链路,
+> 迁移已完成:当前仓库代码(0.6.3 / versionCode 9)已按上述目标跑通主链路,
 > 差距清单以 [`docs/ROADMAP.md`](./ROADMAP.md) 与 [`docs/STATUS.md`](./STATUS.md) 为准。
 
 ## 1. 项目定位与基本信息
@@ -17,7 +17,7 @@
 | **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi） |
 | 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36，33 个 dex |
 | 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
-| 当前版本 | 0.6.1（versionCode 7）——**6.5.0 迁移已完成,主链路真机跑通** |
+| 当前版本 | 0.6.3（versionCode 9）——**6.5.0 迁移已完成,主链路真机跑通** |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
 | 构建 | AGP 8.7.3 / Kotlin 2.0.21 / Gradle 8.12 / compileSdk 35 / minSdk 23 / JDK 17 |
