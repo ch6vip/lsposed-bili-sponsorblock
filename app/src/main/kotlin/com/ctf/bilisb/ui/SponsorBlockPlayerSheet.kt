@@ -455,6 +455,9 @@ object SponsorBlockPlayerSheet {
             if (value.isEmpty()) {
                 toast(activity, "不能为空")
                 false
+            } else if (!com.ctf.bilisb.sponsor.UserIdentityStore.isValidUserId(value)) {
+                toast(activity, "用户 ID 须为 32 位十六进制")
+                false
             } else {
                 onConfirm(value)
                 true

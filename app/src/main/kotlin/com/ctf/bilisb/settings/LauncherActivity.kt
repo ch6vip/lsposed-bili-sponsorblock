@@ -22,6 +22,7 @@ class LauncherActivity : Activity() {
     }
 
     override fun onBackPressed() {
+        clearFocusRecursively(window?.decorView)
         if (detailVisible) {
             showMain()
         } else {

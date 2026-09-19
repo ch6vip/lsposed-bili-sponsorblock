@@ -25,9 +25,11 @@ class SettingsWriter(context: Context) {
     /** 已 close 标记:防止重复 unregister/shutdown。 */
     private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    /** 变更监听引用:close 时反注册,避免监听器/线程只增不减。 */
-    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (internalWrite.get() == true) return@OnSharedPreferenceChangeListener
+        // apply() 在非主线程提交时会把监听 post 到主线程，ThreadLocal 挡不住；
+        // dirty 标记本身的翻转不能再当成用户改动，否则会 IPC 空转。
+        if (key == SettingsKeys.KEY_LOCAL_DIRTY) return@OnSharedPreferenceChangeListener
         onLocalSettingsChanged()
     }
 

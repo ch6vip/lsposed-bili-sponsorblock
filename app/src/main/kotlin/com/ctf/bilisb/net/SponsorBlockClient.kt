@@ -96,6 +96,7 @@ class SponsorBlockClient(
             requestMethod = "GET"
             connectTimeout = CONNECT_TIMEOUT_MS
             readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = false
             setRequestProperty("Origin", ORIGIN_HEADER)
             setRequestProperty("X-EXT-VERSION", EXT_VERSION_HEADER)
             if (ignoreCache) {
@@ -174,6 +175,7 @@ class SponsorBlockClient(
             requestMethod = method
             connectTimeout = CONNECT_TIMEOUT_MS
             readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = false
             setRequestProperty("Origin", ORIGIN_HEADER)
             setRequestProperty("X-EXT-VERSION", EXT_VERSION_HEADER)
             if (ignoreCache) {

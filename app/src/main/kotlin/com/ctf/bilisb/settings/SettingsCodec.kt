@@ -19,10 +19,12 @@ object SettingsCodec {
                 prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"),
                 SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
             ),
-            serverAddress = prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER)
-                ?: SettingsKeys.DEFAULT_SERVER,
+            serverAddress = SettingsSanitizer.sanitizeServerAddress(
+                prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+                SettingsKeys.DEFAULT_SERVER,
+            ),
             cacheTtlMs = parseCacheTtlMs(prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
-            userId = prefs.getString(SettingsKeys.USER_ID, "") ?: "",
+            userId = SettingsSanitizer.sanitizeUserId(prefs.getString(SettingsKeys.USER_ID, ""), ""),
             defaultSubmitCategory = sanitizeCategory(
                 prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
             ),
@@ -116,9 +118,12 @@ object SettingsCodec {
                 str(SettingsKeys.SKIP_COUNTDOWN, "0"),
                 SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
             ),
-            serverAddress = str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+            serverAddress = SettingsSanitizer.sanitizeServerAddress(
+                str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
+                SettingsKeys.DEFAULT_SERVER,
+            ),
             cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
-            userId = str(SettingsKeys.USER_ID, ""),
+            userId = SettingsSanitizer.sanitizeUserId(str(SettingsKeys.USER_ID, ""), ""),
             defaultSubmitCategory = sanitizeCategory(
                 str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
             ),

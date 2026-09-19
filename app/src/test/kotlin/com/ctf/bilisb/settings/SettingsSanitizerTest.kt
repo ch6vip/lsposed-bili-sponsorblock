@@ -47,14 +47,21 @@ class SettingsSanitizerTest {
     }
 
     @Test
+    fun rejectsUserInfoEmptyHostAndWhitespace() {
+        assertFalse(SettingsSanitizer.isValidServerAddress("https://bsbsb.top@evil.com"))
+        assertFalse(SettingsSanitizer.isValidServerAddress("https://"))
+        assertFalse(SettingsSanitizer.isValidServerAddress("https://evil.com\nhost"))
+        assertFalse(SettingsSanitizer.isValidServerAddress("http://"))
+        assertTrue(SettingsSanitizer.isValidServerAddress("http://10.0.2.2:8080/"))
+    }
+
+    @Test
     fun rejectsNonHttpOrTooLongServerAddress() {
         assertFalse(SettingsSanitizer.isValidServerAddress("bsbsb.top"))
         assertFalse(SettingsSanitizer.isValidServerAddress("ftp://bsbsb.top"))
         assertFalse(SettingsSanitizer.isValidServerAddress("javascript:alert(1)"))
         assertFalse(SettingsSanitizer.isValidServerAddress(""))
         assertFalse(SettingsSanitizer.isValidServerAddress("https://" + "a".repeat(200)))
-
-        // 非法入参退回已存值
         val stored = "https://bsbsb.top"
         assertEquals(stored, SettingsSanitizer.sanitizeServerAddress("bsbsb.top", stored))
         assertEquals(stored, SettingsSanitizer.sanitizeServerAddress("file:///etc/passwd", stored))

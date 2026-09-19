@@ -14,7 +14,7 @@ import io.github.libxposed.api.XposedModule
  *     平滑 seek 必须调 `o(int, boolean)`（旧目标是 `seekTo(int, boolean)`）
  */
 object PlayerActions {
-    fun seekTo(module: XposedModule, core: Any, positionMs: Long) {
+    fun seekTo(module: XposedModule, core: Any, positionMs: Long): Boolean {
         val smoothMethod = HookResolve.forTarget(
             core,
             HostTargets.SEEK_SMOOTH_METHODS,
@@ -22,9 +22,9 @@ object PlayerActions {
             java.lang.Boolean.TYPE,
         )
         if (smoothMethod != null) {
-            runCatching { smoothMethod.invoke(core, positionMs.toInt(), true) }
+            return runCatching { smoothMethod.invoke(core, positionMs.toInt(), true); true }
                 .onFailure { module.info("seekTo(${smoothMethod.name}) failed: ${it.javaClass.name}: ${it.message}") }
-            return
+                .getOrDefault(false)
         }
 
         val plainMethod = HookResolve.forTarget(
@@ -33,12 +33,13 @@ object PlayerActions {
             Integer.TYPE,
         )
         if (plainMethod != null) {
-            runCatching { plainMethod.invoke(core, positionMs.toInt()) }
+            return runCatching { plainMethod.invoke(core, positionMs.toInt()); true }
                 .onFailure { module.info("seekTo(${plainMethod.name}) failed: ${it.javaClass.name}: ${it.message}") }
-            return
+                .getOrDefault(false)
         }
 
         module.info("seekTo unresolved on ${core.javaClass.name}")
+        return false
     }
 
     /** 反射 `IPlayerCoreService#getCurrentPosition()`,返回当前播放位置(ms)。 */

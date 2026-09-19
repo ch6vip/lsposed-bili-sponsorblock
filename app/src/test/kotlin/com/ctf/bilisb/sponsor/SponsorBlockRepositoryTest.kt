@@ -63,10 +63,12 @@ class SponsorBlockRepositoryTest {
     fun ttlZeroDisablesCaching() {
         val api = FakeApi(fetchResults = ArrayDeque(listOf(fetchResult(200, listOf(segment("u1"))))))
         val repository = SponsorBlockRepository(api, cacheTtlMs = 0L)
+        val query = SponsorBlockQuery("BV17x411w7KC", 123L)
 
-        repository.fetchAndCache(SponsorBlockQuery("BV17x411w7KC", 123L))
+        repository.fetchAndCache(query)
 
-        assertNull(repository.getCached(SponsorBlockQuery("BV17x411w7KC", 123L)))
+        assertNull(repository.getCached(query))
+        assertEquals(listOf("u1"), repository.getLastKnown(query)?.map { it.uuid })
     }
 
     /**

@@ -1,12 +1,15 @@
 package com.ctf.bilisb.hook
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.ctf.bilisb.host.HookProbe
 import com.ctf.bilisb.host.HookResolve
 import com.ctf.bilisb.host.HostTargets
+import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.settings.SponsorBlockSettingDialog
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -29,6 +32,7 @@ object MineMenuInjector {
     private const val SETTING_ID = 0x5B5B5B5BL
     private const val SETTING_URI = "bilisb://settings"
     private const val SETTING_TITLE = "Bili2233"
+    private val ROUTER_METHOD_NAMES = setOf("open", "handle", "route", "navigate", "dispatch")
     // 宿主“我的”页按钮图标链路实际接受远程图片 URL。
     private const val SETTING_ICON = "https://i0.hdslb.com/bfs/album/276769577d2a5db1d9f914364abad7c5253086f6.png"
 
@@ -36,9 +40,138 @@ object MineMenuInjector {
     @Volatile
     private var directBindSucceeded: Boolean = false
 
-    /** 正在跑重试链的 RecyclerView 实例(弱引用):防止滚动中每个 item 各起一条重试链。 */
-    private val clickBindInFlight: MutableMap<View, Boolean> =
+    /** 已绑过点击的格子(弱引用),避免 ViewHolder 复用重复 setOnClickListener。 */
+    private val boundCells: MutableMap<View, Boolean> =
         java.util.Collections.synchronizedMap(java.util.WeakHashMap<View, Boolean>())
+
+    private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
+        val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
+        if (data.isEmpty()) return
+
+        val itemView = holderItemView(holder) ?: return
+        if (tryBindOurRow(module, itemView, position)) {
+            directBindSucceeded = true
+            return
+        }
+        boundCells.remove(itemView)
+        // 组 holder 绑定时内部 RecyclerView 往往还没 layout,延后扫子项标题。
+        val delays = longArrayOf(0L, 120L, 360L, 800L)
+        delays.forEach { delay ->
+            itemView.postDelayed({
+                if (tryBindOurRow(module, itemView, position)) {
+                    directBindSucceeded = true
+                }
+            }, delay)
+        }
+    }
+
+    private fun tryBindOurRow(module: XposedModule, root: View, position: Int): Boolean {
+        if (findTitleView(root) != null) {
+            bindSelfClick(module, root)
+            HookProbe.first(module, "mineMenuDirectBind", 5) { "position=$position root=${root.javaClass.simpleName}" }
+            return true
+        }
+        collectRecyclerViews(root).forEach { rv ->
+            if (rv !is ViewGroup) return@forEach
+            for (i in 0 until rv.childCount) {
+                val child = rv.getChildAt(i)
+                if (findTitleView(child) != null) {
+                    bindSelfClick(module, child)
+                    HookProbe.first(module, "mineMenuDirectBind", 5) { "position=$position innerChild=$i" }
+                    return true
+                }
+            }
+        }
+        HookProbe.first(module, "mineMenuTexts", 3) { "pos=$position texts=${dumpTexts(root)}" }
+        return false
+    }
+
+    private fun collectRecyclerViews(view: View, out: MutableList<View> = mutableListOf()): List<View> {
+        if (isRecyclerView(view)) out.add(view)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) collectRecyclerViews(view.getChildAt(i), out)
+        }
+        return out
+    }
+
+    private fun dumpTexts(view: View, acc: MutableList<String> = mutableListOf()): String {
+        if (view is TextView) {
+            val t = view.text?.toString()?.trim().orEmpty()
+            if (t.isNotEmpty()) acc.add(t.take(24))
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) dumpTexts(view.getChildAt(i), acc)
+        }
+        return acc.take(12).joinToString("|")
+    }
+
+    private fun holderItemView(holder: Any): View? {
+        return try {
+            val field = holder.javaClass.getDeclaredField("itemView").apply { isAccessible = true }
+            field.get(holder) as? View
+        } catch (e: Throwable) {
+            try {
+                holder.javaClass.getField("itemView").get(holder) as? View
+            } catch (e2: Throwable) {
+                null
+            }
+        }
+    }
+
+    private fun isOurTitle(text: CharSequence?): Boolean {
+        val t = text?.toString()?.trim().orEmpty()
+        if (t.isEmpty()) return false
+        return t.equals(SETTING_TITLE, ignoreCase = true) || t.contains("Bili2233", ignoreCase = true)
+    }
+
+    private fun findTitleView(view: View): TextView? {
+        if (view is TextView && isOurTitle(view.text)) return view
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findTitleView(view.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun isRecyclerView(view: View): Boolean =
+        view.javaClass.name.contains("RecyclerView")
+
+    private fun cellOfTitle(title: View): View {
+        var current: View = title
+        var parent = title.parent as? ViewGroup
+        while (parent != null && !isRecyclerView(parent)) {
+            current = parent
+            parent = parent.parent as? ViewGroup
+        }
+        return current
+    }
+
+    private fun showSettings(module: XposedModule, view: View) {
+        val activity = PlayerBridge.activity(view)
+        if (activity != null) {
+            SponsorBlockSettingDialog.show(activity)
+            module.info("Showing Bili2233 settings dialog (direct bind)")
+        } else {
+            module.warn("Context is not Activity: ${view.context.javaClass.name}")
+        }
+    }
+
+    private fun bindTree(view: View, listener: View.OnClickListener) {
+        view.isClickable = true
+        view.setOnClickListener(listener)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) bindTree(view.getChildAt(i), listener)
+        }
+    }
+
+    private fun bindSelfClick(module: XposedModule, root: View) {
+        val title = findTitleView(root) ?: return
+        val cell = cellOfTitle(title)
+        if (boundCells.putIfAbsent(cell, true) != null) return
+        val listener = View.OnClickListener { showSettings(module, it) }
+        bindTree(cell, listener)
+    }
 
     fun install(module: XposedModule, classLoader: ClassLoader) {
         try {
@@ -275,168 +408,19 @@ object MineMenuInjector {
             android.util.Log.w("MineMenuInjector", "setField $fieldName failed: ${e.javaClass.name}: ${e.message}")
         }
     }
-
-    private fun attachClickListener(module: XposedModule, holder: Any, position: Int, adapter: Any) {
-        val data = findListFieldByContent(adapter, HostTargets.MENU_GROUP_CLASS) ?: return
-        if (data.isEmpty()) return
-
-        // 获取ViewHolder的itemView
-        val itemView = try {
-            val field = holder.javaClass.getDeclaredField("itemView").apply { isAccessible = true }
-            field.get(holder) as? View
-        } catch (e: Throwable) {
-            try {
-                holder.javaClass.getField("itemView").get(holder) as? View
-            } catch (e2: Throwable) {
-                null
-            }
-        } ?: return
-
-        // 首选:内容精确判定。hook 在 onBindViewHolder after 上,宿主已经把标题渲染进行内
-        // TextView —— 行内文本等于我们的标题就说明**这一行就是我们的条目**,直接挂监听。
-        // 与位置口径(分组/拍平)无关、不受 ViewHolder 复用影响;绑到别行的老轮询方案
-        // 曾把监听挂到 adapter 位置 2 的无关行上,导致入口点击无反应(2026-09-19 真机)。
-        if (isOurRow(itemView)) {
-            bindSelfClick(module, itemView)
-            directBindSucceeded = true
-            HookProbe.first(module, "mineMenuDirectBind", 3) { "position=$position" }
-            return
-        }
-        if (directBindSucceeded) return
-
-        // 兜底:直接判定从未命中(宿主改版导致标题渲染方式与预期不符)时,沿用旧的
-        // 「候选位置 + findViewByPosition 轮询」。宿主 adapter 的 position 口径未知
-        // (可能是 ConcatAdapter 按 group 分段、也可能拍平),这里同时收集多个候选
-        // (组内下标 / 拍平累加),绑定轮询里哪个能找到视图就绑哪个。
-        var flatIndex = 0
-        var targetItemIndexInGroup = -1
-        val candidatePositions = LinkedHashSet<Int>()
-        for (group in data) {
-            val itemList = itemListOf(group) ?: continue
-            val idx = itemList.indexOfFirst { item -> itemUri(item) == SETTING_URI }
-            if (idx >= 0) {
-                targetItemIndexInGroup = idx
-                candidatePositions.add(idx)
-                candidatePositions.add(flatIndex + idx)
-                break
-            }
-            flatIndex += itemList.size
-        }
-        if (targetItemIndexInGroup < 0) return
-        HookProbe.first(module, "mineMenuFlatPos", 3) {
-            "candidates=$candidatePositions adapterPos=$position groupIdx=$targetItemIndexInGroup"
-        }
-
-        // 延迟查找内部RecyclerView并按候选位置绑定
-        itemView.post {
-            findAndBindRecyclerView(module, itemView, candidatePositions)
-        }
-    }
-
-    /** 行内(递归)是否存在标题文本等于我们条目标题的 TextView。 */
-    private fun isOurRow(view: View): Boolean {
-        if (view is TextView && view.text?.toString() == SETTING_TITLE) return true
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                if (isOurRow(view.getChildAt(i))) return true
-            }
-        }
-        return false
-    }
-
-    /** 给我们的行挂点击监听(打开宿主内设置弹窗)。 */
-    private fun bindSelfClick(module: XposedModule, itemView: View) {
-        itemView.setOnClickListener {
-            val context = it.context as? Activity
-            if (context != null) {
-                SponsorBlockSettingDialog.show(context)
-                module.info("Showing Bili2233 settings dialog (direct bind)")
-            } else {
-                module.warn("Context is not Activity: ${it.context.javaClass.name}")
-            }
-        }
-    }
-
-    private fun itemListOf(group: Any): List<Any>? {
-        val itemListField = try {
-            group.javaClass.getDeclaredField("itemList").apply { isAccessible = true }
-        } catch (e: Throwable) {
-            return null
-        }
-        @Suppress("UNCHECKED_CAST")
-        return itemListField.get(group) as? List<Any>
-    }
-
-    private fun itemUri(item: Any): String? {
-        return try {
-            val uriField = item.javaClass.getDeclaredField("uri").apply { isAccessible = true }
-            uriField.get(item) as? String
-        } catch (e: Throwable) {
-            null
-        }
-    }
-
-    private fun findAndBindRecyclerView(module: XposedModule, view: View, candidatePositions: Set<Int>) {
-        if (view.javaClass.name.contains("RecyclerView")) {
-            // 只按「重试链在跑」去重;**不能**按「绑过就跳过」——轮询可能把监听绑到
-            // 位置恰好相同的无关行上(位置口径不可靠),一旦跳过,我们的行就永远绑不上
-            if (clickBindInFlight.putIfAbsent(view, true) != null) return
-            bindItemClick(module, view, candidatePositions) { succeeded ->
-                clickBindInFlight.remove(view)
-            }
-        } else if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                findAndBindRecyclerView(module, view.getChildAt(i), candidatePositions)
-            }
-        }
-    }
-
-    private fun bindItemClick(module: XposedModule, recyclerView: View, candidatePositions: Set<Int>, onDone: (Boolean) -> Unit) {
-        // 对每个候选 position 轮询重试（延迟递增），哪个能找到视图就绑哪个。
-        // 全部候选全部重试都失败才记 miss。
-        val delaysMs = longArrayOf(100, 300, 600, 1200)
-        var bound = false
-
-        fun attempt(index: Int) {
-            if (bound) return
-            if (index >= delaysMs.size) {
-                HookProbe.miss(module, "mineMenuBindClick", "no candidate view found after ${delaysMs.size} retries, positions=$candidatePositions")
-                onDone(false)
-                return
-            }
-            recyclerView.postDelayed({
-                if (bound) return@postDelayed
-                try {
-                    val layoutManager = recyclerView.javaClass.getMethod("getLayoutManager").invoke(recyclerView) ?: run {
-                        attempt(index + 1)
-                        return@postDelayed
-                    }
-                    val findViewMethod = layoutManager.javaClass.getMethod("findViewByPosition", Int::class.javaPrimitiveType)
-
-                    for (pos in candidatePositions) {
-                        val itemView = findViewMethod.invoke(layoutManager, pos) as? View ?: continue
-                        itemView.setOnClickListener {
-                            val context = it.context as? Activity
-                            if (context != null) {
-                                SponsorBlockSettingDialog.show(context)
-                                module.info("Showing Bili2233 settings dialog")
-                            } else {
-                                module.warn("Context is not Activity: ${it.context.javaClass.name}")
-                            }
-                        }
-                        bound = true
-                        module.info("Attached click listener to Bili2233 setting item (position=$pos, attempt=${index + 1})")
-                        onDone(true)
-                        return@postDelayed
-                    }
-                    attempt(index + 1)
-                } catch (e: Throwable) {
-                    module.warn("Failed to attach click: ${e.javaClass.name}: ${e.message}")
-                    onDone(false)
+    private fun extractRoutedUri(args: List<Any?>?): String {
+        if (args.isNullOrEmpty()) return ""
+        for (arg in args) {
+            when (arg) {
+                is Uri -> return arg.toString()
+                is String -> if (arg.contains("bilisb://")) return arg
+                is Intent -> {
+                    val data = arg.dataString
+                    if (!data.isNullOrEmpty()) return data
                 }
-            }, delaysMs[index])
+            }
         }
-        attempt(0)
+        return args.firstOrNull()?.toString().orEmpty()
     }
 
     private fun hookUriRouter(module: XposedModule, classLoader: ClassLoader) {
@@ -448,11 +432,14 @@ object MineMenuInjector {
         for (className in HostTargets.ROUTER_CLASSES) {
             val routerClass = findClass(classLoader, className) ?: continue
 
-            // 尝试hook open/handle/route方法
             val methods = routerClass.declaredMethods.filter { method ->
                 val params = method.parameterTypes
-                params.isNotEmpty() &&
-                (params[0].name.contains("Uri") || params[0].name.contains("String") || params[0].name.contains("Context"))
+                if (params.isEmpty()) return@filter false
+                val first = params[0].name
+                val name = method.name.lowercase()
+                first.endsWith("Uri") || first.endsWith("Intent") || first == "java.lang.String" ||
+                    name.contains("uri") || name.contains("route") || name.contains("open") ||
+                    name.contains("handle") || name.contains("jump") || name.contains("navigate")
             }
 
             for (method in methods) {
@@ -461,20 +448,28 @@ object MineMenuInjector {
                         .setPriority(XposedInterface.PRIORITY_HIGHEST)
                         .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                         .intercept { chain ->
-                            val uri = chain.args.firstOrNull()?.toString() ?: ""
-
-                            if (uri.startsWith(SETTING_URI)) {
-                                // 拦截我们的URI，弹出设置对话框
-                                val context = chain.args.find { it is android.content.Context } as? Activity
-                                    ?: chain.getThisObject() as? Activity
-
+                            val uri = extractRoutedUri(chain.args)
+                            if (uri.startsWith(SETTING_URI) || uri.contains(SETTING_URI)) {
+                                val context = chain.args.firstNotNullOfOrNull { arg ->
+                                    when (arg) {
+                                        is Activity -> arg
+                                        is android.content.Context -> PlayerBridge.activity(arg)
+                                        is View -> PlayerBridge.activity(arg)
+                                        else -> null
+                                    }
+                                } ?: (chain.getThisObject() as? Activity)
+                                    ?: chain.getThisObject()?.let { PlayerBridge.activity(it) }
                                 if (context != null) {
                                     SponsorBlockSettingDialog.show(context)
-                                    module.info("Intercepted $SETTING_URI, showing settings dialog")
-                                    return@intercept null // 阻止继续处理
+                                    module.info("Intercepted $SETTING_URI via ${method.name}")
+                                    val rt = method.returnType
+                                    return@intercept when {
+                                        rt == Void.TYPE || rt == Void::class.java -> null
+                                        rt == java.lang.Boolean.TYPE || rt == Boolean::class.java -> true
+                                        else -> chain.proceed()
+                                    }
                                 }
                             }
-
                             chain.proceed()
                         }
                     hooked++

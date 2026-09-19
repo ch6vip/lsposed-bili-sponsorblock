@@ -54,7 +54,7 @@ class SettingsCodecTest {
         assertEquals(3.5f, snapshot.skipCountdownSec)
         assertEquals("https://example.com/", snapshot.serverAddress)
         assertEquals(0L, snapshot.cacheTtlMs)
-        assertEquals("abc123", snapshot.userId)
+        assertEquals("", snapshot.userId)
         assertEquals(SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE, snapshot.defaultSubmitCategory)
         assertTrue("sponsor" in snapshot.enabledCategories)
         assertFalse("intro" in snapshot.enabledCategories)
@@ -227,6 +227,8 @@ class SettingsCodecTest {
         categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, _) ->
             if (category == "sponsor") 0xFF123456.toInt() else 0xFF654321.toInt()
         },
+        ipLocation = true,
+        shareQq = true,
     )
 
     /** Bundle 在纯 JVM 单测里是否真的可用（Robolectric / 完整 android.jar 时才为 true）。 */
