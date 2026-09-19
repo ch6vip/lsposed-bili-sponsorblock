@@ -36,8 +36,8 @@ val hasReleaseSigning = releaseStorePath != null &&
     releaseKeyPassword != null
 
 // 版本单一来源(与 META-INF/xposed/module.prop 由下方 checkModuleProp 守卫一致性)
-val MODULE_VERSION_CODE = 8
-val MODULE_VERSION_NAME = "0.6.2"
+val MODULE_VERSION_CODE = 9
+val MODULE_VERSION_NAME = "0.6.3"
 
 android {
     namespace = "com.ctf.bilisb"
