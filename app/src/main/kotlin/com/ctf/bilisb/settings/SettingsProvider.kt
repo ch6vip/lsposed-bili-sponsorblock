@@ -42,19 +42,21 @@ class SettingsProvider : ContentProvider() {
             SettingsSyncBridge.METHOD_GET_SETTINGS -> SettingsCodec.snapshotToBundle(SettingsCodec.snapshotFromPreferences(prefs))
             SettingsSyncBridge.METHOD_PUT_SETTINGS -> {
                 val raw = extras?.getString(EXTRA_SETTINGS_JSON) ?: return null
-                val parsed = runCatching { SettingsCodec.snapshotFromJson(JSONObject(raw)) }.getOrElse {
+                val json = runCatching { JSONObject(raw) }.getOrElse {
                     Log.w(TAG, "putSettings rejected malformed json: ${it.message}")
                     return null
                 }
-                // 整段 JSON 覆盖前先收口：userId / serverAddress 非法时退回已存值，
-                // 缓存 TTL 与时长字段由 SettingsCodec 统一 clamp（例如 cache_ttl_minutes=1e38）。
+                val parsed = runCatching { SettingsCodec.snapshotFromJson(json) }.getOrElse {
+                    Log.w(TAG, "putSettings rejected malformed json: ${it.message}")
+                    return null
+                }
                 val snapshot = parsed.copy(
                     userId = SettingsSanitizer.sanitizeUserId(
-                        parsed.userId,
+                        json.opt(SettingsKeys.USER_ID) as? String,
                         prefs.getString(SettingsKeys.USER_ID, ""),
                     ),
                     serverAddress = SettingsSanitizer.sanitizeServerAddress(
-                        parsed.serverAddress,
+                        json.opt(SettingsKeys.SERVER_ADDRESS) as? String,
                         prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
                     ),
                 )
@@ -120,11 +122,10 @@ class SettingsProvider : ContentProvider() {
  *
  * 纯函数（不碰 Context / SharedPreferences），便于 JVM 单测覆盖。
  */
+// Note: URI 形态校验（拒 userinfo/空白）下沉到 Codec 读路径 — 见 .agents/notes/implemented/bug-fix/2026-03-21-full-audit-fixes.md
 object SettingsSanitizer {
     /** 地址长度上限：防止超长串写进 prefs / JSON 镜像。 */
     private const val MAX_SERVER_ADDRESS_LENGTH = 200
-    private const val HTTP_PREFIX = "http://"
-    private const val HTTPS_PREFIX = "https://"
 
     /** userId 必须是 32 位 hex（与 putUserId 同一套规则）。 */
     fun sanitizeUserId(requested: String?, current: String?): String {
@@ -133,7 +134,10 @@ object SettingsSanitizer {
         return current?.trim().orEmpty()
     }
 
-    /** serverAddress 必须 http(s):// 开头且长度 <= 200，否则退回已存值，已存值也非法则退默认。 */
+    /**
+     * serverAddress 必须是可解析的 http(s) URI（有 host、无 userinfo、无空白），
+     * 否则退回已存值，已存值也非法则退默认。
+     */
     fun sanitizeServerAddress(
         requested: String?,
         current: String?,
@@ -145,7 +149,23 @@ object SettingsSanitizer {
         return if (isValidServerAddress(stored)) stored else default
     }
 
-    fun isValidServerAddress(address: String): Boolean =
-        address.length <= MAX_SERVER_ADDRESS_LENGTH &&
-            (address.startsWith(HTTP_PREFIX) || address.startsWith(HTTPS_PREFIX))
+    /**
+     * 校验自定义 SponsorBlock 实例地址。
+     *
+     * 只做 scheme/host 形态检查：用户本来就可以把实例指到局域网。
+     * 拒绝 userinfo（`https://bsbsb.top@evil.com`）、空白/CRLF、空 host、非 http(s)。
+     */
+    fun isValidServerAddress(address: String): Boolean {
+        if (address.length !in 8..MAX_SERVER_ADDRESS_LENGTH) return false
+        for (ch in address) {
+            if (ch.isWhitespace() || ch == '\u0000') return false
+        }
+        val uri = runCatching { java.net.URI(address) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT) ?: return false
+        if (scheme != "http" && scheme != "https") return false
+        if (!uri.userInfo.isNullOrEmpty()) return false
+        val host = uri.host ?: return false
+        return host.isNotBlank()
+    }
 }
+

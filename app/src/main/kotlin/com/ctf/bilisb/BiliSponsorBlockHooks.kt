@@ -173,9 +173,10 @@ object BiliSponsorBlockHooks {
             // 两个 widget 类(PlayerSeekWidget3 / PlayerProgressTextWidget)的实例各自独立
             // detach,只挂第一个会让第二个类的 widget 分离时不触发清理。onPlayerLeft 幂等,
             // 重复触发只是多打一条探针。
-            HookResolve.declaredMethod(clazz, listOf(HostTargets.WIDGET_DETACH_METHOD))?.let { detach ->
+            HookResolve.methodIncludingInherited(clazz, listOf(HostTargets.WIDGET_DETACH_METHOD))?.let { detach ->
                 hookAfter(module, detach, "playerTeardown:$className") { chain ->
                     val host = chain.getThisObject() ?: return@hookAfter
+                    if (!clazz.isInstance(host)) return@hookAfter
                     onPlayerLeft(module, host, null)
                 }
                 teardownHooked = true
@@ -486,7 +487,11 @@ object BiliSponsorBlockHooks {
         // 注意：必须先拿旧快照再赋值。`settings` 是同一个字段，若先赋值再比较，
         // `settings != freshSettings` 恒为 false（data class equals 自反），
         // 会导致除总开关外的所有设置改动都不生效（只有重建 controller 才会带上新配置）。
-        module.info("Settings snapshot on player enter: $freshSettings")
+        module.info(
+            "Settings snapshot on player enter: enabled=${freshSettings.enabled} " +
+                "autoSkip=${freshSettings.autoSkip} server=${freshSettings.serverAddress} " +
+                "userId=${redactUserId(freshSettings.userId)}",
+        )
         applySnapshot(module, freshSettings, source = "player enter")
     }
 
@@ -652,6 +657,12 @@ object BiliSponsorBlockHooks {
                 // 双检锁:多线程同时走到这里时只建一个 SettingsWriter,避免重复注册监听
                 settingsWriter ?: SettingsWriter(context.applicationContext).also { settingsWriter = it }
             }
+        if (key == SettingsKeys.USER_ID && value is String &&
+            !com.ctf.bilisb.sponsor.UserIdentityStore.isValidUserId(value)
+        ) {
+            module.info("player sheet: reject invalid userId")
+            return
+        }
         val editor = writer.sharedPreferences.edit()
         when (value) {
             is Boolean -> editor.putBoolean(key, value)
@@ -661,8 +672,14 @@ object BiliSponsorBlockHooks {
         }
         editor.apply()
         val fresh = SettingsCodec.snapshotFromPreferences(writer.sharedPreferences)
-        applySnapshot(module, fresh, source = "player sheet: $key=$value")
+        applySnapshot(module, fresh, source = "player sheet: $key=${redactSettingValue(key, value)}")
     }
+
+    private fun redactUserId(userId: String): String =
+        if (userId.isEmpty()) "-" else userId.take(4) + "…"
+
+    private fun redactSettingValue(key: String, value: Any): String =
+        if (key == SettingsKeys.USER_ID) redactUserId(value.toString()) else value.toString()
 
     // ------------------------------------------------------------------ 进度回调
 

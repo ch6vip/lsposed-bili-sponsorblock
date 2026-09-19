@@ -25,44 +25,79 @@ class SponsorBlockRepository(
 ) {
     private val cache = ConcurrentHashMap<String, List<SponsorSegment>>()
     private val fetchedAt = ConcurrentHashMap<String, Long>()
+    private data class Known(val segments: List<SponsorSegment>, val gen: Long, val at: Long)
+    private val lastKnown = ConcurrentHashMap<String, Known>()
+    /** 每次 [clear] 递增,用来丢掉「清缓存之后才返回」的在途写入。 */
+    private val generation = ConcurrentHashMap<String, Long>()
 
-    /** 仅供测试断言缓存条目数。 */
+    /** 仅供测试断言新鲜缓存条目数。 */
     internal val cacheSize: Int get() = cache.size
+
+    fun currentGeneration(query: SponsorBlockQuery): Long = generation[cacheKey(query)] ?: 0L
 
     fun getCached(query: SponsorBlockQuery): List<SponsorSegment>? {
         if (cacheTtlMs <= 0) {
-            clear(query)
+            val key = cacheKey(query)
+            cache.remove(key)
+            fetchedAt.remove(key)
             return null
         }
         val key = cacheKey(query)
         val cached = cache[key] ?: return null
         val ts = fetchedAt[key] ?: return null
         if (nowMs() - ts > cacheTtlMs) {
-            // 过期:清掉并返回 null,触发调用方重拉。
-            removeEntry(key)
+            // 过期:只清新鲜缓存,保留 lastKnown 给当前视频继续跳过。
+            cache.remove(key)
+            fetchedAt.remove(key)
             return null
         }
         return cached
     }
 
+    fun getLastKnown(query: SponsorBlockQuery): List<SponsorSegment>? {
+        val key = cacheKey(query)
+        val known = lastKnown[key] ?: return null
+        if (known.gen != (generation[key] ?: 0L)) {
+            lastKnown.remove(key, known)
+            return null
+        }
+        return known.segments
+    }
+
     fun fetchAndCache(query: SponsorBlockQuery, ignoreCache: Boolean = false): SponsorBlockClient.FetchResult {
+        val key = cacheKey(query)
+        val gen = generation[key] ?: 0L
         val result = client.fetchSkipSegments(query, ignoreCache)
-        // 200 但解析失败(截断/CDN 错误页)的响应不可信:不能当「该视频无片段」缓存满一个 TTL,
-        // 否则期间所有跳过/静音整体失效且命中缓存后连重拉都不发生。只返回不缓存。
         if (result.parseFailed) {
             return result
         }
-        if (cacheTtlMs > 0 && (result.statusCode == 200 || result.statusCode == 404)) {
-            val key = cacheKey(query)
-            evictIfNeeded()
-            cache[key] = result.segments
-            fetchedAt[key] = nowMs()
+        if ((generation[key] ?: 0L) != gen) {
+            return result
+        }
+        if (result.statusCode == 200 || result.statusCode == 404) {
+            lastKnown[key] = Known(result.segments, gen, nowMs())
+            if ((generation[key] ?: 0L) != gen) {
+                lastKnown.remove(key)
+                cache.remove(key)
+                fetchedAt.remove(key)
+                return result
+            }
+            evictLastKnownIfNeeded()
+            if (cacheTtlMs > 0) {
+                evictIfNeeded()
+                cache[key] = result.segments
+                fetchedAt[key] = nowMs()
+            }
         }
         return result
     }
 
     fun clear(query: SponsorBlockQuery) {
-        removeEntry(cacheKey(query))
+        val key = cacheKey(query)
+        generation.merge(key, 1L) { current, delta -> current + delta }
+        cache.remove(key)
+        fetchedAt.remove(key)
+        lastKnown.remove(key)
     }
 
     fun submit(submission: SponsorBlockSubmission, ignoreCache: Boolean = true): SponsorBlockClient.SubmitResult {
@@ -95,6 +130,16 @@ class SponsorBlockRepository(
             .forEach { removeEntry(it.key) }
     }
 
+    private fun evictLastKnownIfNeeded() {
+        if (lastKnown.size < MAX_CACHE_ENTRIES) return
+        val extra = lastKnown.size - TARGET_CACHE_ENTRIES
+        if (extra <= 0) return
+        lastKnown.entries
+            .sortedBy { it.value.at }
+            .take(extra)
+            .forEach { lastKnown.remove(it.key) }
+    }
+
     private fun cacheKey(query: SponsorBlockQuery): String {
         // 只按 bvid 缓存:协议按 bvid hash 前缀拉取、客户端按 videoID 过滤,同一 bvid 的
         // 不同 cid(分P)拿到的是同一份数据 —— cid 进 key 会让切P白白重发网络请求。
@@ -110,6 +155,8 @@ class SponsorBlockRepository(
     internal fun transferCacheFrom(previous: SponsorBlockRepository) {
         cache.putAll(previous.cache)
         fetchedAt.putAll(previous.fetchedAt)
+        lastKnown.putAll(previous.lastKnown)
+        generation.putAll(previous.generation)
     }
 
     companion object {

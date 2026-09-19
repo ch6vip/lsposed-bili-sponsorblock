@@ -64,6 +64,16 @@ object ModuleSettings {
     /** 只读镜像文件(不走 IPC)。增强功能 hook 在拿不到 Context 时用这条兜底通道。 */
     fun loadFromMirror(module: XposedModule): SettingsSnapshot? = tryFileFallback(module)
 
+    /**
+     * 读一份新鲜快照,不碰 [cached]。
+     *
+     * EnhanceFlags 有自己的 TTL,不能走 [reload] —— reload 会把播放器路径的进程缓存打掉,
+     * 让随后的 `load()` 再吃一次 Binder。
+     */
+    fun readUncached(module: XposedModule, hostContext: Context): SettingsSnapshot? {
+        return tryIpc(module, hostContext) ?: tryFileFallback(module)
+    }
+
     /** 强制重新加载(配置变化后调用):清空进程内缓存后按 [load] 的来源顺序重新解析。 */
     fun reload(module: XposedModule, hostContext: Context): SettingsSnapshot {
         cached = null
@@ -103,6 +113,11 @@ object ModuleSettings {
 
         for (file in candidates) {
             if (!file.exists() || !file.canRead()) continue
+            val size = runCatching { file.length() }.getOrDefault(0L)
+            if (size <= 0L || size > SettingsKeys.MAX_LOCAL_FILE_BYTES) {
+                module.warn("ModuleSettings: skip oversized/empty mirror: ${file.absolutePath} size=$size")
+                continue
+            }
             val snapshot = try {
                 SettingsCodec.snapshotFromJson(org.json.JSONObject(file.readText()))
             } catch (e: Exception) {

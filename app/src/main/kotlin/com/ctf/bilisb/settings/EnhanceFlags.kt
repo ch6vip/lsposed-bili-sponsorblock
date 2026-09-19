@@ -51,9 +51,8 @@ object EnhanceFlags {
         val context = appContext
         val fresh = runCatching {
             if (context != null) {
-                // 必须用 reload 而不是 load:load 有进程级缓存,首读之后永远命中,
-                // TTL 重读会被架空,设置里的增强开关就不再热生效
-                ModuleSettings.reload(module, context)
+                // 不走 ModuleSettings.reload:那会清掉播放器路径的进程缓存。
+                ModuleSettings.readUncached(module, context) ?: ModuleSettings.loadFromMirror(module)
             } else {
                 ModuleSettings.loadFromMirror(module)
             }

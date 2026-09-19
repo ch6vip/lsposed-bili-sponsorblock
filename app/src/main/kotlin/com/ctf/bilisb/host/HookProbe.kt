@@ -12,6 +12,8 @@ import java.util.concurrent.ConcurrentHashMap
  * 取第一个存在的目标；解析失败不抛异常，只交给 [HookProbe] 记录。
  */
 object HookResolve {
+    private val methodCache = ConcurrentHashMap<String, Method?>()
+
     /** 按候选顺序返回第一个能加载的类。 */
     fun findClass(classLoader: ClassLoader, candidates: List<String>): Class<*>? {
         for (name in candidates) {
@@ -33,22 +35,36 @@ object HookResolve {
         return null
     }
 
-    /**
-     * 在对象上按候选方法名 + 参数类型找方法：先本类，再父类，最后接口。
-     *
-     * 接口上的抽象方法同样可以反射调用（会走虚分派），6.5.0 的
-     * `service.D#o(int,boolean)` 这类抽象方法就是靠这条路径拿到的。
-     */
     fun forTarget(target: Any, methodNames: List<String>, vararg paramTypes: Class<*>): Method? {
+        val cacheKey = target.javaClass.name + "#" + methodNames.joinToString(",") +
+            "(" + paramTypes.joinToString(",") { it.name } + ")"
+        if (methodCache.containsKey(cacheKey)) return methodCache[cacheKey]
         val visited = LinkedHashSet<Class<*>>()
         val queue = ArrayDeque<Class<*>>()
         queue.add(target.javaClass)
+        var found: Method? = null
         while (queue.isNotEmpty()) {
             val clazz = queue.removeFirst()
             if (!visited.add(clazz)) continue
-            declaredMethod(clazz, methodNames, *paramTypes)?.let { return it }
+            found = declaredMethod(clazz, methodNames, *paramTypes)
+            if (found != null) break
             clazz.interfaces.forEach { queue.add(it) }
             clazz.superclass?.let { queue.add(it) }
+        }
+        // ConcurrentHashMap 禁止 null value:只缓存命中。
+        if (found != null) methodCache[cacheKey] = found
+        return found
+    }
+
+    /** 含父类的公开方法（如 View.onDetachedFromWindow）。 */
+    fun methodIncludingInherited(clazz: Class<*>, methodNames: List<String>, vararg paramTypes: Class<*>): Method? {
+        for (name in methodNames) {
+            val method = runCatching { clazz.getMethod(name, *paramTypes) }.getOrNull()
+                ?: runCatching { clazz.getDeclaredMethod(name, *paramTypes) }.getOrNull()
+            if (method != null) {
+                runCatching { method.isAccessible = true }
+                return method
+            }
         }
         return null
     }

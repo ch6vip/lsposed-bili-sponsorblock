@@ -39,7 +39,6 @@ object SettingsKeys {
     const val DEFAULT_SERVER = com.ctf.bilisb.model.SponsorBlockConfig.DEFAULT_SERVER_ADDRESS
     const val CACHE_TTL_MINUTES = "cache_ttl_minutes"
     const val DEFAULT_CACHE_TTL_MINUTES = "60"
-
     // 数值字段合法区间:入参(IPC / JSON 镜像)不可信,统一 clamp,例如 cache_ttl_minutes 传 1e38。
     /** 缓存 TTL 上限(分钟,7 天)。 */
     const val MAX_CACHE_TTL_MINUTES = 10_080
@@ -47,6 +46,8 @@ object SettingsKeys {
     const val MAX_MIN_SKIP_DURATION_SECONDS = 3_600f
     /** 自动跳过倒计时上限(秒,10 分钟)。 */
     const val MAX_SKIP_COUNTDOWN_SECONDS = 600f
+    /** 镜像 / 统计 JSON 读取上限,超出视为损坏。 */
+    const val MAX_LOCAL_FILE_BYTES = 256 * 1024
 
     // 提交配置
     const val USER_ID = "user_id"

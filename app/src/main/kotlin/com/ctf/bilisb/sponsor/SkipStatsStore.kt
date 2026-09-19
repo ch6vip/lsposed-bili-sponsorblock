@@ -166,7 +166,7 @@ object SkipStatsStore {
     }
 
     private fun parse(file: File): DiskSnapshot {
-        val json = JSONObject(file.readText())
+        val json = JSONObject(readBounded(file))
         val counts = HashMap<String, Long>()
         val durations = HashMap<String, Long>()
         json.optJSONObject("perCategory")?.let { per ->
@@ -184,6 +184,14 @@ object SkipStatsStore {
             perCategoryCount = counts,
             perCategoryDurationMs = durations,
         )
+    }
+
+    private fun readBounded(file: File): String {
+        val size = file.length()
+        if (size <= 0L || size > com.ctf.bilisb.settings.SettingsKeys.MAX_LOCAL_FILE_BYTES) {
+            error("stats file size $size exceeds ${com.ctf.bilisb.settings.SettingsKeys.MAX_LOCAL_FILE_BYTES}")
+        }
+        return file.readText()
     }
 
     /** 把损坏文件改名成 `.bak` 保留现场;改名失败则退化为复制(仍保留原文件)。 */
