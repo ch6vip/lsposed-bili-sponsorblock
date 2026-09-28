@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  模块进程自己发 SponsorBlock HTTP 请求(自定义局域网实例)。
+  targetSdk 35 默认禁 cleartext;只靠 usesCleartextTraffic 在部分 ROM 上仍被 NSC 盖掉。
+  这里显式放行 http,https 仍走系统默认。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

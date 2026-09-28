@@ -221,12 +221,11 @@ object SettingsCodec {
         if (!value.isFinite()) return 0f
         return value.coerceIn(0f, maxSeconds)
     }
-
     /** 缓存 TTL 解析(分钟 → 毫秒):非法值退回 60 分钟,并 clamp 到 [0, MAX_CACHE_TTL_MINUTES]。 */
     private fun parseCacheTtlMs(raw: String?): Long {
         val parsed = raw?.trim()?.toFloatOrNull()?.takeIf { it.isFinite() }
         val minutes = parsed?.coerceIn(0f, SettingsKeys.MAX_CACHE_TTL_MINUTES.toFloat()) ?: 60f
-        return (minutes * 60_000L).toLong()
+        return (minutes * 60_000.0).toLong()
     }
 
     private fun formatMinutes(cacheTtlMs: Long): String {

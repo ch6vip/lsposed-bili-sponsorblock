@@ -91,10 +91,10 @@ class SponsorBlockRepositoryTest {
 
         clock.advanceBy(2L)
         assertNull(repository.getCached(query))
+        assertEquals(listOf("u1"), repository.getLastKnown(query)?.map { it.uuid })
         // 过期条目在 getCached 里就被清掉了（不是留到下次写入才清）
         assertEquals(0, repository.cacheSize)
     }
-
     /**
      * 缓存 key 只按 bvid:协议按 bvid hash 前缀拉取、客户端按 videoID 过滤,
      * 同一 bvid 不同 cid(分P)是同一份数据,切 P 不应重发网络请求。

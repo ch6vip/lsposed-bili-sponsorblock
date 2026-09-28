@@ -40,7 +40,7 @@ class UserIdentityStore(
             if (prefs.getString(SettingsKeys.USER_ID, null) != userId) {
                 prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
             }
-            Log.i(TAG, "Using canonical user ID: ${userId.take(8)}...")
+            Log.i(TAG, "Using canonical user ID: ${userId.take(4)}…")
             return cache(userId)
         }
         val existing = prefs.getString(SettingsKeys.USER_ID, null)
@@ -48,7 +48,7 @@ class UserIdentityStore(
         if (isValidUserId(existing)) {
             val userId = existing.orEmpty()
             SettingsSyncBridge.writeUserId(context, userId)
-            Log.i(TAG, "Using existing user ID: ${userId.take(8)}...")
+            Log.i(TAG, "Using existing user ID: ${userId.take(4)}…")
             return cache(userId)
         }
 
@@ -57,7 +57,7 @@ class UserIdentityStore(
             val userId = legacy.orEmpty()
             prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
             SettingsSyncBridge.writeUserId(context, userId)
-            Log.i(TAG, "Migrated legacy user ID: ${userId.take(8)}...")
+            Log.i(TAG, "Migrated legacy user ID: ${userId.take(4)}…")
             return cache(userId)
         }
 
@@ -66,7 +66,7 @@ class UserIdentityStore(
         // 本次进程生命周期内始终返回同一个 ID。
         prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
         SettingsSyncBridge.writeUserId(context, userId)
-        Log.i(TAG, "Generated new user ID: ${userId.take(8)}...")
+        Log.i(TAG, "Generated new user ID: ${userId.take(4)}…")
 
         return cache(userId)
     }

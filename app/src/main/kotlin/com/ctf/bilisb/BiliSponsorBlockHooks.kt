@@ -89,9 +89,10 @@ object BiliSponsorBlockHooks {
                 openPlayerSheet(module, rowView)
             }
         }
-        // B 站增强(移植自 BiliTamer,MIT):IP 属地/隐藏互动提示/首页不自动刷新/
-        // 分享到 QQ/顶栏消息入口/底栏删 tab。开关在各 hook 回调内实时读 EnhanceFlags。
+        // B 站增强(移植自 BiliTamer,MIT):IP 属地/隐藏互动提示/首页不自动刷新/分享到 QQ。
+        // 开关在各 hook 回调内实时读 EnhanceFlags。顶栏/底栏 tab 已按需求移除,见 EnhanceHooks。
         installSafely(module, "enhanceHooks") { com.ctf.bilisb.hook.EnhanceHooks.install(module, cl) }
+        installSafely(module, "cleartextPolicy") { com.ctf.bilisb.hook.CleartextPolicyHooks.install(module, cl) }
 
         module.info(HookProbe.summary())
     }
@@ -267,7 +268,7 @@ object BiliSponsorBlockHooks {
     /** 真正的清理：只应由 [scheduleDeferredTeardown] 的延迟任务调用。 */
     private fun performTeardown(module: XposedModule, host: Any, contextHash: Int) {
         pendingBindRef.set(null)
-        VideoDirectorListener.unregister(host)
+        VideoDirectorListener.unregister(module, host)
         // 必须走按 hash 的清理:此间宿主 widget 多半已 detach,反射取 Context 会失败,
         // onPlayerDestroyed(host) 会把 Int 当 host 用(hash=0 → 状态不清理/静音不解除)。
         sponsorBlockController?.onPlayerContextDestroyed(contextHash)
@@ -309,7 +310,7 @@ object BiliSponsorBlockHooks {
         HookResolve.declaredMethod(clazz, listOf("onDestroy"))?.let { method ->
             hookAfter(module, method, "legacyContainer:onDestroy") { chain ->
                 val container = chain.getThisObject() ?: return@hookAfter
-                VideoDirectorListener.unregister(container)
+                VideoDirectorListener.unregister(module, container)
                 sponsorBlockController?.onPlayerDestroyed(container)
             }
         }

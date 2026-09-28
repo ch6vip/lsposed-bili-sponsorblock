@@ -38,6 +38,15 @@ python tools\dexscan\dexstrings.py <工作目录>\dex\classes26.dex > strings26.
 Select-String -Path strings26.txt -Pattern "LogDescription"
 ```
 
+## Manifest 二进制解码
+
+`aapt2 dump xmltree` 只够看个别属性；需要整份可读清单时用 `axml.py`（纯标准库 AXML 解析器，
+资源引用输出为 `ref:<id>` 数字，不做 arsic 还原）：
+
+```powershell
+python tools\dexscan\axml.py <工作目录>\AndroidManifest.xml > manifest.decoded.xml
+```
+
 ## 字节码级交叉引用
 
 `dexindex.py` 只导签名，不导字节码。需要看“谁 new 了哪个类”时用 SDK 自带的 `dexdump`：

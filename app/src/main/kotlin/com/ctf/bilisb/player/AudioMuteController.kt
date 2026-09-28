@@ -72,12 +72,20 @@ object AudioMuteController {
      * contextHash 本身(此时宿主 widget 已 detach,反射取 Context 会失败拿到 0),
      * 按 hash 解除才是可靠路径。
      *
-     * @param audioHost 可用于拿 AudioManager 的宿主对象(可为 null:null 时只清记账,
-     *                  流层面的 unmute 由剩余 context 的下一次回调完成)。
-     * @return 是否真的解除了流静音(供调用方留日志)。
+     * 拿不到 AudioManager 或系统 unmute 失败时:
+     *   - [keepIfStreamStuck]=true(进度回调):把 hash 放回去,下个 tick 再试;
+     *   - false(teardown/close):不再记账,避免僵尸 hash 让后续 mute 短路。
+     * 流仍可能静音(没 AM),但至少不会把「已静音」账本钉死。
+     *
+     * @param audioHost 可用于拿 AudioManager 的宿主对象。
+     * @return 是否真的解除了流静音。
      */
-    fun unmuteContext(module: XposedModule, contextHash: Int, audioHost: Any?): Boolean {
-        var am: AudioManager? = null
+    fun unmuteContext(
+        module: XposedModule,
+        contextHash: Int,
+        audioHost: Any?,
+        keepIfStreamStuck: Boolean = true,
+    ): Boolean {
         synchronized(lock) {
             val removed = mutedContexts.remove(contextHash)
             if (!removed) return false
@@ -85,30 +93,50 @@ object AudioMuteController {
                 module.info("audio unmute deferred for context=$contextHash (other contexts still muted)")
                 return false
             }
-            // 流级 unmute 也要在锁内:理由见 [mute] 的 TOCTOU 说明
-            am = audioHost?.let { audioManager(it) }
-            if (am != null) {
-                runCatching {
-                    am!!.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-                }.onSuccess {
-                    module.info("audio unmuted")
-                }.onFailure {
-                    module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
-                }
+            val am = audioHost?.let { audioManager(it) } ?: appAudioManager()
+            if (am == null) {
+                if (keepIfStreamStuck) mutedContexts.add(contextHash)
+                module.info("audio unmute skipped: no audio manager for context=$contextHash keep=$keepIfStreamStuck")
+                return false
             }
+            val unmuted = runCatching {
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                true
+            }.onFailure {
+                module.info("audio unmute failed: ${it.javaClass.name}: ${it.message}")
+            }.getOrDefault(false)
+            if (!unmuted) {
+                if (keepIfStreamStuck) mutedContexts.add(contextHash)
+                return false
+            }
+            module.info("audio unmuted")
+            return true
         }
-        return true
     }
 
     /** 解除该 context 的静音记账;只有所有 context 都不再需要时才真正 unmute 流。 */
-    fun unmute(module: XposedModule, host: Any, contextHashHint: Int = 0) {
+    fun unmute(
+        module: XposedModule,
+        host: Any,
+        contextHashHint: Int = 0,
+        keepIfStreamStuck: Boolean = true,
+    ) {
         val contextHash = if (contextHashHint != 0) contextHashHint else PlayerBridge.contextHash(host)
-        unmuteContext(module, contextHash, host)
+        unmuteContext(module, contextHash, host, keepIfStreamStuck)
     }
 
     private fun audioManager(host: Any): AudioManager? {
-        // 6.5.0 容器取 Context 的方法是 t()；统一走 PlayerBridge，避免写死 getContext 后静默失败
         val context = PlayerBridge.context(host) ?: return null
         return context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+
+    /** teardown 时 widget 可能已 detach;用当前进程 Application 仍能解 STREAM_MUSIC。 */
+    private fun appAudioManager(): AudioManager? {
+        val app = runCatching {
+            Class.forName("android.app.ActivityThread")
+                .getMethod("currentApplication")
+                .invoke(null) as? android.app.Application
+        }.getOrNull() ?: return null
+        return app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     }
 }
