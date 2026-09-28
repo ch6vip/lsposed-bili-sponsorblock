@@ -4,7 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
-import android.content.DialogInterface
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -47,14 +47,20 @@ object SponsorBlockPlayerSheet {
     /** B 站品牌粉：开关选中态 / 强调文字。 */
     private const val BRAND_PINK = 0xFFFB7299.toInt()
 
-    /** 卡片圆角顶部背景色（贴合截图里的浅色卡片）。 */
-    private const val CARD_BG = 0xFFF7F7F9.toInt()
+    /** 浅色卡片底（贴合参考截图）。深色主题走 [sheetPalette]。 */
+    private const val CARD_BG_LIGHT = 0xFFF7F7F9.toInt()
 
-    /** 右侧说明/数值的灰色。 */
-    private const val VALUE_GRAY = 0xFF999999.toInt()
+    private const val VALUE_GRAY_LIGHT = 0xFF999999.toInt()
 
-    /** 分割线颜色。 */
-    private const val DIVIDER = 0xFFEEEEEE.toInt()
+    private const val DIVIDER_LIGHT = 0xFFEEEEEE.toInt()
+
+    private data class SheetPalette(
+        val cardBg: Int,
+        val valueGray: Int,
+        val divider: Int,
+        val handle: Int,
+        val switchOff: Int,
+    )
 
     /** 行高 52dp。 */
     private const val ROW_HEIGHT_DP = 52
@@ -182,12 +188,13 @@ object SponsorBlockPlayerSheet {
         dialog: Dialog,
         log: (String) -> Unit,
     ): View {
+        val palette = sheetPalette(activity)
         val card = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             // 只用顶部圆角：底部与屏幕边缘齐平，这就是 bottom sheet 的视觉特征
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                setColor(CARD_BG)
+                setColor(palette.cardBg)
                 cornerRadii = floatArrayOf(
                     dp(activity, 18).toFloat(), dp(activity, 18).toFloat(),
                     dp(activity, 18).toFloat(), dp(activity, 18).toFloat(),
@@ -196,7 +203,6 @@ object SponsorBlockPlayerSheet {
             }
         }
         card.addView(dragHandle(activity))
-
         val scroll = MaxHeightScrollView(activity).apply {
             // 上限 70% 屏高：剩下的 30% 留给可见的播放画面与遮罩点击区
             maxHeight = (activity.resources.displayMetrics.heightPixels * 0.7f).toInt()
@@ -264,10 +270,11 @@ object SponsorBlockPlayerSheet {
      * 手势冲突；这里保留视觉锚点，点击遮罩/返回键仍然是唯一关闭路径。
      */
     private fun dragHandle(activity: Activity): View {
+        val palette = sheetPalette(activity)
         val pill = View(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp(activity, 36), dp(activity, 4))
             background = GradientDrawable().apply {
-                setColor(0xFFDDDDDD.toInt())
+                setColor(palette.handle)
                 cornerRadius = dp(activity, 2).toFloat()
             }
         }
@@ -329,7 +336,7 @@ object SponsorBlockPlayerSheet {
     private fun valueText(activity: Activity, text: String): TextView = TextView(activity).apply {
         this.text = text
         textSize = 13f
-        setTextColor(VALUE_GRAY)
+        setTextColor(sheetPalette(activity).valueGray)
         gravity = Gravity.END or Gravity.CENTER_VERTICAL
         maxLines = 1
         ellipsize = android.text.TextUtils.TruncateAt.END
@@ -348,12 +355,13 @@ object SponsorBlockPlayerSheet {
      * 否则面板一打开就会把初始值当成一次用户操作回放给调用方（写盘 + 重拉片段）。
      */
     private fun switchBox(activity: Activity, checked: Boolean, onChange: (Boolean) -> Unit): View {
+        val palette = sheetPalette(activity)
         val switch = Switch(activity).apply {
             isChecked = checked
             runCatching {
                 buttonTintList = android.content.res.ColorStateList(
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                    intArrayOf(BRAND_PINK, 0xFFCCCCCC.toInt()),
+                    intArrayOf(BRAND_PINK, palette.switchOff),
                 )
             }
         }
@@ -366,7 +374,7 @@ object SponsorBlockPlayerSheet {
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(activity, 1),
         ).apply { setMargins(dp(activity, 18), dp(activity, 4), dp(activity, 18), dp(activity, 4)) }
-        setBackgroundColor(DIVIDER)
+        setBackgroundColor(sheetPalette(activity).divider)
     }
 
     // ---------------------------------------------------------------- 子弹窗
@@ -571,9 +579,32 @@ object SponsorBlockPlayerSheet {
     private fun primaryTextColor(activity: Activity): Int {
         themedColor(activity, android.R.attr.textColorPrimary)?.let { return it }
         themedColor(activity, android.R.attr.colorForeground)?.let { return it }
-        return 0xFF212121.toInt()
+        return if (isNight(activity)) 0xFFEEEEEE.toInt() else 0xFF212121.toInt()
     }
 
+    private fun isNight(activity: Activity): Boolean =
+        (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+
+    private fun sheetPalette(activity: Activity): SheetPalette {
+        return if (isNight(activity)) {
+            SheetPalette(
+                cardBg = 0xFF1C1C1E.toInt(),
+                valueGray = 0xFFB0B0B0.toInt(),
+                divider = 0xFF3A3A3C.toInt(),
+                handle = 0xFF5C5C5E.toInt(),
+                switchOff = 0xFF5C5C5E.toInt(),
+            )
+        } else {
+            SheetPalette(
+                cardBg = CARD_BG_LIGHT,
+                valueGray = VALUE_GRAY_LIGHT,
+                divider = DIVIDER_LIGHT,
+                handle = 0xFFDDDDDD.toInt(),
+                switchOff = 0xFFCCCCCC.toInt(),
+            )
+        }
+    }
     private fun themedColor(activity: Activity, attr: Int): Int? {
         val value = TypedValue()
         if (!activity.theme.resolveAttribute(attr, value, true)) return null

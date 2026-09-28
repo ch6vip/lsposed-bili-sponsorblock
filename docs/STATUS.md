@@ -3,25 +3,18 @@
 > **目标口径（2026-09 起）**：模块只以 `bilibili 6.5.0` / `com.bilibili.app.in` / `<APK目录>\bilibili_6.5.0.apks` 为目标。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-新增「B 站增强」功能组（移植自 BiliTamer,MIT：IP 属地/隐藏互动提示/首页不自动刷新/分享到 QQ，全部默认关闭、控制中心「B 站增强」页按需开启）。
-
 模块版本：0.6.3（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 9）——**主链路已在 6.5.0 真机跑通**
+
 最近变更（0.6.3）：全量审查修复（TTL=0 仍可跳过、unmute 带 hash、server URI 校验、userId 脱敏）；
 「我的」页入口改为按 Bili2233 标题绑点击（不再误绑收藏），真机复验通过。
 
-1. 新增「B 站增强」功能组 —— 移植自 BiliTamer(MIT)：IP 属地/隐藏互动提示/首页不自动刷新/
-   分享到 QQ，6 个开关全部默认关闭，控制中心「B 站增强」页按需开启。
-   分享 QQ 真机验证通过（tauth→ACTION_SEND 链路）；IP 属地 grpc 改写探针已确认生效、显示效果待复核。
-   注：首页顶栏消息入口 / 底栏删「消息」tab 曾移植，6.5.0 上经嗅探→默认加载器→Compose 三漏斗
-   （CachedResourceResolver/MainResourceManager，逆向结论见 git 历史）三轮修复仍未生效，
-   2026-09-19 按需求整体移除。
-2. 全套自绘 UI 改版为 B 站风格 —— 控制中心（原 Bili2233 主弹窗定名「控制中心」）/
-   SponsorBlock 详情/B 站增强详情三弹窗 + 颜色选择 + 面板编辑弹窗统一品牌粉 #FB7299、
-   浅灰页面底 #F1F2F3、白色圆角卡片、透明窗口 R 角；「更新」行移除（发版说明以
-   GitHub Releases 为单一来源），版本行点击跳转项目页。
-3. 同日三轮真机回归修复（见下文与 git log）。
+「B 站增强」现行四件套（移植自 BiliTamer,MIT，**6 个开关全部默认关闭**，控制中心「B 站增强」页按需开启）：
+IP 属地 / 隐藏互动提示（三连、UP 气泡、投票）/ 首页不自动刷新 / 分享到 QQ。
+首页顶栏消息入口与底栏删 tab 已按需求移除，不要复活（见 ROADMAP「明确不做」与 `.agents/notes/implemented/simplification/2026-09-19-remove-hometab.md`）。
 
-最近真机验证：**2026-09-14 在 `com.bilibili.app.in` 6.5.0 上验证通过（见下）**
+最近真机验证：
+- **2026-09-14**：主链路（加载 / aid-cid / 拉片段 / 自动跳过 / 标记 / Toast / 我的页 / 空降助手）在 `com.bilibili.app.in` 6.5.0 通过（见下）。
+- **2026-09-21**：装 0.6.3 debug（versionCode 9）冷启动，`hook summary: 33/38 hit`；增强组见「B 站增强 2026-09-21」。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 
@@ -78,8 +71,8 @@
 - 本轮 code review（4 个 reviewer 按模块并行）共发现 60+ 条问题，按严重度依次修复，
   重点是：**播放器离开时无销毁入口导致的静音泄漏/倒计时越界 seek/状态泄漏**、
   **设置改了不生效（两处独立 bug）**、**提交接口协议不符**、**标记绘制几何越界抛异常**。
-- 仍有未在真机验证的功能项（手动跳过、静音、倒计时、时长扣减的显示效果、小窗/切集/番剧），
-  以及需要 Robolectric 才能覆盖的 Bundle 往返单测。
+- 仍有未在真机验证的功能项（小窗/切集/番剧）。片段静音与提交落库本轮不做。
+  Bundle 往返单测已用 Robolectric 真跑。
 
 ## 6.5.0 真机验证结论（2026-09-14）
 
@@ -97,12 +90,34 @@
 | 播放器「更多」面板入口行（空降助手） | ✅ | 注入 `morePanelItems size=18` → `morePanelInjected <- size=19`；点击后 `sheetContextHash host=233035869`。UI 几何按截图量值对齐（卡片 16dp 外边距 / 间距 16dp / 图标 20dp / 标题 15sp），18:31 装机复验通过 |
 | Toast / 提交 | ✅ | `showToast: 跳过: 开场动画 (30.0秒)`。注:播放器内 SB 提交按钮入口已移除(commit e9c2c32),「标记/取消标记」记录为历史验证,提交链路保留等待新入口 |
 
-### 仍未在真机验证
+### B 站增强 2026-09-21（0.6.3 debug / Xiaomi 23078RKD5C / Android 16）
 
-- 手动跳过按钮、片段静音、倒计时取消浮层（本轮刚补齐生命周期，待验证）
-- 剩余时长扣减的**显示效果**（hook 已装，文本是否符合预期未确认）
-- 小窗、切集、番剧/OGV（epid 路径）、深色模式、切账号
-- 提交是否真的落库（本轮把 GET 改成 POST，待真机确认服务端接受）
+冷启动宿主主进程后 `hook summary: 33/38 hit`。设置走宿主镜像
+`/data/data/com.bilibili.app.in/sponsorblock_settings.json`（模块进程空闲时 IPC `Unknown authority`，属已知兜底路径）。
+
+| 能力 | 结论 | 证据 |
+| --- | --- | --- |
+| 隐藏一键三连 / UP 气泡 / 投票 | ✅ 安装命中 | `hintTriple:setPrompt` / `hintFollowPopup` / `hintVote` hook ok。回调是否改 UI 未截图复核 |
+| 首页不自动刷新 | ✅ 安装命中 | `noAutoRefresh <- PegasusViewModel#y0 (has-content guard)`。HOME→回前台未打出 `auto refresh blocked`（可能未走到 AUTO_BACK，或列表已是空状态放行） |
+| 分享到 QQ | ✅ 安装命中 + 历史真机 | `shareQqInject` / `shareQqTauth:shareToQQ` hook ok；此前 tauth→ACTION_SEND 真机通过。本次未再点分享面板 |
+| IP 属地（REST 空间参数） | ✅ 运行时改写 | `ip: space rest params rewritten mobi_app android_i -> android` |
+| IP 属地（gRPC 头写入） | ✅ 安装命中 | `ip.grpcBinHeaderWrite <- kntr.base.moss.ignet.impl.grpc.c.f`；本次未打出 `grpc write fired` / `改写生效` |
+| IP 属地屏幕显示 | 未复核 | 评论/空间页 loc 文案未截图 |
+| ip.kmpHeaderValue / ip.mossScope / ip.identityProvider / ip.restInterceptor / ip.restParams | ❌ miss | 6.5.0 上这些旧路径不存在或形状不匹配；属地靠 REST 空间参数 + gRPC 头写入兜 |
+
+明确不再投入：首页顶栏消息入口 / 底栏删「消息」tab / 底栏删「我的」tab。
+
+### M9 主链路边角（2026-09-21）
+
+| 能力 | 结论 | 证据 |
+| --- | --- | --- |
+| 倒计时取消浮层 | ✅ 真机通过 | 用户手动：进片段出现「N 秒后跳过 [取消]」，点取消后不再 seek |
+| 手动跳过按钮 | ✅ 真机通过 | 用户手动：进片段出跳过按钮 / 面板选段，点后 seek 到末尾 |
+| 剩余时长扣减显示 | ✅ 真机通过 | 用户手动：进度文本扣减后的剩余时长符合预期 |
+| 片段静音 | 本轮不做 | 代码在，未真机验。默认关 |
+| 提交落库 | 本轮不做 | 面板两次标记因播放暂停落在同一 `position=1536589`，草稿判零长未发请求。旁路：`bsbsb.top` POST **body** 回 `400 No userID provided`；POST **query** 能进业务层（同分类已投满时 403）。不改降级、不继续验 |
+
+仍未覆盖（也不在本轮）：小窗、切集、番剧/OGV、深色模式、切账号。
 
 ## 本轮 code review 修复（按严重度）
 
@@ -143,14 +158,15 @@
 
 **测试**：从 7 类 18 例扩到 **12 类 97 例（0 失败，1 skip）**，新增纯几何/抑制窗口/节流/sanitizer/边界真值等覆盖。
 
-## 设备现状（2026-09-14 实测）
+## 设备现状（2026-09-21 复测）
 
 | 项 | 值 |
 | --- | --- |
-| 设备 | Xiaomi （机型略），arm64-v8a，Android 16（SDK 36） |
-| 目标宿主 | `com.bilibili.app.in` versionName 6.5.0 / versionCode 9110200 ✅（与 `.apks` 一致） |
-| Root | KernelSU 已安装（`me.weishu.kernelsu`）；`adb shell` 直连 `su` 不可用，需在管理器授权 |
-| LSPosed | ❌ 未安装（`org.lsposed.manager` 不存在）——**唯一阻塞点** |
+| 设备 | Xiaomi 23078RKD5C（corot），arm64-v8a，Android 16（SDK 36） |
+| 目标宿主 | `com.bilibili.app.in` versionName 6.5.0 / versionCode 9110200 ✅ |
+| 模块 | `io.github.ch6vip.bilisb` 0.6.3 / versionCode 9（debug） |
+| Root | KernelSU（`me.weishu.kernelsu`）；`adb shell su -c id` → uid=0 |
+| LSPosed | ✅ Zygisk 模块 `zygisk_lsposed`（LSPosed IT v2.2.0-it / 7885）。**没有**独立 `org.lsposed.manager` 包，这是寄生式管理器，不是「没装」 |
 | 模拟器 | SDK 只带 x86_64 镜像（android-35），而宿主只提供 arm64 库 → 必须真机 |
 
 ## 6.5.0 静态分析结论（离线可复现）
@@ -265,15 +281,14 @@ $env:ANDROID_HOME = "C:\android-sdk"
 
 ## 未完成 / 待验证
 
-- **M0**：设备装 LSPosed（唯一硬阻塞）
-- 真机验证 M3–M7（探针版已就绪，runbook：`docs/DEVICE_PROBE.md`）
-- M8 路由拦截点重定位；M9 回归矩阵（小窗、切集、番剧、深色模式、切账号）
+- M9 主链路边角：倒计时取消 / 手动跳过 / 时长扣减显示 ✅；片段静音 / 提交落库本轮不做
+- 增强组屏幕效果：IP 属地 loc 文案、三连/气泡/投票 UI、首页切后台是否真的不刷新、分享面板是否出现 QQ
 - 错误诊断面板：设置读取、网络请求、提交失败状态可见化（T5/R8）
 - R1 / R2 / R6 / R7 / R9 等结构任务
 
 ## 下一步
 
-1. **M0**：给设备装 LSPosed → 启用模块 → 作用域勾 `com.bilibili.app.in`。
-2. 按 `docs/DEVICE_PROBE.md` 跑一次：冷启动进首页 → 我的页 → 播放页 30 秒，抓 `Bili2233` 日志。
-3. 把日志结论回写到本文档，并按结果把 `HostTargets` 里对应候选提升为首选、勾掉 M3–M7。
-4. 然后做 M8（路由拦截）、M9（回归矩阵），版本升 0.6.0。
+1. 不要再投入 HomeTab / 底栏删 tab。
+2. 不要再投入片段静音真机回归、提交落库 / POST body 降级（本轮明确不做）。
+3. 增强组屏幕效果仍缺：评论 loc、三连/气泡/投票 UI、首页切后台、分享面板 QQ。
+4. 结构债（设置收敛、Provider 收口、反射缓存）有空再做。

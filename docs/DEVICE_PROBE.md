@@ -9,12 +9,13 @@
 | --- | --- |
 | 设备 | Xiaomi （机型略），arm64-v8a，Android 16（SDK 36） |
 | 目标宿主 | `com.bilibili.app.in` 已安装，versionName 6.5.0 / versionCode 9110200 ✅ |
-| Root | KernelSU 已安装 ✅（`adb shell` 直连 `su` 不可用，需要在 KernelSU 管理器里给终端/管理器授权） |
-| LSPosed | ❌ **未安装**（`org.lsposed.manager` 不存在）——这是唯一阻塞点 |
+| Root | KernelSU 已安装 ✅（`adb shell su -c id` → uid=0） |
+| LSPosed | ✅ Zygisk 模块 `zygisk_lsposed`（LSPosed IT v2.2.0-it / 7885）。**没有**独立 `org.lsposed.manager` 包，这是寄生式管理器，不是「没装」 |
 | 宿主库 | `.apks` 只带 `arm64_v8a`，SDK 里的 x86_64 模拟器镜像跑不了，必须真机 |
 
-装 LSPosed 时注意：Android 16 需要较新的 LSPosed 构建；KernelSU 环境要么开内置 Zygisk 再用 Zygisk 版 LSPosed，
-要么装 KernelSU 兼容发行版。装完在 LSPosed 里启用 `Bili2233` 并勾选作用域 **`com.bilibili.app.in`**。
+日志不在普通 `adb logcat -s Bili2233`（经常是空的），而在 LSPosed 模块日志：
+`/data/adb/lspd/log/modules_*.log`，TAG 实际是 `LSPosedFramework`。
+作用域勾 `com.bilibili.app.in`。强制停止宿主后再开，否则跑的还是旧代码。
 
 ## 1. 构建与安装
 

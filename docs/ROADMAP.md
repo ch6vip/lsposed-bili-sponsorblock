@@ -68,11 +68,13 @@
       路由拦截仅作 best-effort；`blrouter.Router`/`BLRouter` 在 6.5.0 被混淆，不再投入。
       现状：`uriRouter` 已收紧筛选并按"是否真拦到 URI"单独上报探针。
 
-- [ ] **M9 真机回归矩阵（迁移收尾）**
+- [~] **M9 真机回归矩阵（迁移收尾）**
       已完成：普通投稿视频的自动跳过、标记、Toast、我的页入口、设置读写。
-      待补：**手动跳过 / 片段静音 / 倒计时取消 / 剩余时长扣减显示 / 小窗 / 切集 / 番剧(epid) / 深色模式 / 切账号 / 提交落库**
-      ，以及 **B 站增强逐项回归（IP 属地各路径 / 隐藏互动提示三项 / 首页不自动刷新 / 分享 QQ）**。
-      验收：`docs/STATUS.md` 更新为 6.5.0 的实测结论；版本号已升到 0.6.1（versionCode 7，module.prop 一致性由 `checkModuleProp` gradle 任务守卫）。
+      增强组 2026-09-21：四件套 **安装命中**（`33/38 hit`）；分享 QQ 历史真机通过；
+      IP 属地 REST `mobi_app` 改写已触发；gRPC 头写入 hook 已挂。屏幕效果仍待看。
+      本轮收口：倒计时取消 / 手动跳过 / 时长扣减显示 2026-09-21 真机通过。**片段静音 / 提交落库本轮不做**。其余小窗 / 切集 / 番剧 / 深色 / 切账号仍未覆盖。
+      以及增强组屏幕效果（评论 loc / 三连 UI / 首页切后台是否真不刷新 / 分享面板 QQ 行）。
+      验收文档：`docs/STATUS.md`。版本号已升到 0.6.3（versionCode 9，`checkModuleProp` 守卫）。
 
 ## P1 - 结构整理（沿用旧编号，迁移后执行）
 
@@ -151,5 +153,9 @@
 
 - [~] unskip / undo：行为蓝本构建无该功能。
 - [~] mute core 原生音量方法：改用系统 AudioManager 方案。
+- [~] 片段静音真机回归 / 提交落库与 POST body 降级：2026-09-21 本轮明确不做。旁路已记录 `bsbsb.top` POST body 丢 userID、query 能进业务层。
 - [~] 同时维护 `tv.danmaku.bili` 与 `com.bilibili.app.in` 双目标：只保留国际版 6.5.0 目标线
       （旧类名只作为 `HostTargets` 里的候选兜底保留，不再单独验证）。
+- [~] 首页顶栏消息入口 / 底栏删「消息」tab / 底栏删「我的」tab：曾移植为 HomeTabHooks，
+      6.5.0 上经嗅探→默认加载器→Compose 三漏斗三轮仍未生效，2026-09-19 按需求移除。
+      不要复活。理由见 `.agents/notes/implemented/simplification/2026-09-19-remove-hometab.md`。

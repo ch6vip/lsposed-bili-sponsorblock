@@ -206,6 +206,14 @@ class SettingsCodecTest {
         assertEquals(SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS, snapshot.skipCountdownSec)
     }
 
+    @Test
+    fun maxCacheTtlMinutesDoesNotOverflowToZero() {
+        val json = JSONObject(mapOf(SettingsKeys.CACHE_TTL_MINUTES to SettingsKeys.MAX_CACHE_TTL_MINUTES.toString()))
+        val snapshot = SettingsCodec.snapshotFromJson(json)
+        assertEquals(SettingsKeys.MAX_CACHE_TTL_MINUTES * 60_000L, snapshot.cacheTtlMs)
+        assertTrue(snapshot.cacheTtlMs > 0L)
+    }
+
     private fun richSnapshot(): SettingsSnapshot = SettingsSnapshot(
         enabled = false,
         autoSkip = false,

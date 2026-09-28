@@ -30,17 +30,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * 「最近一次绑定容器的 contextHash」作为回落目标：容器 `bindPlayerContainer(f)` 时记下 hash，
  * 观察者回调到来时把 aid/cid 应用到该 hash。单播放页场景与旧行为一致；
  * 小窗/多实例场景需要在真机上用探针日志确认后再细化（见 docs/ROADMAP.md）。
+ *
+ * Note: 离开播放页必须对服务调 z0 注销观察者 — 见 .agents/notes/implemented/bug-fix/2026-03-22-full-audit-round2.md
  */
 object VideoDirectorListener {
     /**
-     * 已挂过代理的对象集合。
-     *
-     * 用「弱引用集合」而不是 `identityHashCode` 集合：identityHash 会被复用，
-     * 一旦复用，新服务会被误判为"已注册"而**静默不再挂代理**（aid/cid 链路整体失效）；
-     * 弱引用同时避免长期强引用 director 服务（它间接持有 Activity/View）。
+     * 已挂过代理的 director 服务 → (观察者 Proxy, 注册时的接口)。
+     * z0 成功后才从表摘掉,失败则保留以免重复挂代理。
      */
-    private val registeredHosts: MutableSet<Any> =
-        Collections.newSetFromMap(Collections.synchronizedMap(WeakHashMap<Any, Boolean>()))
+    private val observersByService: MutableMap<Any, Pair<Any, Class<*>>> =
+        Collections.synchronizedMap(WeakHashMap<Any, Pair<Any, Class<*>>>())
 
     /** 最近一次绑定的播放器 contextHash（0 表示还没有播放器）。 */
     @Volatile
@@ -144,8 +143,7 @@ object VideoDirectorListener {
      * 调用点：Hook `PlayDirectorServiceV3#j0(E0)` 之后拿到服务实例时调用。
      */
     fun registerDirectorService(module: XposedModule, directorService: Any): Boolean {
-        // 弱引用集合：同一对象重复注册直接复用；旧对象被回收后不会留下"假去重"
-        if (!registeredHosts.add(directorService)) return true
+        if (observersByService.containsKey(directorService)) return true
 
         val classLoader = directorService.javaClass.classLoader ?: run {
             HookProbe.miss(module, "director", "classLoader null")
@@ -157,7 +155,6 @@ object VideoDirectorListener {
         )
         if (observerInterface == null) {
             HookProbe.miss(module, "director", "observer interface not found")
-            registeredHosts.remove(directorService)
             return false
         }
 
@@ -173,7 +170,6 @@ object VideoDirectorListener {
         )
         if (addMethod == null) {
             HookProbe.miss(module, "director", "addObserver method not found")
-            registeredHosts.remove(directorService)
             return false
         }
 
@@ -185,16 +181,14 @@ object VideoDirectorListener {
             false
         }
         if (ok) {
+            observersByService[directorService] = observer to observerInterface
             lastService = directorService
             HookProbe.ok(
                 module,
                 "director",
                 "${directorService.javaClass.name}#${addMethod.name}(${observerInterface.simpleName})",
             )
-            // 探针：服务实例上直接读一次当前视频，确认 D() -> Video$e -> Video$a 链路
             probeCurrentVideo(module, directorService)
-        } else {
-            registeredHosts.remove(directorService)
         }
         return ok
     }
@@ -210,15 +204,45 @@ object VideoDirectorListener {
     }
 
     /**
-     * 播放器销毁时调用：断开 director 服务与待补发 id 的引用。
+     * 播放器销毁时调用：对 director 服务调 z0 摘掉我们的观察者，并断开待补发 id。
      *
-     * 说明：注册集合里存的是 director **服务实例**（不是容器），这里不做按容器的精确移除，
-     * 而是断开全局引用；旧服务由弱引用集合自动回收（避免长期持有 Activity/View）。
+     * [host] 可能是 widget / 容器 / 服务本身。优先从 host 上取服务实例精确注销;
+     * 取不到则注销 [lastService]。只从弱表里 remove(host) 是空操作 —— 键是服务不是 widget。
      */
-    fun unregister(host: Any) {
-        registeredHosts.remove(host)
+    fun unregister(module: XposedModule, host: Any) {
+        val service = resolveService(host) ?: lastService
+        if (service != null) {
+            removeObserver(module, service)
+        }
         clearDirectorService()
         clearPendingIds()
+    }
+
+    private fun resolveService(host: Any): Any? {
+        if (observersByService.containsKey(host)) return host
+        return HookResolve.invokeNoArg(host, HostTargets.DIRECTOR_GET_SERVICE_METHODS)
+    }
+
+    private fun removeObserver(module: XposedModule, directorService: Any) {
+        val registered = observersByService[directorService] ?: return
+        val (observer, observerInterface) = registered
+        val removeMethod = HookResolve.forTarget(
+            directorService,
+            HostTargets.DIRECTOR_REMOVE_OBSERVER_METHODS,
+            observerInterface,
+        )
+        if (removeMethod == null) {
+            HookProbe.miss(module, "directorRemove", "z0 not found on ${directorService.javaClass.name}")
+            return
+        }
+        val removed = runCatching {
+            removeMethod.invoke(directorService, observer)
+            true
+        }.onFailure { module.info("director: removeObserver failed: ${it.message}") }
+            .getOrDefault(false)
+        if (removed) {
+            observersByService.remove(directorService, registered)
+        }
     }
 
     /** 探针：`service.D()` -> `Video$e` -> `z()` -> `Video$a`（DanmakuResolveParams）。 */
@@ -270,7 +294,6 @@ object VideoDirectorListener {
             HookResolve.forTarget(video, listOf(HostTargets.VIDEO_PARAMS_ACCESSOR))?.invoke(video)
         }.getOrNull()
 
-        // 诊断：真机上取到的 id 量级可疑（1e14 级），打印实际对象/字段以确认字段语义
         HookProbe.first(module, "idDiagnostics", 4) {
             buildString {
                 append("video=").append(video.javaClass.name).append(' ').append(describe(video))
@@ -293,11 +316,6 @@ object VideoDirectorListener {
             }
         }
 
-        // 兜底：逐字段找 long（aid 先出现，随后是 cid）。
-        // 危险路径:任意「第一个/第二个非零且不相等的 long/int 字段」都可能是 duration、
-        // epid、seasonId 等其它 id,误选会拉取并应用**错误视频**的片段(seek/静音/提交全错)。
-        // 所以这里加两道校验:量级范围(aid/cid 是 1e8~1e13 级的 id,不是 1e3 级的时长,
-        // 也不是 1e15+ 的 seasonId)+ 结果只经 probe 记录后采用。
         var aid = 0L
         var cid = 0L
         var aidField = ""
@@ -325,8 +343,6 @@ object VideoDirectorListener {
             return aid to cid
         }
         if (aid > 0 && cid > 0) {
-            // 扫描到了但不合量级:宁可放弃这次 id 采集(下次 z() 主路径可能就绪),
-            // 也不能拿错误的 id 去拉片段
             HookProbe.first(module, "extractVideoIdsRejected", 5) {
                 "video=${video.javaClass.name} aid=$aid($aidField) cid=$cid($cidField) 不合量级,放弃"
             }
@@ -348,8 +364,6 @@ object VideoDirectorListener {
     }
 
     private fun dispatch(module: XposedModule, video: Any?) {
-        // 观察者回调是「播放条目已经就绪」的信号，顺便再探一次当前条目
-        // （注册那一刻 D() 往往还是 null，真机已复现）
         lastService?.let { service ->
             HookProbe.first(module, "directorCurrentVideoOnCallback", 5) {
                 probeInfo(module, service)
@@ -374,10 +388,6 @@ object VideoDirectorListener {
             "videoDirector: FOUND aid=${ids.first} cid=${ids.second} context=$contextHash " +
                 "(dispatch #${dispatchCount.incrementAndGet()})",
         )
-        // 不清 pendingIds:玩家重建(全屏切换/重进)会换新的 Context 实例(contextHash 变了),
-        // 而这里的派发用的是「当时」的 lastContextHash —— 新 context 只能靠 bindPlayer 时的
-        // flushPendingIds 补发。清了它,context 一换 ids 就断链,功能死到下一集
-        // (2026-09-19 真机复现)。重发危害由 deliveredIdsByContext 按账去重兜住。
         deliveredIdsByContext[contextHash] = ids
         sink(contextHash, ids.first, ids.second)
     }
@@ -397,8 +407,6 @@ object VideoDirectorListener {
 
     private class ObserverHandler(private val module: XposedModule) : InvocationHandler {
         override fun invoke(proxy: Any, method: Method, args: Array<out Any>?): Any? {
-            // 这是宿主主动调用的代理对象：任何异常都会顺着宿主的调用栈抛出去（曾把宿主进程崩掉过），
-            // 所以这里整体兜住，绝不向外抛。
             return try {
                 handle(proxy, method, args)
             } catch (t: Throwable) {
@@ -416,26 +424,15 @@ object VideoDirectorListener {
                     else -> null
                 }
             }
-            // E0: a() / b(current, previous) / c(video) / e(video)
             HookProbe.first(module, "directorCallback", 12) {
                 "${method.name}(${describeArgs(args)})"
             }
-            // 只处理第一个实参：`b(current, previous)` 的第二个参数是**上一个**条目，
-            // 若也 dispatch，会把上一集的 aid/cid 覆盖成当前状态（用错视频的片段区间）。
             if (args != null && args.isNotEmpty()) {
                 dispatch(module, args[0])
             }
             return null
         }
 
-        /**
-         * 安全描述实参：**不要用 `joinToString { it -> ... }`**。
-         *
-         * `args` 的元素在 Kotlin 视角是平台类型，但 `joinToString` 的 lambda 参数会被推断为非空类型，
-         * 编译器会在 lambda 入口插 `checkNotNullParameter`；宿主回调里确实会出现 null 实参，
-         * 于是探针自己抛 NPE 把宿主崩掉（真机已复现，见 docs/STATUS.md）。
-         * 这里用数组下标读取（平台类型，无隐式非空检查）+ 显式 null 判断。
-         */
         private fun describeArgs(args: Array<out Any>?): String {
             if (args == null) return ""
             val builder = StringBuilder()

@@ -24,6 +24,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Note: TTL=0 / 过期仍用 lastKnown 决策、unmute 必带 hash — 见 .agents/notes/implemented/bug-fix/2026-03-21-full-audit-fixes.md
+// Note: inFlight 按 bvid 去重、刷新抬 generation — 见 .agents/notes/implemented/bug-fix/2026-03-22-full-audit-round2.md
 class SponsorBlockController(
     private val module: XposedModule,
     private val settings: SettingsSnapshot = SettingsSnapshot.DEFAULT,
@@ -120,6 +121,7 @@ class SponsorBlockController(
             return
         }
         val bvid = AidBvidConverter.aidToBvid(aid)
+        if (bvid.isEmpty()) return
         // duration 在 director onStart 触发时从 core 取(对应 APK so.d 内部经
         // PlayerHookProvider.o(obj) 取 getDuration)。onStart 早于首帧准备的极端情况下
         // getDuration 可能返回 0,后续进度回调会用进度文本 hook 里的 duration 兜底。
@@ -162,19 +164,27 @@ class SponsorBlockController(
         if (repository.getCached(query) != null) {
             return
         }
-        scheduleSegmentFetch(videoKey(state), query, false, "segments fetched aid=$aid")
+        scheduleSegmentFetch(query, false, "segments fetched aid=$aid")
     }
 
-    private fun scheduleSegmentFetch(key: String, query: SponsorBlockQuery, ignoreCache: Boolean, logPrefix: String) {
+    private fun scheduleSegmentFetch(query: SponsorBlockQuery, ignoreCache: Boolean, logPrefix: String) {
+        val key = query.bvid
+        if (!ignoreCache && !inFlight.add(key)) {
+            return
+        }
+        // 刷新必须先抬 generation,再记 inFlight:否则旧任务 finally 仍见旧 gen,会把新任务的 inFlight 清掉。
         val gen = fetchGeneration.merge(key, 1L) { cur, _ -> cur + 1 } ?: 1L
-        inFlight.add(key)
+        if (ignoreCache) inFlight.add(key)
         executor.execute {
             try {
                 if (closed.get()) return@execute
                 val result = repository.fetchAndCache(query, ignoreCache)
                 module.info("$logPrefix video=${query.bvid} cid=${query.cid} status=${result.statusCode} count=${result.segments.size}")
             } finally {
-                if (fetchGeneration[key] == gen) inFlight.remove(key)
+                fetchGeneration.compute(key) { _, cur ->
+                    if (cur == gen) inFlight.remove(key)
+                    cur
+                }
             }
         }
     }
@@ -371,7 +381,7 @@ class SponsorBlockController(
         val state = latestStateByContext[contextHash] ?: return false
         val query = SponsorBlockQuery(state.bvid, state.cid)
         repository.clear(query)
-        scheduleSegmentFetch(videoKey(state), query, ignoreCache = true, "segments refreshed")
+        scheduleSegmentFetch(query, ignoreCache = true, "segments refreshed")
         return true
     }
 
@@ -677,8 +687,8 @@ class SponsorBlockController(
         val fresh = repository.getCached(query)
         val last = repository.getLastKnown(query)
         // TTL>0 且新鲜缓存过期时后台重拉;TTL=0 只在进页/手动刷新拉,避免每 tick 打网。
-        if (fresh == null && last != null && settings.cacheTtlMs > 0 && !inFlight.contains(videoKey(state))) {
-            scheduleSegmentFetch(videoKey(state), query, false, "segments refetch")
+        if (fresh == null && last != null && settings.cacheTtlMs > 0 && !inFlight.contains(query.bvid)) {
+            scheduleSegmentFetch(query, false, "segments refetch")
         }
         val cached = fresh ?: last ?: return null
         val key = videoKey(state)
@@ -754,7 +764,7 @@ class SponsorBlockController(
         if (contextHash == 0) return
         val container = latestContainerByContext[contextHash]
         if (container != null) {
-            AudioMuteController.unmute(module, container, contextHash)
+            AudioMuteController.unmute(module, container, contextHash, keepIfStreamStuck = false)
             ManualSkipButton.hide(module, container)
             SkipCountdownOverlay.cancel(module, container)
         }
@@ -765,9 +775,9 @@ class SponsorBlockController(
     fun onPlayerDestroyed(host: Any) {
         val contextHash = PlayerBridge.contextHash(host)
         if (contextHash != 0) {
-            AudioMuteController.unmute(module, host, contextHash)
+            AudioMuteController.unmute(module, host, contextHash, keepIfStreamStuck = false)
         } else {
-            AudioMuteController.unmute(module, host)
+            AudioMuteController.unmute(module, host, keepIfStreamStuck = false)
         }
         ManualSkipButton.hide(module, host)
         SkipCountdownOverlay.cancel(module, host)
@@ -828,18 +838,9 @@ class SponsorBlockController(
         // 注意:不能直接复制 previous.inFlight —— 那会把 inFlight 防并发永久毒化
         // (旧任务的 finally remove 的是旧集合,新集合里的 key 永远清不掉)。
         for (pendingKey in previous.inFlight) {
-            val bvid = pendingKey.substringBeforeLast(':')
-            val cid = pendingKey.substringAfterLast(':').toLongOrNull() ?: 0L
-            if (repository.getCached(SponsorBlockQuery(bvid, cid)) != null) continue
-            if (!inFlight.add(pendingKey)) continue
-            executor.execute {
-                if (closed.get()) return@execute
-                try {
-                    repository.fetchAndCache(SponsorBlockQuery(bvid, cid))
-                } finally {
-                    inFlight.remove(pendingKey)
-                }
-            }
+            val bvid = pendingKey.substringBefore(':').ifEmpty { pendingKey }
+            if (repository.getCached(SponsorBlockQuery(bvid, 0L)) != null) continue
+            scheduleSegmentFetch(SponsorBlockQuery(bvid, 0L), false, "segments adopted")
         }
     }
 
@@ -849,7 +850,7 @@ class SponsorBlockController(
         // 静音记账与倒计时浮层没有人管 —— STREAM_MUSIC 的静音会跨 App 泄漏,
         // 倒计时到点还会照常 seek + 记统计(模块"已关闭"却仍在改宿主播放器)。
         for ((hash, container) in latestContainerByContext) {
-            AudioMuteController.unmute(module, container, hash)
+            AudioMuteController.unmute(module, container, hash, keepIfStreamStuck = false)
             ManualSkipButton.hide(module, container)
             SkipCountdownOverlay.cancel(module, container)
         }

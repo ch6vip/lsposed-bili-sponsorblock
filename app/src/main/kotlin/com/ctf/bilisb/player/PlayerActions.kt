@@ -15,6 +15,7 @@ import io.github.libxposed.api.XposedModule
  */
 object PlayerActions {
     fun seekTo(module: XposedModule, core: Any, positionMs: Long): Boolean {
+        val clamped = seekPositionToInt(positionMs)
         val smoothMethod = HookResolve.forTarget(
             core,
             HostTargets.SEEK_SMOOTH_METHODS,
@@ -22,7 +23,7 @@ object PlayerActions {
             java.lang.Boolean.TYPE,
         )
         if (smoothMethod != null) {
-            return runCatching { smoothMethod.invoke(core, positionMs.toInt(), true); true }
+            return runCatching { smoothMethod.invoke(core, clamped, true); true }
                 .onFailure { module.info("seekTo(${smoothMethod.name}) failed: ${it.javaClass.name}: ${it.message}") }
                 .getOrDefault(false)
         }
@@ -33,7 +34,7 @@ object PlayerActions {
             Integer.TYPE,
         )
         if (plainMethod != null) {
-            return runCatching { plainMethod.invoke(core, positionMs.toInt()); true }
+            return runCatching { plainMethod.invoke(core, clamped); true }
                 .onFailure { module.info("seekTo(${plainMethod.name}) failed: ${it.javaClass.name}: ${it.message}") }
                 .getOrDefault(false)
         }
@@ -41,6 +42,13 @@ object PlayerActions {
         module.info("seekTo unresolved on ${core.javaClass.name}")
         return false
     }
+
+    /**
+     * seek 位置夹到 Java int 范围。宿主 `o(int,boolean)` / `seekTo(int)` 吃的是 32 位;
+     * 直接 [Long.toInt] 会把超大值折成负数,播放头被拽回片头。
+     */
+    internal fun seekPositionToInt(positionMs: Long): Int =
+        positionMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
     /** 反射 `IPlayerCoreService#getCurrentPosition()`,返回当前播放位置(ms)。 */
     fun currentPositionMs(module: XposedModule, core: Any): Long? {

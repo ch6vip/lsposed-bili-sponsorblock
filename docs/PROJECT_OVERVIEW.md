@@ -29,8 +29,8 @@
 - **现行目标**：`com.bilibili.app.in` 6.5.0。scope、进程过滤、设置镜像路径、Hook 类名全部以它为准。
 - **历史目标（已废弃）**：`tv.danmaku.bili` stock 8.96.0（当前代码的适配线）与
   `Bili-v8.98.0-x1.27.3@bb_show.apk`（行为参考）。两者只作为"行为蓝本"保留，不再作为 Hook 依据。
-- **兼容性结论（静态分析，未经真机）**：6.5.0 与旧适配线的类名**部分保留、部分混淆**，
-  因此不能简单把包名替换掉就完事——详见 APK 分析文档的映射表。
+- **兼容性结论**：6.5.0 与旧适配线的类名部分保留、部分混淆，不能只换包名。
+  主链路已在 6.5.0 真机跑通；映射表见 APK 分析文档，验证结论见 `docs/STATUS.md`。
 
 ## 3. 目录结构与职责
 
@@ -90,7 +90,7 @@ app/src/main/
 └── resources/META-INF/xposed/          模块元数据 module.prop / scope.list / java_init.list
                                            → scope.list 已是 com.bilibili.app.in
 
-app/src/test/kotlin/...                 JUnit 单测（当前 14 个文件 / 126 例）
+app/src/test/kotlin/...                 JUnit 单测（当前 14 个文件 / 127 @Test）
 docs/                                   计划与状态文档
 tools/dexscan/                          目标 APK 静态分析工具
 ```
@@ -125,7 +125,7 @@ SharedPreferences 变更
 
 生效语义：修改后 **重新进入播放页生效**（进入播放页时 reload），无需重启宿主。
 
-### 4.3 视频识别与跳过主链路（已按 6.5.0 实现，待真机验证）
+### 4.3 视频识别与跳过主链路（6.5.0 已实现且真机跑通）
 
 ```
 播放页进入
@@ -150,9 +150,9 @@ SharedPreferences 变更
 
 ### 4.4 播放器销毁
 
-旧目标是 Hook 容器 `be1.j#onDestroy` → 取消静音、隐藏按钮/倒计时、移除 context 引用。
-6.5.0 没有等价容器类，清理路径挂在**旧容器 hook（兜底，6.5.0 不生效）**上；
-新入口的生命周期清理（widget detach / container 释放）需要在真机确认后补齐（ROADMAP M3/M9）。
+旧目标是 Hook 容器 `be1.j#onDestroy`。6.5.0 没有等价容器类，清理挂在
+`PlayerSeekWidget3#onDetachedFromWindow`（M3 已补，真机 `playerTeardown` 命中）。
+旧容器 hook 仅作 8.96 兜底，6.5.0 预期 skip。
 
 ## 5. Hook 点清单（当前代码）
 
@@ -160,7 +160,7 @@ SharedPreferences 变更
 
 | # | 目标 | 方式 | 作用 |
 | --- | --- | --- | --- |
-| 1 | `...seek.v3.PlayerSeekWidget3#bindPlayerContainer(tv.danmaku.biliplayerv2.f)`（6.5.0）<br>兜底：`be1.j#onCreate(Bundle)`（8.96） | after | 取 Context/core、加载设置、绑定 handle、挂提交按钮 |
+| 1 | `...seek.v3.PlayerSeekWidget3#bindPlayerContainer(tv.danmaku.biliplayerv2.f)`（6.5.0）<br>兜底：`be1.j#onCreate(Bundle)`（8.96） | after | 取 Context/core、加载设置、绑定 handle |
 | 2 | `PlayDirectorServiceV3#j0(E0)`（6.5.0）<br>兜底：`be1.j#onStart()` + `addVideoDirectorObserver`（8.96） | after | 拿 director 服务并注册 `E0` 代理 → aid/cid |
 | 3 | `be1.j#onDestroy()`（仅 8.96 存在） | after | 清理 context 引用、取消静音 |
 | 4 | `playerbizcommonv2...PlayerProgressTextWidget#G(int,int)` 等候选 | after | 触发跳过/静音决策 |
@@ -170,7 +170,7 @@ SharedPreferences 变更
 | 10 | `playerbizcommonv2.widget.seek.v3.g#draw(Canvas)`（首选；`f`/`q`/`e` 兜底，`a` 排除） | after | 进度条标记 |
 | 11 | `tv.danmaku.bili.ui.main2.mine.d#notifyDataSetChanged()`（经 RecyclerView 基类） | before | 注入 Bili2233 菜单项 |
 | 12 | `tv.danmaku.bili.ui.main2.mine.d#onBindViewHolder(ViewHolder,int)` | after | 给注入项绑点击 |
-| 13 | `blrouter.Router` / `BLRouter` / `IntentHandlerActivity` | before(highest) | 拦截 `bilisb://settings`（6.5.0 预期 MISS，M8 待重定位） |
+| 13 | `blrouter.Router` / `BLRouter` / `IntentHandlerActivity` | before(highest) | 拦截 `bilisb://settings`（6.5.0 非必需；入口点击由注入项 OnClickListener 兜底，M8 不再投入） |
 | 14 | `tv.danmaku.biliplayerv2.service.E0` 接口 | 动态代理 | 接收 `Video$e` 并解析 aid/cid |
 
 > 所有 hook 都用 `ExceptionMode.PROTECTIVE`，失败只记日志、不崩宿主。
@@ -193,7 +193,7 @@ SharedPreferences 变更
 | show_toast | bool | true | 跳过 Toast |
 | show_seekbar_marker | bool | true | 进度条标记 |
 | show_time_deduction | bool | true | 剩余时长扣减 |
-| show_submit_button | bool | true | 播放器内标记按钮 |
+| show_submit_button | bool | true | 历史键；播放器内悬浮提交按钮已移除，提交改由「空降助手」面板承载 |
 | color_<category> | string hex | 见内置配色 | 各分类标记颜色 |
 | enhance_ip_location 等 6 项 | bool | false | B 站增强开关(见 README「设置项·B 站增强」) |
 
@@ -204,48 +204,42 @@ music_offtopic / filler / poi_highlight
 
 ## 7. 功能状态
 
-> 判定口径：**旧目标（tv.danmaku.bili 8.96）上的真机结论，不能直接当作 6.5.0 的结论。**
+> 判定口径：以 `docs/STATUS.md` 的 6.5.0 真机结论为准。旧目标（tv.danmaku.bili 8.96）只作行为蓝本。
 
-### 已在旧目标上验证过（历史记录，供迁移参考）
+### 6.5.0 已验证（2026-09-14 / 09-21）
 
-- 主进程识别与子进程跳过（旧包名）
-- 菜单注入、设置弹窗、跨进程设置同步、统计、提交链路
-- aid/cid 获取、BV→SHA-256→前缀、`/api/skipSegments`、命中后 seekTo
-- 进度条标记与 Toast
+- 主进程识别与子进程跳过、设置 IPC/镜像、播放器绑定、进度 `G(int,int)`、aid/cid、拉片段、自动跳过
+- 进度条标记、Toast、「我的」页入口、播放器「空降助手」面板
+- B 站增强四件套 **安装命中**（`hook summary: 33/38 hit`）；分享 QQ 历史真机通过；IP 属地 REST `mobi_app` 改写已触发
 
-### 6.5.0 目标上的状态
+### 6.5.0 未验证 / 部分验证
 
-- **全部为「未验证」**：尚未在 6.5.0 真机/模拟器上跑过任何一次 Hook。
-- 静态分析已确认：进度文本三类的 `setText`、core 的 `getDuration`/`getCurrentPosition`、
-  `MenuGroup`/`MenuGroup$Item` 字段、blrouter 框架、`IntentHandlerActivity` **仍然可用**。
-- 静态分析已确认失效：容器 `be1.j` 生命周期、`onPlayerProgressChange`、
-  `VideoDirectorObserver`/`addVideoDirectorObserver`/`getLogDescription`、`seek.v3.q/e#draw`、
-  `HomeUserCenterAdapter` 类名、`blrouter.Router`/`BLRouter` 类名。
+- 小窗、切集、番剧/OGV、深色模式、切账号
+- 增强组屏幕效果：评论 loc 文案、三连/气泡/投票 UI、首页切后台是否真不刷新
 
-### 明确未做
+### 明确未做 / 明确不再投入
 
 - unskip / undo（行为蓝本 APK 该构建无此功能）
 - mute core 原生音量方法（改用系统 AudioManager 代替）
 - 完整设置体验对齐（分类选择、手动时间编辑、预览确认）
+- 首页顶栏消息入口 / 底栏删「消息」tab / 底栏删「我的」tab（HomeTabHooks，2026-09-19 按需求移除）
+- 片段静音真机回归、提交落库与 POST body 降级（2026-09-21 本轮明确不做）
 
 ## 8. 已知问题与技术债
 
 ### 高
 
-1. **全部 Hook 类名硬编码且已过时**：迁移到 6.5.0 必须逐条改；建议同时引入
-   「Hook 命中情况」状态面板（哪条 hook 装上/缺失），避免改版后静默失效。
-2. **aid/cid 链路在 6.5.0 需重建**：`service.E0` / `service.A#j0` 已定位，但字段语义未证实，
-   这是整条业务链的前置条件（blocker）。
+1. **增强 hook 类名未进 `HostTargets`**：IP 属地 / 三连 / 首页刷新 / 分享 QQ 的候选散落在各文件，改版成本高于主链路。
+2. **IP 属地多路径部分 miss**：6.5.0 上 `ip.kmpHeaderValue` / `ip.mossScope` / `ip.identityProvider` / `ip.restInterceptor` / `ip.restParams` 未挂上；现行活体是 REST 空间参数改写 + gRPC 头写入安装命中。评论区 loc 文案未截图复核。
 
 ### 中
 
 3. 设置 Prefs / JSON / Bundle 三套 Codec 手写重复（R1），加字段要改多处。
-4. Provider exported=true，仅靠 isAllowedCaller 校验；putSettings 接收整段 JSON 且无字段级校验（R2）。
-5. 播放中设置不即时生效（需重进播放页），属已知取舍。
+4. Provider exported=true，仅靠 isAllowedCaller 校验（R2）。模块进程未启动时 IPC `Unknown authority`，宿主走 JSON 镜像兜底。
+5. 播放中 SponsorBlock 设置需重进播放页生效（已知取舍）；增强开关走 `EnhanceFlags` TTL 10s，可热生效。
 6. 网络/提交失败对用户不可见（R8/T5）：`SponsorBlockClient` 会返回 statusCode=-1，但调用方只写日志。
 7. 多处反射在每个调用点重复 `getDeclaredMethod`，可缓存 Method。
-8. `MineMenuInjector` 依赖 `RecyclerView.Adapter#notifyDataSetChanged` 全局方法 + 类名过滤，
-   hook 面偏大；6.5.0 建议改挂 adapter 自己的 `onBindViewHolder`。
+8. `MineMenuInjector` 依赖 `RecyclerView.Adapter#notifyDataSetChanged` 全局方法 + 类名过滤，hook 面偏大。
 
 ## 9. 迁移顺序
 
