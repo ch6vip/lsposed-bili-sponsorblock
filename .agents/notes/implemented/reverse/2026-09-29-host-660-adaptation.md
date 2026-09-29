@@ -69,13 +69,27 @@ Date: 2026-09-29
 - `hook/IpLocationHooks.kt`：+xr1.g / +xr1.k 类型提示。
 - 版本 0.7.0 / versionCode 10（build.gradle.kts + module.prop）。
 
-## 验证状态（2026-09-29）
+## 验证状态（2026-09-29，两轮）
 
-- 单测 133/133 绿；assembleRelease/assembleDebug 产出。
-- 真机（6.6.0，JJHAV8BENRPNBICM）安装期探针 32/37 + 2 延迟 MISS，与 6.5.0 基线 33/38
-  逐键对账等价（+cleartextPolicy 新 OK、−Gemini k0 与 −seekTrack:f 为宿主侧消失，
-  见 STATUS.md 6.6.0 小节）；主链路 0 MISS；`directorService#l0`/`bindPlayerContainer`/
-  `progressInt#J`/`morePanelRefresh#e0`/`grpcBinHeaderWrite` 全部 OK。
-- 运行时功能回归：受宿主自身问题阻塞——6.6.0 详情页/搜索页黑屏 + 输入 ANR（主线程与
-  RenderThread 均空闲），**模块 pm disable-user 禁用 + 冷启动对照复现同样黑屏，确认与模块无关**。
-  宿主侧修复后按 DEVICE_PROBE.md 补跑；回归样本 BV14NDfYGEBE 已选定。
+**第一轮（0.7.0 首版）**：单测 133/133 绿；真机安装期探针 32/37 + 2 延迟 MISS，与 6.5.0 基线
+33/38 逐键对账等价（+cleartextPolicy 新 OK、−Gemini k0 与 −seekTrack:f 为宿主侧消失），
+主链路 0 MISS。但**运行时详情页/搜索页黑屏 + 输入 ANR**。
+
+**根因（当晚定位，是模块自己的回归）**：第二轮审查把 `registerDirectorService` 的弱表
+`registeredHosts.add`（先登记后 invoke）改成 `observersByService` map 时，把去重挪到了
+`addMethod.invoke` 之后——而 invoke 的正是我们挂着 after 回调的 `l0` 本身（LSPosed 对反射
+调用同样生效）→ 回调重入 → 去重不生效 → 无限重入。6.6.0 的 `StatisticsService.onStart`
+在 `UnitedBizDetailsActivity.onCreate` **主线程内**同步注册 → 卡死 → 黑屏。6.5.0 上同样的坑
+只因注册路径不在主线程而未爆发。定位证据：MIUIScout 栈（`StatisticsService.onStart →
+l0 → hook chain → registerDirectorService:178`）+ 模块日志无任何 director 完成记录。
+
+**排查方法论教训（重要）**：`pm disable-user` 模块**不能**用作对照——LSPosed 读自己的
+模块库注入，不看宿主侧包启用状态，hook 照常装载（模块日志在"禁用"窗口仍有 install
+summary）。本轮一度据此误判为"宿主自身问题"，后被 MIUIScout 的主线程栈推翻。
+真机黑屏排查的正确姿势：先看 LSPosed 模块日志有没有「本该完成却没有完成记录」的路径，
+再用 MIUIScout/ANR trace 的**我们代码所在帧**对照模块源码行号。
+
+**修复**：登记提前到 invoke 之前 + 失败回滚（含注释说明重入链路）。
+修复版真机复验：详情页正常渲染；`directorCallback b/c/e` 带 `Video$e` 实参；
+`idsPrimary` aid/cid 提取正常；样本 `BV14NDfYGEBE` `segments fetched status=200 count=6`；
+`seekTrackCalled`（v3.g draw）正常。自动跳过 Toast/面板入口等观看级回归待手机空闲补跑。

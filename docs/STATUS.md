@@ -53,16 +53,23 @@ IP 属地主改写           <- ip.commonHeadersScope(header.b#b) + ip.grpcBinHe
                           （xr1.g/xr1.k 新提示就位；kr1.a/up1.a 形状不匹配按设计跳过）
 ```
 
-**运行时功能回归：受宿主自身问题阻塞，尚未完成。** 实测 6.6.0 宿主在本机上
-「视频详情页（UnitedBizDetailsActivity）与搜索页黑屏 + 输入 ANR」：
-主线程与 RenderThread 在 ANR trace 里均为空闲（等消息），无崩溃，logcat 无 FATAL；
-主页/推荐流渲染与交互正常。**模块 `pm disable-user` 禁用 + 冷启动后的对照实验复现同样的黑屏
-（状态栏可见、屏幕常亮、`topResumedActivity` 仍是 UnitedBizDetailsActivity），
-已确认与模块无关**，属宿主/设备侧问题（候选怀疑：6.5.0→6.6.0 覆盖升级后的这些
-theseus 页云配置/缓存失效、登录态或动态组件未就绪；建议宿主侧修复后重跑）。
-功能回归样本已备：bsbsb.top 数据源可用（热门榜 245 个视频带 skip 片段），
-选定 `BV14NDfYGEBE`（6 个 skip 片段：interaction/sponsor 多分类）作为回归样本；
-宿主恢复后按 DEVICE_PROBE.md 关键字 3-10 逐条补跑即可。
+**运行时回归（2026-09-29 下午，修复后复验）**：0.7.0 首版在 6.6.0 上「详情页/搜索页黑屏 + 输入 ANR」
+**是模块自己的回归，不是宿主问题**。根因：第二轮审查把 `VideoDirectorListener` 的弱表
+（`registeredHosts.add`，先登记后 invoke）改成 `observersByService` map 时，把去重点挪到了
+`addMethod.invoke` **之后**——invoke 的是我们挂着 after 回调的 `l0` 本身（LSPosed 对反射调用同样生效），
+回调重入 `registerDirectorService` 时去重不生效 → 无限重入卡死主线程。6.5.0 上同样的坑
+只是注册路径不在主线程、未爆发。真机 MIUIScout 栈（`StatisticsService.onStart → l0 →
+hook chain → registerDirectorService:178 invoke`）+ 模块日志「无任何 director 完成记录」定位。
+另：排查中用 `pm disable-user` 做的「模块禁用对照」**全部无效**——LSPosed 读自己的模块库，
+不看宿主侧包启用状态，hook 照常注入（模块日志 09:43:50 仍有 install summary）。
+
+修复：登记提前到 invoke 之前 + 失败回滚（`VideoDirectorListener.registerDirectorService`）。
+修复版真机复验：详情页正常渲染；`directorCallback b/c/e` 回调带 `Video$e` 实参；
+`idsPrimary aid/cid` 提取正常；样本视频 `BV14NDfYGEBE`（6 个 skip 片段）
+`segments fetched status=200 count=6`；`seekTrackCalled`（v3.g draw）正常触发。
+
+待补（手机被取用前未跑完）：自动跳过 Toast/剩余时长扣减的实际观看验证、
+「⋯」面板行与「我的」页入口点击、增强四件套运行时回调截图复核。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 

@@ -160,9 +160,12 @@ M classes25  Lkntr/base/moss/ignet/impl/header/b;  b(Lkntr/base/moss/MossInterce
    主链路 0 MISS；详见 STATUS.md「6.6.0 真机验证」。
 2. ~~`bilisb://settings` 在 6.6.0 是否仍能经 IntentHandlerActivity 打开~~：`uriRouter <- 2 methods`
    安装命中（IntentHandlerActivity 在 classes28）；运行时拦截待详情页恢复后复验（直绑是主路径）。
-3. `l0` 注册的 F0 代理能否真收到 b/c/e 回调（即 6.6.0 的视频切换仍经 PlayDirectorServiceV3 派发）
-   —— 待宿主详情页恢复后补验（当前宿主详情页黑屏为宿主侧问题，模块禁用对照已确认）。
+3. ~~`l0` 注册的 F0 代理能否真收到 b/c/e 回调~~：**已确认（2026-09-29 修复后）**——
+   `directorCallback b/c/e` 携带 `Video$e` 实参、`idsPrimary` 提取 aid/cid 正常。
+   0.7.0 首版的详情页黑屏是**模块自身回归**（`registerDirectorService` 去重挪到 invoke 之后
+   丢失重入保护 → 回调经反射 invoke 无限重入卡死主线程；`pm disable-user` 不卸 LSPosed hook，
+   当时的"禁用对照"无效），修复为「先登记再 invoke + 失败回滚」，真机复验通过。
 4. MenuService → `doMorePlayerSetting` → gemini.ui.f 面板链路是否漂移（§2 未列，索引未见异常）
-   —— 待详情页恢复后补验。
+   —— 待补运行时点击验证。
 5. seek.v3.g 的 draw(Canvas)、XA0.a、PegasusViewModel 等增强 hook 的运行时命中情况
-   —— 安装期全 OK；运行时回调待详情页恢复后补验。
+   —— 安装期全 OK；`seekTrackCalled`（v3.g draw）运行时已确认触发；其余待补观看级复核。
