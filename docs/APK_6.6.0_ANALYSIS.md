@@ -163,8 +163,12 @@ M classes25  Lkntr/base/moss/ignet/impl/header/b;  b(Lkntr/base/moss/MossInterce
    0.7.0 首版的详情页黑屏是**模块自身回归**（`registerDirectorService` 去重挪到 invoke 之后
    丢失重入保护 → 回调经反射 invoke 无限重入卡死主线程；`pm disable-user` 不卸 LSPosed hook，
    "禁用对照"无效），修复为「先登记再 invoke + 失败回滚」。
-4. ~~MenuService → gemini.ui.f 面板链路~~：**已确认**——`morePanelRefresh#e0` 命中，
-   `morePanelItems size=18 → morePanelInjected size=19`，0 条渲染错误（行在列表末尾，滚动可见）。
+4. ~~MenuService → gemini.ui.f 面板链路~~：**已确认（含一次闪退修复）**——`morePanelRefresh#e0` 命中，
+   `morePanelItems size=18 → morePanelInjected size=19`。首版滚动到行绑定时宿主 NPE 闪退：
+   **6.6.0 把条目接口 `i` 的构建/绑定方法改名换位**（构建 `b(Context,ViewGroup)→c`、
+   绑定 `e(i$b,cont)→b`），代理按 6.5.0 名字分发漏接构建调用。修复为按**签名**分发
+   （`(Context,ViewGroup)` 2 参即构建、其余 2 参即绑定）且构建分支永不返回 null；
+   修复后行渲染正常、点击打开自研面板、宿主存活（2026-09-29 截图+pid 实证）。
 5. ~~seek.v3.g draw / 增强运行时~~：**部分修正**——`g#draw` 仅在布局/seek 时爆发（播放中不逐帧），
    彩色标记仍由它绘制（截图确认）；**6.6.0 进度喂入改由模块自持 500ms 轮询 core**（见 §2 表
    进度回调行与 STATUS.md 6.6.0 小节），三个文本控件在该版本不实例化（J/g0 零回调）。
