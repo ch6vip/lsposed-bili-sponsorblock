@@ -101,6 +101,22 @@ object HostTargets {
     val GET_DURATION_METHODS = listOf("getDuration", "getRealDuration")
     val GET_POSITION_METHODS = listOf("getCurrentPosition")
 
+    // ---------------------------------------------------------------- 进度 tick（6.6.0）
+
+    /**
+     * 6.6.0 的进度 tick 源：文本进度控件不再参与播放（真机实测三个
+     * PlayerProgressTextWidget 均不实例化，J/g0 不回调；seek bar 播放期间也不逐帧走
+     * `g#draw`）。tick 由 SeekService(D0) 的派发器执行——`D0$c.run`（字节码实证：
+     * `D0.i(core).getDuration()/getCurrentPosition() → 遍历监听器 → s0#J(pos,dur)`）。
+     *
+     * 实现：hook 派发器的 `run()`，after 里用已绑定 handle 的 core 读 pos/dur 喂控制器
+     * （不往宿主监听器列表里塞代理——D0 上 d/e 两个 WI1.h 持有者同名同形无法区分，
+     * 注册错列表会静默无效）。6.5.0 无此类（SeekService 是 C0，tick 类名不同），
+     * 走文本控件回调旧路径，miss 探针仅记录。
+     */
+    val SEEK_TICK_DISPATCHER_CLASSES = listOf("tv.danmaku.biliplayerv2.service.D0\$c")
+    val SEEK_TICK_RUN_METHOD = "run"
+
     // ---------------------------------------------------------------- 视频信息（aid/cid）
 
     /** 6.5.0 的 director 服务实现类（类名未被混淆）。 */

@@ -12,6 +12,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
 import com.ctf.bilisb.host.HookProbe
 import com.ctf.bilisb.host.HookResolve
 import com.ctf.bilisb.host.HostTargets
+import com.ctf.bilisb.player.PlayerActions
 import com.ctf.bilisb.player.PlayerBridge
 import com.ctf.bilisb.player.PlayerHandle
 import com.ctf.bilisb.player.VideoDirectorListener
@@ -32,6 +33,7 @@ import com.ctf.bilisb.ui.RemainingTimeFormatter
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
 import java.lang.reflect.Method
+import java.lang.reflect.Proxy
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
@@ -51,6 +53,10 @@ import java.util.concurrent.ConcurrentHashMap
 object BiliSponsorBlockHooks {
     private val installed = ConcurrentHashMap.newKeySet<String>()
 
+    /** 安装时持有，供模块自持线程（进度轮询）打日志/读 core 用。 */
+    @Volatile
+    private var moduleRef: XposedModule? = null
+
     // 这两个字段被多个线程读（进度回调线程 / draw 线程 / 容器绑定线程），必须 @Volatile，
     // 否则设置改动或 controller 重建后，其它线程可能长时间读到旧值。
     @Volatile
@@ -66,6 +72,7 @@ object BiliSponsorBlockHooks {
         }
 
         val cl = param.defaultClassLoader
+        moduleRef = module
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
 
         // aid/cid 消费方：观察者回调 -> controller
@@ -438,6 +445,64 @@ object BiliSponsorBlockHooks {
         completeBind(module, pending.contextHash, pending.container, pending.host, core)
     }
 
+    /**
+     * 进度轮询（6.6.0 主喂入源）：真机实测该版本的播放进度既不走文本控件回调
+     * （控件不实例化）、不逐帧走 `g#draw`（仅布局/seek 爆发）、`D0$c.run` 也只在 seek 后
+     * 打一炮——没有可依赖的宿主 tick。改为自持 500ms 轮询已绑定 handle 的 core
+     * （getCurrentPosition/getDuration 是 6.5.0/6.6.0 稳定真名），等价 6.5.0 的 tick 语义。
+     * handle 被清理（coreForContext 返回 null）时轮询自停。
+     */
+    private val progressPoller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "Bili2233-progress-poll").apply { isDaemon = true }
+    }
+    private val pollerFutures = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.ScheduledFuture<*>>()
+
+    private fun startProgressPoller(contextHash: Int) {
+        if (pollerFutures.containsKey(contextHash)) return
+        val future = progressPoller.scheduleWithFixedDelay(
+            {
+                try {
+                    val controller = sponsorBlockController ?: return@scheduleWithFixedDelay
+                    val core = controller.coreForContext(contextHash)
+                    if (core == null) {
+                        pollerFutures.remove(contextHash)?.cancel(false)
+                        return@scheduleWithFixedDelay
+                    }
+                    val m = moduleRef ?: return@scheduleWithFixedDelay
+                    val pos = PlayerActions.currentPositionMs(m, core)
+                    val dur = PlayerActions.durationMs(m, core)
+                    if (pos == null || dur == null) return@scheduleWithFixedDelay
+                    feedTickProgress(m, contextHash, pos, dur)
+                } catch (t: Throwable) {
+                    // 轮询线程绝不外抛：异常会静默杀死周期任务
+                }
+            },
+            500, 500, java.util.concurrent.TimeUnit.MILLISECONDS,
+        )
+        pollerFutures[contextHash] = future
+    }
+
+    /** tick 喂入：bind 已完成，直接走进度决策链（与 hookProgressCallback 尾部同口径）。 */
+    private fun feedTickProgress(module: XposedModule, contextHash: Int, positionMs: Long, durationMs: Long) {
+        // 心跳：每 50 次 tick 打一条，证明派发器钩子真的在被调用（跳过不触发时先看这里）
+        tickCounter.incrementAndGet().let { n ->
+            if (n % 50L == 1L) {
+                module.info("seekTick feed #$n pos=$positionMs dur=$durationMs hash=$contextHash")
+            }
+        }
+        if (durationMs <= 0 || positionMs < 0 || positionMs > durationMs + 1000) {
+            HookProbe.first(module, "progressArgsRejected:seekTick", 3) {
+                "pos=$positionMs dur=$durationMs"
+            }
+            return
+        }
+        cancelDeferredTeardown(module, contextHash)
+        if (sponsorBlockController?.latestStateExists(contextHash) != true) return
+        sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
+    }
+
+    private val tickCounter = java.util.concurrent.atomic.AtomicLong(0)
+
     private fun completeBind(
         module: XposedModule,
         contextHash: Int,
@@ -457,6 +522,9 @@ object BiliSponsorBlockHooks {
         lastBoundContextHash = contextHash
 
         module.info("player bound context=$contextHash host=${host.javaClass.name} core=${core.javaClass.name}")
+
+        // 6.6.0 主喂入源：自持 500ms 轮询（见 startProgressPoller 注释）
+        startProgressPoller(contextHash)
     }
 
     /**
@@ -795,6 +863,85 @@ object BiliSponsorBlockHooks {
     // 防止 setText 递归的标志
     private val isAdjusting = ThreadLocal.withInitial { false }
 
+    /** seek draw 喂入次数（心跳探针用）。 */
+    private val feedCounter = java.util.concurrent.atomic.AtomicLong(0)
+
+    /**
+     * 6.6.0 进度喂入（见 hookProgressDrawable 内注释）：从活着的 seek bar draw 回调读 core
+     * 的 position/duration 喂控制器，复用 6.5.0 进度回调的完整路径（补绑/撤销清理/重建状态）。
+     * 顺带做一次时间文本控件探针：6.6.0 的时间显示不在三个 PlayerProgressTextWidget 上，
+     * 在 seek widget 的视图层级里找出真正的 TextView（类名进探针，供后续扣减显示 hook 用）。
+     */
+    private fun feedProgressFromSeekDraw(module: XposedModule, target: Any, className: String) {
+        val core = PlayerBridge.coreService(target) ?: return
+        val positionMs = PlayerActions.currentPositionMs(module, core) ?: return
+        val durationMs = PlayerActions.durationMs(module, core) ?: return
+
+        // 心跳：每 200 次喂入打一条（播放中约每数秒一条），证明喂入链活着并给出
+        // pos/dur 与 controller 侧 state/handle 的存在性——跳过不触发时先看这里。
+        feedCounter.incrementAndGet().let { n ->
+            if (n % 200 == 1L) {
+                val hash = contextHash(target)
+                module.info(
+                    "seekDraw feed alive #$n cls=${target.javaClass.simpleName} " +
+                        "pos=$positionMs dur=$durationMs hash=$hash " +
+                        "state=${sponsorBlockController?.latestStateExists(hash)} " +
+                        "handle=${sponsorBlockController?.hasHandle(hash)}",
+                )
+            }
+        }
+
+        HookProbe.first(module, "progressCallbackArgs", 10) {
+            "seekDraw($className) pos=$positionMs dur=$durationMs"
+        }
+
+        // 参数合理性校验口径与 hookProgressCallback 一致
+        if (durationMs <= 0 || positionMs < 0 || positionMs > durationMs + 1000) {
+            HookProbe.first(module, "progressArgsRejected:seekDraw:$className", 3) {
+                "pos=$positionMs dur=$durationMs"
+            }
+            return
+        }
+
+        ensureDeferredBind(module, target)
+        val contextHash = contextHash(target)
+        if (contextHash == 0) {
+            HookProbe.first(module, "progressNoContext:seekDraw:$className", 3) { target.javaClass.name }
+            return
+        }
+        cancelDeferredTeardown(module, contextHash)
+        if (sponsorBlockController?.latestStateExists(contextHash) != true) {
+            ensureRebindAfterTeardown(module, target, contextHash)
+        }
+        sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
+
+        probeTimeTextInside(module, target)
+    }
+
+    /** 限时探针：在 seek widget 层级里找显示「mm:ss / mm:ss」的 TextView，记下类名。 */
+    private fun probeTimeTextInside(module: XposedModule, target: Any) {
+        HookProbe.first(module, "seekTimeTextProbe", 3) {
+            val root = target as? android.view.View ?: return@first "target not a View"
+            val found = StringBuilder()
+            fun walk(view: android.view.View) {
+                if (found.length > 220) return
+                if (view is android.widget.TextView) {
+                    val t = view.text?.toString()?.trim().orEmpty()
+                    if (Regex("^\\d{1,2}:\\d{2}\\s*/\\s*\\d{1,2}:\\d{2}$").matches(t) ||
+                        Regex("^\\d{1,2}:\\d{2}$").matches(t)
+                    ) {
+                        found.append(view.javaClass.name).append("=\"").append(t).append("\"; ")
+                    }
+                }
+                if (view is android.view.ViewGroup) {
+                    for (i in 0 until view.childCount) walk(view.getChildAt(i))
+                }
+            }
+            walk(root)
+            if (found.isEmpty()) "no time text in ${root.javaClass.simpleName} subtree" else found.toString()
+        }
+    }
+
     private fun hookProgressTextViewSetText(module: XposedModule, method: Method, className: String) {
         module.hook(method)
             .setPriority(XposedInterface.PRIORITY_DEFAULT)
@@ -916,6 +1063,14 @@ object BiliSponsorBlockHooks {
 
             hookAfter(module, method, "seekTrack:$className") { chain ->
                 val target = chain.getThisObject() ?: return@hookAfter
+
+                // 6.6.0 进度喂入：文本进度控件不再参与播放（真机实测只有 PlayerSeekWidget3
+                // 绑定容器，三个 PlayerProgressTextWidget 的 J/g0 均不回调——派发改走
+                // service.s0#J，由 SeekService 的 ticker 发给注册过的监听器，我们的控件不在册）。
+                // draw 只在进度变化触发重绘时执行（频率≈宿主 tick），在这里读 core 喂控制器；
+                // 控件不可见不画 → 不喂，此时也无跳过需求。必须放在标记开关判定之前：
+                // 关掉标记只是不画，跳过仍要吃进度。
+                feedProgressFromSeekDraw(module, target, className)
 
                 // 探针开关判定必须放在探针**之前**:draw 回调每帧都来,用户关掉标记后
                 // 探针日志照样每帧打(即使有限频)纯属浪费。

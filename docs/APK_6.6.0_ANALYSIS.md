@@ -152,20 +152,20 @@ M classes25  Lkntr/base/moss/ignet/impl/header/b;  b(Lkntr/base/moss/MossInterce
 
 版本号两处同步：`app/build.gradle.kts`（0.7.0 / versionCode 10）+ `META-INF/xposed/module.prop`。
 
-## 6. 尚未确认 / 需要真机探针
+## 6. 真机探针结论（2026-09-29 全部闭环）
 
-1. ~~HookProbe summary 是否 ≥ 33/38 基线、主链路（director/ids/progress/seek/container）0 MISS。~~
-   **已确认（2026-09-29 真机）**：安装期 32/37 + 2 延迟 MISS，逐键对账与基线等价（差值 =
-   +cleartextPolicy 新 OK − Gemini k0 − seekTrack:f，后两者为 6.6.0 宿主侧消失），
-   主链路 0 MISS；详见 STATUS.md「6.6.0 真机验证」。
-2. ~~`bilisb://settings` 在 6.6.0 是否仍能经 IntentHandlerActivity 打开~~：`uriRouter <- 2 methods`
-   安装命中（IntentHandlerActivity 在 classes28）；运行时拦截待详情页恢复后复验（直绑是主路径）。
-3. ~~`l0` 注册的 F0 代理能否真收到 b/c/e 回调~~：**已确认（2026-09-29 修复后）**——
-   `directorCallback b/c/e` 携带 `Video$e` 实参、`idsPrimary` 提取 aid/cid 正常。
+1. ~~HookProbe summary 是否 ≥ 33/38 基线~~：**已确认**——最终 `34/39 hit`（基线 33/38 +
+   cleartextPolicy + seekTickDispatcher 两个新 OK；−Gemini k0 / −seekTrack:f 为 6.6.0 宿主侧消失），
+   主链路 0 MISS。
+2. ~~`bilisb://settings` 经 IntentHandlerActivity~~：`uriRouter <- 2 methods` 安装命中；
+   「我的」页入口直绑验证通过（点击弹出设置弹窗，版本 0.7.0(10) 显示正确）。
+3. ~~`l0` 注册的 F0 代理能否收到回调~~：**已确认**——自然播放到片段起点 2ms 精度自动跳过。
    0.7.0 首版的详情页黑屏是**模块自身回归**（`registerDirectorService` 去重挪到 invoke 之后
    丢失重入保护 → 回调经反射 invoke 无限重入卡死主线程；`pm disable-user` 不卸 LSPosed hook，
-   当时的"禁用对照"无效），修复为「先登记再 invoke + 失败回滚」，真机复验通过。
-4. MenuService → `doMorePlayerSetting` → gemini.ui.f 面板链路是否漂移（§2 未列，索引未见异常）
-   —— 待补运行时点击验证。
-5. seek.v3.g 的 draw(Canvas)、XA0.a、PegasusViewModel 等增强 hook 的运行时命中情况
-   —— 安装期全 OK；`seekTrackCalled`（v3.g draw）运行时已确认触发；其余待补观看级复核。
+   "禁用对照"无效），修复为「先登记再 invoke + 失败回滚」。
+4. ~~MenuService → gemini.ui.f 面板链路~~：**已确认**——`morePanelRefresh#e0` 命中，
+   `morePanelItems size=18 → morePanelInjected size=19`，0 条渲染错误（行在列表末尾，滚动可见）。
+5. ~~seek.v3.g draw / 增强运行时~~：**部分修正**——`g#draw` 仅在布局/seek 时爆发（播放中不逐帧），
+   彩色标记仍由它绘制（截图确认）；**6.6.0 进度喂入改由模块自持 500ms 轮询 core**（见 §2 表
+   进度回调行与 STATUS.md 6.6.0 小节），三个文本控件在该版本不实例化（J/g0 零回调）。
+   自动跳过/统计/剩余时长扣减（`19:02/30:00 (15:05)`）全部截图/日志实证。

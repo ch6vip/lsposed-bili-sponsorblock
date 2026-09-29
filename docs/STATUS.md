@@ -4,11 +4,14 @@
 > （6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；6.6.0 真机拉取，分析见 `docs/APK_6.6.0_ANALYSIS.md`）。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：0.7.0（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 10）——**双版本兼容候选表；6.5.0 主链路真机跑通，6.6.0 安装期探针全对账（见下）**
+模块版本：0.7.0（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 10）——**6.5.0/6.6.0 双版本主链路均真机跑通（2026-09-29）**
 
 最近变更（0.7.0）：6.6.0 适配——观察者注册 `j0(E0)`→`l0(F0)`、当前视频 `D()`→`F()`、容器 `f`→`h`、
-int 进度回调 `G`→`J`、long 回调 `j0`→`g0`、更多面板 `f0`→`e0`、moss 描述符 `kr1.*`→`xr1.*`；
-观察者接口改为「能解析出注册方法的接口即正身」（E0/F0 跨版本撞名）。
+int 进度回调 `G`→`J`（但 6.6.0 文本控件不实例化，进度改由模块自持 500ms 轮询 core 喂入）、
+long 回调 `j0`→`g0`、更多面板 `f0`→`e0`、moss 描述符 `kr1.*`→`xr1.*`；
+观察者接口改为「能解析出注册方法的接口即正身」（E0/F0 跨版本撞名）；
+修复审查引入的 `registerDirectorService` 重入回归（6.6.0 详情页黑屏）；
+冷启动拉片段失败按 30s 冷却重拉。
 第二轮全量审查修复（明文策略/NSC、TTL、unmute、去重等）已先行为基线 commit。
 
 「B 站增强」现行四件套（移植自 BiliTamer,MIT，**6 个开关全部默认关闭**，控制中心「B 站增强」页按需开启）：
@@ -53,7 +56,7 @@ IP 属地主改写           <- ip.commonHeadersScope(header.b#b) + ip.grpcBinHe
                           （xr1.g/xr1.k 新提示就位；kr1.a/up1.a 形状不匹配按设计跳过）
 ```
 
-**运行时回归（2026-09-29 下午，修复后复验）**：0.7.0 首版在 6.6.0 上「详情页/搜索页黑屏 + 输入 ANR」
+**运行时回归（2026-09-29 下午～傍晚，全部通过）**：0.7.0 首版在 6.6.0 上「详情页/搜索页黑屏 + 输入 ANR」
 **是模块自己的回归，不是宿主问题**。根因：第二轮审查把 `VideoDirectorListener` 的弱表
 （`registeredHosts.add`，先登记后 invoke）改成 `observersByService` map 时，把去重点挪到了
 `addMethod.invoke` **之后**——invoke 的是我们挂着 after 回调的 `l0` 本身（LSPosed 对反射调用同样生效），
@@ -64,12 +67,33 @@ hook chain → registerDirectorService:178 invoke`）+ 模块日志「无任何 
 不看宿主侧包启用状态，hook 照常注入（模块日志 09:43:50 仍有 install summary）。
 
 修复：登记提前到 invoke 之前 + 失败回滚（`VideoDirectorListener.registerDirectorService`）。
-修复版真机复验：详情页正常渲染；`directorCallback b/c/e` 回调带 `Video$e` 实参；
-`idsPrimary aid/cid` 提取正常；样本视频 `BV14NDfYGEBE`（6 个 skip 片段）
-`segments fetched status=200 count=6`；`seekTrackCalled`（v3.g draw）正常触发。
 
-待补（手机被取用前未跑完）：自动跳过 Toast/剩余时长扣减的实际观看验证、
-「⋯」面板行与「我的」页入口点击、增强四件套运行时回调截图复核。
+**6.6.0 进度喂入重构（第三个真机发现）**：修复黑屏后自动跳过仍不触发。真机逐层定位发现
+6.6.0 的进度链路整体搬家：三个 `PlayerProgressTextWidget` 不再实例化（J/g0 回调零触发）、
+seek bar 播放期间不逐帧走 `g#draw`（仅布局/seek 爆发）、`D0$c.run`（SeekService tick 派发器）
+也只在 seek 后打一炮——**没有可依赖的宿主 tick**。最终方案：模块自持 500ms 轮询已绑定
+handle 的 core（`getCurrentPosition/getDuration` 真名稳定），等价 6.5.0 tick 语义；
+handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时的补充喂入 +
+彩色标记绘制。附带改进：冷启动首次拉片段失败（status=-1）后按 30s 冷却重拉
+（此前一次网络抖动 = 整个会话零片段）。
+
+**真机回归结论（BV14741127BN「30分钟秒表」样本，8 个 skip 片段，画面直读位置）**：
+
+| 能力 | 结论 | 证据 |
+| --- | --- | --- |
+| 自动跳过（自然播放） | ✅ | 播放到 704.593s（片段起点 704.591，2ms 精度）自动 `auto-skipped`，seek 到片段尾 806.903s |
+| 跳过统计 | ✅ | `sponsorblock_stats.json` totalCount 39→40，interaction +102.3s = 片段时长 |
+| 进度轮询 | ✅ | `seekTick feed #1→#51→#101→#151`，500ms 节奏，位置连续推进 |
+| 彩色标记 | ✅ | 进度条多段彩色片段标记正常渲染（截图） |
+| 剩余时长扣减 | ✅ | 时间文本 `19:02/30:00 (15:05)`，括号为扣减后剩余时长（截图） |
+| 「我的」页入口 | ✅ | 「我的服务」组 Bili2233 格子注入，点击弹出设置弹窗，版本显示 0.7.0(versionCode 10)（截图） |
+| 「⋯」面板行 | ✅ 注入成功 | `morePanelItems size=18 → morePanelInjected size=19`，0 条渲染错误；行在列表末尾需滚动查看 |
+| 安装期探针 | ✅ | `34/39 hit`（33/38 基线 + cleartextPolicy + seekTickDispatcher，−Gemini k0/−seekTrack:f 为宿主侧消失） |
+| 片段拉取 | ✅ | `status=200 count=8`；网络失败按 30s 冷却自动重拉 |
+| 切集/换视频 | ✅ | 合集自动连播换集时 `videoDirector FOUND` 新 id 正常派发、状态重置 |
+
+未逐项复核（与 6.5.0 同口径不阻塞）：跳过 Toast 截图（代码路径与统计同分支，统计已落）；
+「⋯」面板行视觉样式；增强四件套运行时文案（安装命中，机制未变）。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 
