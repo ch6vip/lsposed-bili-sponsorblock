@@ -62,11 +62,12 @@
 | Root | 需要（KernelSU / Magisk 均可） |
 | 框架 | [LSPosed](https://github.com/LSPosed/LSPosed)，需支持 **libxposed API 101** |
 | Android | 6.0+（`minSdk 23`） |
-| 宿主客户端 | **哔哩哔哩国际版 `com.bilibili.app.in` 6.5.0 / versionCode 9110200** |
+| 宿主客户端 | **哔哩哔哩国际版 `com.bilibili.app.in` 6.5.0（9110200）/ 6.6.0（9130300）** |
 
 ## 兼容性
 
-> **只适配了 `com.bilibili.app.in` 6.5.0 这一个版本。**
+> **适配 `com.bilibili.app.in` 6.5.0 与 6.6.0 两个版本**（双版本共用一张候选表，
+> 全部新旧候选同时保留，见 `docs/APK_6.6.0_ANALYSIS.md` 的漂移对照）。
 
 宿主每次改版都可能重命名或重新混淆 Hook 目标类（本项目正文里出现的 `f0`、`PlayerSeekWidget3` 之类名字都来自该版本的反汇编）。
 换版本后大概率**静默失效**，需要重新做一次类名对照（方法见 `tools/dexscan/README.md`）。
@@ -307,7 +308,7 @@ flowchart LR
 
 ## 已知限制
 
-- **宿主版本锁死**：只支持 `com.bilibili.app.in` 6.5.0，详见「兼容性」。
+- **宿主版本**：适配 `com.bilibili.app.in` 6.5.0 / 6.6.0，详见「兼容性」。宿主更新后候选表需重新核对。
 - **片段数据依赖第三方实例**：默认实例可用性不保证；自建或换实例需在设置里改地址。
 - **未验证场景**：小窗、切集、番剧/OGV、深色模式、切换账号。
 - **提交 / 片段静音**：本轮不继续验。旁路见过默认实例 POST body 丢 userID；代码仍按官方 POST 发，405/501 才降级 GET。

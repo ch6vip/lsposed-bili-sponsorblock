@@ -117,7 +117,7 @@ object BiliSponsorBlockHooks {
                 clazz,
                 HostTargets.DIRECTOR_ADD_OBSERVER_METHODS,
                 1,
-                paramTypeName = { it == HostTargets.DIRECTOR_OBSERVER_INTERFACE || it == HostTargets.LEGACY_OBSERVER_INTERFACE },
+                paramTypeName = { it in HostTargets.DIRECTOR_OBSERVER_INTERFACES },
             ) ?: continue
 
             module.hook(addMethod)
@@ -156,7 +156,7 @@ object BiliSponsorBlockHooks {
                 clazz,
                 listOf(HostTargets.BIND_CONTAINER_METHOD),
                 1,
-                paramTypeName = { it == HostTargets.CONTAINER_INTERFACE },
+                paramTypeName = { it in HostTargets.CONTAINER_INTERFACES },
             ) ?: continue
 
             hookAfter(module, method, "containerBinding:$className") { chain ->
