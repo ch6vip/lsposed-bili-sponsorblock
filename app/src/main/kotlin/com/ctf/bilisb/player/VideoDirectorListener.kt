@@ -174,6 +174,13 @@ object VideoDirectorListener {
             ObserverHandler(module),
         )
 
+        // 必须先登记再 invoke：我们挂在 l0/j0 上的 after 回调里调用本函数，而 invoke 走的
+        // 就是这个被 hook 的方法（LSPosed 对反射调用同样生效）→ 回调重入本函数。
+        // 登记先行使重入在 containsKey 处终止（等价 0.6.3 registeredHosts.add 的旧序职责）；
+        // 若登记挪到 invoke 之后，6.6.0 在 onCreate 主线程内同步注册时无限重入，
+        // 详情页黑屏 + 输入 ANR（2026-09-29 真机 MIUIScout 栈定位）。
+        observersByService[directorService] = observer to observerInterface
+
         val ok = runCatching {
             addMethod.invoke(directorService, observer)
             true
@@ -182,7 +189,6 @@ object VideoDirectorListener {
             false
         }
         if (ok) {
-            observersByService[directorService] = observer to observerInterface
             lastService = directorService
             HookProbe.ok(
                 module,
@@ -190,6 +196,9 @@ object VideoDirectorListener {
                 "${directorService.javaClass.name}#${addMethod.name}(${observerInterface.simpleName})",
             )
             probeCurrentVideo(module, directorService)
+        } else {
+            // 注册失败回滚登记，避免留下无法注销的死账（removeObserver 依赖这张表）
+            observersByService.remove(directorService, observer to observerInterface)
         }
         return ok
     }
