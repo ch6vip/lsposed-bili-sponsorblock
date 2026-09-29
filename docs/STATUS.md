@@ -1,12 +1,15 @@
 # 当前状态（STATUS）
 
-> **目标口径（2026-09 起）**：模块只以 `bilibili 6.5.0` / `com.bilibili.app.in` / `<APK目录>\bilibili_6.5.0.apks` 为目标。
+> **目标口径（2026-09 起）**：模块以 `bilibili 6.5.0 / 6.6.0` / `com.bilibili.app.in` 为目标
+> （6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；6.6.0 真机拉取，分析见 `docs/APK_6.6.0_ANALYSIS.md`）。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：0.6.3（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 9）——**主链路已在 6.5.0 真机跑通**
+模块版本：0.7.0（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 10）——**双版本兼容候选表；6.5.0 主链路真机跑通，6.6.0 安装期探针全对账（见下）**
 
-最近变更（0.6.3）：全量审查修复（TTL=0 仍可跳过、unmute 带 hash、server URI 校验、userId 脱敏）；
-「我的」页入口改为按 Bili2233 标题绑点击（不再误绑收藏），真机复验通过。
+最近变更（0.7.0）：6.6.0 适配——观察者注册 `j0(E0)`→`l0(F0)`、当前视频 `D()`→`F()`、容器 `f`→`h`、
+int 进度回调 `G`→`J`、long 回调 `j0`→`g0`、更多面板 `f0`→`e0`、moss 描述符 `kr1.*`→`xr1.*`；
+观察者接口改为「能解析出注册方法的接口即正身」（E0/F0 跨版本撞名）。
+第二轮全量审查修复（明文策略/NSC、TTL、unmute、去重等）已先行为基线 commit。
 
 「B 站增强」现行四件套（移植自 BiliTamer,MIT，**6 个开关全部默认关闭**，控制中心「B 站增强」页按需开启）：
 IP 属地 / 隐藏互动提示（三连、UP 气泡、投票）/ 首页不自动刷新 / 分享到 QQ。
@@ -15,6 +18,51 @@ IP 属地 / 隐藏互动提示（三连、UP 气泡、投票）/ 首页不自动
 最近真机验证：
 - **2026-09-14**：主链路（加载 / aid-cid / 拉片段 / 自动跳过 / 标记 / Toast / 我的页 / 空降助手）在 `com.bilibili.app.in` 6.5.0 通过（见下）。
 - **2026-09-21**：装 0.6.3 debug（versionCode 9）冷启动，`hook summary: 33/38 hit`；增强组见「B 站增强 2026-09-21」。
+- **2026-09-29**：0.7.0（debug，versionCode 10）装上 6.6.0 宿主，安装期探针见「6.6.0 真机验证（进行中）」。
+
+## 6.6.0 真机验证（2026-09-29，进行中）
+
+宿主：`com.bilibili.app.in` 6.6.0 / versionCode 9130300（Xiaomi 23078RKD5C，Android 16，KernelSU + LSPosed）。
+
+**安装期 HookProbe：`32/37 hit`（+2 个延迟 MISS，共 39 键）**。与 6.5.0 基线（33/38）逐键对账**等价**：
+
+| 与基线的差 | 键 | 归因 |
+| --- | --- | --- |
+| 新增 OK | `cleartextPolicy`（NetworkSecurityPolicy#isCleartextTrafficPermitted） | 0.7.0 新增的明文策略 hook |
+| OK→宿主侧消失 | `progressLong:GeminiProgressTextWidget`（6.5.0 是 `k0`） | 6.6.0 的 Gemini 控件不再声明 long 回调（23 个方法实测无 (J,J) 形态）；探针专用路径，不参与跳过决策 |
+| OK→宿主侧消失 | `seekTrack:seek.v3.f`（6.5.0 OK） | 6.6.0 的 `seek.v3.f` 变成 Kotlin lambda 类（Function1），不再覆写 draw；主标记仍由 `seek.v3.g` 承担 |
+| MISS（与基线一致） | `ip.kmpHeaderValue` / `ip.mossScope` / `ip.identityProvider` / `ip.restInterceptor` / `ip.restParams` | 6.5.0 基线同样 MISS 的旧路径；属地靠 REST 空间参数 + gRPC 头写入兜 |
+| SKIP（与基线一致） | `legacyContainer`（8.96 兜底）/ `shareQqHostProbe`（6.4.0+ 探测） | 预期行为 |
+
+**主链路（SponsorBlock）0 MISS**，全部按新候选命中：
+
+```
+directorService        <- PlayDirectorServiceV3#l0            （新候选 l0 / 接口 F0）
+containerBinding       <- PlayerSeekWidget3 / control.PlayerProgressTextWidget#bindPlayerContainer  （参数 h）
+playerTeardown         <- 两 widget 的 onDetachedFromWindow
+seekTrack              <- seek.v3.g#draw
+progressInt            <- base / Gemini / control 三个 widget 的 #J(J...)   （新候选 J）
+progressLong           <- base #g0                                          （新候选 g0）
+timeDeduction          <- setText(CharSequence, BufferType)（三 widget）
+morePanelRefresh       <- gemini.ui.f#e0                                    （新候选 e0）
+mineAdapterNotify/Bind <- tv.danmaku.bili.ui.main2.mine.d
+uriRouter              <- 2 methods（IntentHandlerActivity）
+增强四件套              <- hintTriple/hintFollowPopup/hintVote/noAutoRefresh(PegasusViewModel#x0)/
+                          shareQqInject/shareQqTauth×2 全 OK
+IP 属地主改写           <- ip.commonHeadersScope(header.b#b) + ip.grpcBinHeaderWrite(grpc.c#f) OK
+                          （xr1.g/xr1.k 新提示就位；kr1.a/up1.a 形状不匹配按设计跳过）
+```
+
+**运行时功能回归：受宿主自身问题阻塞，尚未完成。** 实测 6.6.0 宿主在本机上
+「视频详情页（UnitedBizDetailsActivity）与搜索页黑屏 + 输入 ANR」：
+主线程与 RenderThread 在 ANR trace 里均为空闲（等消息），无崩溃，logcat 无 FATAL；
+主页/推荐流渲染与交互正常。**模块 `pm disable-user` 禁用 + 冷启动后的对照实验复现同样的黑屏
+（状态栏可见、屏幕常亮、`topResumedActivity` 仍是 UnitedBizDetailsActivity），
+已确认与模块无关**，属宿主/设备侧问题（候选怀疑：6.5.0→6.6.0 覆盖升级后的这些
+theseus 页云配置/缓存失效、登录态或动态组件未就绪；建议宿主侧修复后重跑）。
+功能回归样本已备：bsbsb.top 数据源可用（热门榜 245 个视频带 skip 片段），
+选定 `BV14NDfYGEBE`（6 个 skip 片段：interaction/sponsor 多分类）作为回归样本；
+宿主恢复后按 DEVICE_PROBE.md 关键字 3-10 逐条补跑即可。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 

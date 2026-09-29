@@ -1,7 +1,7 @@
 package com.ctf.bilisb.host
 
 /**
- * 目标宿主（bilibili 6.5.0 / `com.bilibili.app.in`）的类名与方法名清单。
+ * 目标宿主（bilibili 6.5.0 / 6.6.0，`com.bilibili.app.in`）的类名与方法名清单。
  *
  * 为什么集中成一张表：宿主每次发版 R8 都会重排混淆名，Hook 点散落在各文件里就会「静默失效」。
  * 集中后改版只需改这张表；解析按候选顺序取第一个存在的实现，命中/缺失由 [HookProbe] 记录。
@@ -44,16 +44,16 @@ object HostTargets {
     )
 
     /**
-     * 进度回调候选（int,int）：6.5.0 是 `G`；`onPlayerProgressChange` 是旧目标；
-     * `updateTime`/`i0` 是旧版控件形态。
+     * 进度回调候选（int,int）：6.5.0 是 `G`，6.6.0 改名 `J`；`onPlayerProgressChange`
+     * 是旧目标；`updateTime`/`i0` 是旧版控件形态。
      */
-    val PROGRESS_CALLBACK_INT_METHODS = listOf("G", "onPlayerProgressChange", "updateTime", "i0")
+    val PROGRESS_CALLBACK_INT_METHODS = listOf("G", "J", "onPlayerProgressChange", "updateTime", "i0")
 
     /**
      * 进度回调候选（long,long）：6.5.0 里 `j0`（v2 基类）/`k0`（Gemini）是长整型回调，
-     * 与 8.98 patch 的形态一致。与 int 版同时挂，探针日志会告诉我们哪个真的会回调。
+     * 6.6.0 的 v2 基类改名 `g0`。与 int 版同时挂，探针日志会告诉我们哪个真的会回调。
      */
-    val PROGRESS_CALLBACK_LONG_METHODS = listOf("j0", "k0", "J")
+    val PROGRESS_CALLBACK_LONG_METHODS = listOf("j0", "k0", "g0", "J")
 
     // ---------------------------------------------------------------- 播放器容器
 
@@ -67,8 +67,11 @@ object HostTargets {
     )
     const val BIND_CONTAINER_METHOD = "bindPlayerContainer"
 
-    /** 6.5.0 容器接口 `tv.danmaku.biliplayerv2.f`（实现类含 `t()/u()/v()/w()`）。 */
-    const val CONTAINER_INTERFACE = "tv.danmaku.biliplayerv2.f"
+    /** 容器接口候选：6.5.0 是 `f`，6.6.0 的 `bindPlayerContainer` 参数改传子接口 `h`。 */
+    val CONTAINER_INTERFACES = listOf(
+        "tv.danmaku.biliplayerv2.f",
+        "tv.danmaku.biliplayerv2.h",
+    )
 
     /** 从容器取 Android Context 的候选方法名：6.5.0 是 `t()`，旧目标是 `getContext()`。 */
     val CONTAINER_CONTEXT_METHODS = listOf("t", "getContext")
@@ -106,8 +109,9 @@ object HostTargets {
         "tv.danmaku.biliplayerimpl.videodirector.VideosPlayDirectorService",
     )
 
-    /** 注册/注销观察者：6.5.0 是 `j0(E0)` / `z0(E0)`；旧目标是 `add/removeVideoDirectorObserver`。 */
-    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("j0", "addVideoDirectorObserver")
+    /** 注册/注销观察者：6.5.0 是 `j0(E0)` / `z0(E0)`，6.6.0 注册改名 `l0`（注销仍叫 `z0`）；
+     *  旧目标是 `add/removeVideoDirectorObserver`。 */
+    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("j0", "l0", "addVideoDirectorObserver")
     val DIRECTOR_REMOVE_OBSERVER_METHODS = listOf("z0", "removeVideoDirectorObserver")
 
     /** 从 widget 取 director 服务的方法候选。 */
@@ -117,14 +121,24 @@ object HostTargets {
         "getPlayDirectorService",
     )
 
-    /** 6.5.0 观察者接口。 */
-    const val DIRECTOR_OBSERVER_INTERFACE = "tv.danmaku.biliplayerv2.service.E0"
+    /**
+     * 观察者接口候选：6.5.0 是 `E0`（回调 a/b/c/e），6.6.0 改名 `F0`（回调形状不变）。
+     *
+     * 注意：这两个名字**跨版本互相撞名**（6.5.0 的 F0 是无关的媒体资源接口，6.6.0 的 E0
+     * 是空标记接口），不能按固定顺序挑类——消费方必须用「能解析出注册方法的那个接口」
+     * 反推（见 VideoDirectorListener.registerDirectorService）。
+     */
+    val DIRECTOR_OBSERVER_INTERFACES = listOf(
+        "tv.danmaku.biliplayerv2.service.E0",
+        "tv.danmaku.biliplayerv2.service.F0",
+        LEGACY_OBSERVER_INTERFACE,
+    )
 
     /** 旧目标观察者接口（8.96）。 */
     const val LEGACY_OBSERVER_INTERFACE = "tv.danmaku.biliplayerv2.service.VideoDirectorObserver"
 
-    /** 6.5.0：`service.A#D()` == `PlayDirectorServiceV3#D()` 返回当前 `Video$e`。 */
-    const val DIRECTOR_CURRENT_VIDEO_METHOD = "D"
+    /** 当前 `Video$e` 访问器：6.5.0 是 `D()`，6.6.0 改名 `F()`（返回类型不变）。 */
+    val DIRECTOR_CURRENT_VIDEO_METHODS = listOf("D", "F")
 
     /** `Video$e`：`z()` 返回 `Video$a`（DanmakuResolveParams）。 */
     const val VIDEO_INTERFACE = "tv.danmaku.biliplayerv2.service.Video\$e"
@@ -163,9 +177,10 @@ object HostTargets {
      *     全量刷新入口 `f0(List)`；行由条目自己构建（`com.bilibili.app.gemini.ui.i`）。
      *
      * 这几个都是混淆短名，匹配时要同时校验类名 + 方法签名（必要时再加 versionCode）。
+     * 全量刷新入口跨版本漂移：6.5.0 是 `f0(List)`，6.6.0 是 `e0(List)`。
      */
     const val MORE_PANEL_ADAPTER_CLASS = "com.bilibili.app.gemini.ui.f"
-    const val MORE_PANEL_REFRESH_METHOD = "f0"
+    val MORE_PANEL_REFRESH_METHODS = listOf("f0", "e0")
     const val MORE_PANEL_MENU_SERVICE_CLASS = "com.bilibili.ship.theseus.united.page.toolbar.MenuService"
 
     /** 行条目接口（interface，可以动态代理实现）。 */

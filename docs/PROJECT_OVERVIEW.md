@@ -1,9 +1,10 @@
 # 项目整理总览（PROJECT_OVERVIEW）
 
-> **目标口径（2026-09 起）**：唯一目标宿主是 `bilibili 6.5.0` / `com.bilibili.app.in` /
-> 安装包 `<APK目录>\bilibili_6.5.0.apks`。
-> 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)。
-> 迁移已完成:当前仓库代码(0.6.3 / versionCode 9)已按上述目标跑通主链路,
+> **目标口径（2026-09 起）**：目标宿主是 `bilibili 6.5.0 / 6.6.0` / `com.bilibili.app.in` /
+> 安装包 `<APK目录>\bilibili_6.5.0.apks`（6.6.0：`E:\ctf-aaa\bili\bilibili_6.6.0\`，真机拉取）。
+> 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)
+> 与 [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)。
+> 迁移已完成:当前仓库代码(0.7.0 / versionCode 10)按双版本候选表跑通,
 > 差距清单以 [`docs/ROADMAP.md`](./ROADMAP.md) 与 [`docs/STATUS.md`](./STATUS.md) 为准。
 
 ## 1. 项目定位与基本信息
@@ -13,11 +14,11 @@
 | 项目名 | LsposedBiliSponsorBlock（模块显示名 Bili2233） |
 | 目标 | 在 B 站 Android 客户端里复刻 SponsorBlock 片段跳过/标记（拉取、跳过、静音、提交、统计） |
 | **目标宿主包** | **`com.bilibili.app.in`** |
-| **目标宿主版本** | **6.5.0（versionCode 9110200）** |
-| **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi） |
-| 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36，33 个 dex |
+| **目标宿主版本** | **6.5.0（9110200）/ 6.6.0（9130300）** |
+| **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi）；6.6.0 为真机拉取 base.apk + arm64 + xxhdpi |
+| 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36（6.6.0 为 34 个 dex） |
 | 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
-| 当前版本 | 0.6.3（versionCode 9）——**6.5.0 迁移已完成,主链路真机跑通** |
+| 当前版本 | 0.7.0（versionCode 10）——**6.5.0 主链路真机跑通；6.6.0 安装期探针全对账（见 STATUS），运行时回归进行中** |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
 | 构建 | AGP 8.7.3 / Kotlin 2.0.21 / Gradle 8.12 / compileSdk 35 / minSdk 23 / JDK 17 |
@@ -26,11 +27,12 @@
 
 ## 2. 目标口径切换说明
 
-- **现行目标**：`com.bilibili.app.in` 6.5.0。scope、进程过滤、设置镜像路径、Hook 类名全部以它为准。
+- **现行目标**：`com.bilibili.app.in` 6.5.0 / 6.6.0（双版本兼容，候选表集中、新旧候选并存）。scope、进程过滤、设置镜像路径、Hook 类名全部以它为准。
 - **历史目标（已废弃）**：`tv.danmaku.bili` stock 8.96.0（当前代码的适配线）与
   `Bili-v8.98.0-x1.27.3@bb_show.apk`（行为参考）。两者只作为"行为蓝本"保留，不再作为 Hook 依据。
-- **兼容性结论**：6.5.0 与旧适配线的类名部分保留、部分混淆，不能只换包名。
-  主链路已在 6.5.0 真机跑通；映射表见 APK 分析文档，验证结论见 `docs/STATUS.md`。
+- **兼容性结论**：6.5.0 与旧适配线的类名部分保留、部分混淆，不能只换包名；
+  6.6.0 相对 6.5.0 的增量漂移（j0→l0、E0→F0、容器 f→h、D()→F()、G→J、kr1.*→xr1.* 等）见
+  `docs/APK_6.6.0_ANALYSIS.md`。6.5.0 主链路真机跑通；6.6.0 验证结论见 `docs/STATUS.md`。
 
 ## 3. 目录结构与职责
 

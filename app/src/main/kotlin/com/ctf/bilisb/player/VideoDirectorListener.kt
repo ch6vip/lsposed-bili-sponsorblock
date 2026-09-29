@@ -149,29 +149,30 @@ object VideoDirectorListener {
             HookProbe.miss(module, "director", "classLoader null")
             return false
         }
-        val observerInterface = HookResolve.findClass(
-            classLoader,
-            listOf(HostTargets.DIRECTOR_OBSERVER_INTERFACE, HostTargets.LEGACY_OBSERVER_INTERFACE),
-        )
-        if (observerInterface == null) {
-            HookProbe.miss(module, "director", "observer interface not found")
+        // 观察者接口跨版本撞名（6.5.0 的 F0 是无关的媒体资源接口，6.6.0 的 E0 是空标记接口），
+        // 不能按名字顺序挑类：对每个候选接口解析注册方法，「能解析出 (add 方法, 接口) 对」的
+        // 即当前版本的观察者接口，代理也实现它 —— 方法解析成功本身就是接口正确性的证明。
+        val addPair = HostTargets.DIRECTOR_OBSERVER_INTERFACES.firstNotNullOfOrNull { ifaceName ->
+            val iface = runCatching { Class.forName(ifaceName, false, classLoader) }.getOrNull()
+                ?: return@firstNotNullOfOrNull null
+            val method = HookResolve.forTarget(
+                directorService,
+                HostTargets.DIRECTOR_ADD_OBSERVER_METHODS,
+                iface,
+            ) ?: return@firstNotNullOfOrNull null
+            method to iface
+        }
+        if (addPair == null) {
+            HookProbe.miss(module, "director", "observer interface / addObserver not resolvable")
             return false
         }
+        val (addMethod, observerInterface) = addPair
 
         val observer = Proxy.newProxyInstance(
             classLoader,
             arrayOf(observerInterface),
             ObserverHandler(module),
         )
-        val addMethod = HookResolve.forTarget(
-            directorService,
-            HostTargets.DIRECTOR_ADD_OBSERVER_METHODS,
-            observerInterface,
-        )
-        if (addMethod == null) {
-            HookProbe.miss(module, "director", "addObserver method not found")
-            return false
-        }
 
         val ok = runCatching {
             addMethod.invoke(directorService, observer)
@@ -255,7 +256,7 @@ object VideoDirectorListener {
     }
 
     private fun currentVideoOf(directorService: Any): Any? = runCatching {
-        HookResolve.forTarget(directorService, listOf(HostTargets.DIRECTOR_CURRENT_VIDEO_METHOD))
+        HookResolve.forTarget(directorService, HostTargets.DIRECTOR_CURRENT_VIDEO_METHODS)
             ?.invoke(directorService)
     }.getOrNull()
 

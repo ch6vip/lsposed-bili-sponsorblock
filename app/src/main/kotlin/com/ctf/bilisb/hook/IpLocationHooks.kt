@@ -491,10 +491,11 @@ object IpLocationHooks {
                 logRewriteOnce(module, "ctx", "ip: common headers ctx not found (chain=${chainObj.javaClass.name})")
                 return null
             }
-            // 方法描述符随构建漂移：6.3.0=jp1.g / 6.4.0=Zq1.g / 6.5.0=kr1.g。
+            // 方法描述符随构建漂移：6.3.0=jp1.g / 6.4.0=Zq1.g / 6.5.0=kr1.g / 6.6.0=xr1.g。
             // 字段语义一致（a=packageName, b=serviceName, c=methodName，kr1.g 经
             // KMethodDescriptor toString 实证），故只按类型名提示逐一尝试。
-            val g = fieldTypedAnyHint(ctx, "b", arrayOf("kr1.g", "Zq1.g", "jp1.g"))
+            // 描述符字段挂在父类 MossInterceptor$e.b 上（6.6.0 实测），沿层级查找即可。
+            val g = fieldTypedAnyHint(ctx, "b", arrayOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g"))
             // 6.3.0 jp1.g：service 在字段 a；6.4.0/6.5.0：a=packageName, b=serviceName，
             // c=methodName —— 语义移位过，两个都试，取像服务名的那个
             var svc = if (g == null) null else strField(g, "b")
@@ -504,8 +505,8 @@ object IpLocationHooks {
                 if (isReplyService(alt)) svc = alt
             }
             if (svc == null) {
-                // 兜底：k 也有服务名字段（6.3.0=jp1.k / 6.4.0=Zq1.k / 6.5.0=kr1.k）
-                val k = fieldTypedAnyHint(ctx, "a", arrayOf("kr1.k", "Zq1.k", "jp1.k"))
+                // 兜底：k 也有服务名字段（6.3.0=jp1.k / 6.4.0=Zq1.k / 6.5.0=kr1.k / 6.6.0=xr1.k）
+                val k = fieldTypedAnyHint(ctx, "a", arrayOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k"))
                 svc = if (k == null) null else strField(k, "a")
             }
             if (svc == null && g != null) {

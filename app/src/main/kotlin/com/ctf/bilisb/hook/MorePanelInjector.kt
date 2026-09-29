@@ -103,14 +103,20 @@ object MorePanelInjector {
             return
         }
 
-        // f0(List) 是混淆名：按「名字 + 单个 List 参数」匹配
-        val refresh = adapterClass.declaredMethods.firstOrNull { method ->
-            method.name == HostTargets.MORE_PANEL_REFRESH_METHOD &&
-                method.parameterTypes.size == 1 &&
-                List::class.java.isAssignableFrom(method.parameterTypes[0])
+        // 刷新入口是混淆名（6.5.0=f0 / 6.6.0=e0）：按「候选名 + 单个 List 参数」匹配
+        val refresh = HostTargets.MORE_PANEL_REFRESH_METHODS.firstNotNullOfOrNull { name ->
+            adapterClass.declaredMethods.firstOrNull { method ->
+                method.name == name &&
+                    method.parameterTypes.size == 1 &&
+                    List::class.java.isAssignableFrom(method.parameterTypes[0])
+            }
         }
         if (refresh == null) {
-            HookProbe.miss(module, "morePanelRefresh", "${adapterClass.name}#${HostTargets.MORE_PANEL_REFRESH_METHOD}(List)")
+            HookProbe.miss(
+                module,
+                "morePanelRefresh",
+                "${adapterClass.name}#${HostTargets.MORE_PANEL_REFRESH_METHODS}(List)",
+            )
             return
         }
 
