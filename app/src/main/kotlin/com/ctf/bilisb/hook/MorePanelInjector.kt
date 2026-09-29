@@ -25,18 +25,23 @@ import java.lang.reflect.Proxy
 /**
  * 往宿主播放器「更多」面板（右上角「⋯」）注入一行「空降助手」。
  *
- * ## 宿主契约（6.5.0 实测反汇编，classes12.dex）
+ * ## 宿主契约（6.5.0 实测反汇编 classes12；6.6.0 实测 classes11 + 真机 crash 复盘）
  *
  * - 面板内容是一个 RecyclerView，适配器 `com.bilibili.app.gemini.ui.f`，
- *   全量刷新入口 `f0(List)`（把传入的 List 记为 `d` 字段，`getItemCount()` = `d.size()`）。
- * - 行条目接口 `com.bilibili.app.gemini.ui.i`（**interface**）：
- *     - `a()Ljava/lang/Object;` 默认返回 `getClass()`，作为"视图类型"注册表的 key；
- *     - `b(Landroid/content/Context;Landroid/view/ViewGroup;)Lcom/bilibili/app/gemini/ui/i$b;`
- *       —— **由条目自己构建行视图**（返回的 holder 只要 `getRoot()` 给个 View）；
- *     - `e(Lcom/bilibili/app/gemini/ui/i$b;Ldy1/b;)Ljava/lang/Object;` 绑定回调。
+ *   全量刷新入口 6.5.0 是 `f0(List)`、6.6.0 改名 `e0(List)`。
+ * - 行条目接口 `com.bilibili.app.gemini.ui.i`（**interface**），**6.6.0 方法改名换位**：
+ *     - `a()Ljava/lang/Object;` 默认返回 `getClass()`，作为"视图类型"注册表的 key（两版一致）；
+ *     - 构建行视图：6.5.0 `b(Context,ViewGroup)→i$b`，**6.6.0 改名 `c`**；
+ *     - 绑定回调：6.5.0 `e(i$b,continuation)→Object`，**6.6.0 挪到 `b`**；
+ *     - 6.6.0 另有 `d()/f()` 默认方法（非渲染路径，返回 null 可容忍）。
  * - 视图类型由 `i$a#a(item)` 动态分配：`registry.putIfAbsent(item.a(), nextType++)`，
  *   所以**任意新条目类都会自动拿到一个新 type**，无需预先注册；
- *   `onCreateViewHolder(parent, viewType)` 会反查 `d` 里 `a()` 命中该 type 的条目，再调它的 `b()`。
+ *   `onCreateViewHolder(parent, viewType)` 反查条目后调构建方法，把返回的 holder 传入
+ *   `o.<init>(i$b)` 并立刻调 `getRoot()` —— 构建返回 null 必 NPE 闪宿主。
+ *
+ * 结论：只要往刷新入口的 List 里加一个实现 `i` 的条目（用 [Proxy] 实现，因为它是 interface，
+ * 且 `i$b` 也是 interface），宿主就会用**我们自己的行视图**渲染它 —— 不需要新增任何依赖。
+ * **代理分发必须按签名而不是方法名**（两个版本构建/绑定入口互相换名）。
  *
  * 结论：只要往 `f0` 的 List 里加一个实现 `i` 的条目（用 [Proxy] 实现，因为它是 interface，
  * 且 `i$b` 也是 interface），宿主就会用**我们自己的行视图**渲染它 —— 不需要新增任何依赖。
@@ -219,24 +224,33 @@ object MorePanelInjector {
             object : InvocationHandler {
                 override fun invoke(proxy: Any, method: Method, args: Array<out Any>?): Any? {
                     return try {
-                        when (method.name) {
-                            "b" -> {
+                        when {
+                            // 构建行视图：6.5.0 是 b(Context,ViewGroup)，6.6.0 改名 c（b 挪用为绑定回调）。
+                            // 必须按【签名】分发：按名字会在 6.6.0 上漏掉 c → 返回 null →
+                            // 宿主 onCreateViewHolder 把 null 塞进 holder 构造器调 getRoot()
+                            // → NPE 闪退（2026-09-29 真机 crash 实证）。
+                            method.parameterTypes.size == 2 &&
+                                method.parameterTypes[0] == Context::class.java &&
+                                ViewGroup::class.java.isAssignableFrom(method.parameterTypes[1]) -> {
                                 val context = args?.getOrNull(0) as? Context
                                 val parent = args?.getOrNull(1) as? ViewGroup
-                                if (context == null || parent == null) {
-                                    null
-                                } else {
-                                    buildHolderProxy(classLoader, holderInterface, context, parent, module, onOpenPanel)
-                                }
+                                buildHolderProxy(
+                                    classLoader,
+                                    holderInterface,
+                                    context ?: parent?.context ?: return null,
+                                    parent ?: context?.let { FakeParent(context) } ?: return null,
+                                    module,
+                                    onOpenPanel,
+                                )
                             }
-                            // 绑定回调：宿主在 onBindViewHolder 里调用，返回 Unit 即可；
-                            // unit 加载不到时返回 null —— 绑定回调的返回值被宿主协程忽略,风险可接受(有 probe 留痕)
-                            "e" -> unit
+                            // 绑定回调：6.5.0=e(holder,continuation) / 6.6.0=b(holder,continuation)，
+                            // 返回 Unit（避免宿主协程拿到 null）
+                            method.parameterTypes.size == 2 -> unit
                             // 视图类型 key：默认实现返回 getClass()，这里显式返回代理类，语义一致
-                            "a" -> proxy.javaClass
-                            "toString" -> "Bili2233MoreRow"
-                            "hashCode" -> System.identityHashCode(proxy)
-                            "equals" -> proxy === args?.firstOrNull()
+                            method.name == "a" && method.parameterTypes.isEmpty() -> proxy.javaClass
+                            method.name == "toString" -> "Bili2233MoreRow"
+                            method.name == "hashCode" -> System.identityHashCode(proxy)
+                            method.name == "equals" -> proxy === args?.firstOrNull()
                             else -> null
                         }
                     } catch (t: Throwable) {
@@ -247,6 +261,9 @@ object MorePanelInjector {
             },
         )
     }
+
+    /** parent 缺位时的最小 ViewGroup 替身（仅占位，行视图不往里 add）。 */
+    private class FakeParent(context: Context) : LinearLayout(context)
 
     /** holder 代理：宿主只要求 `getRoot()` 返回行视图。 */
     private fun buildHolderProxy(
