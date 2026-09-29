@@ -327,6 +327,14 @@ class SponsorBlockController(
     fun latestStateExists(contextHash: Int): Boolean =
         !closed.get() && latestStateByContext.containsKey(contextHash)
 
+    /** 诊断用：该 context 的播放器 handle 是否已绑定（跳过决策的前置条件）。 */
+    fun hasHandle(contextHash: Int): Boolean =
+        !closed.get() && playerHandles.containsKey(contextHash)
+
+    /** 诊断/喂入用：该 context 已绑定的播放器 core（6.6.0 tick 派发器钩子喂进度用）。 */
+    fun coreForContext(contextHash: Int): Any? =
+        if (closed.get()) null else playerHandles[contextHash]?.core
+
     fun progressMarkers(contextHash: Int): Pair<Long, List<SponsorSegment>>? = latestSegments(contextHash)
 
     fun segmentsForContext(contextHash: Int): List<SponsorSegment>? {
@@ -678,6 +686,10 @@ class SponsorBlockController(
      */
     private val sanitizedCache = ConcurrentHashMap<String, Pair<List<SponsorSegment>, List<SponsorSegment>>>()
 
+    /** 空结果重拉的冷却（毫秒）与上次尝试时刻表（键 bvid）。 */
+    private val EMPTY_REFETCH_COOLDOWN_MS = 30_000L
+    private val emptyRefetchAtByBvid = ConcurrentHashMap<String, Long>()
+
     /** 已打过「dropped N invalid」日志的视频,避免该日志按 tick/帧频率刷屏。 */
     private val droppedSegmentsLogged = ConcurrentHashMap.newKeySet<String>()
 
@@ -689,6 +701,16 @@ class SponsorBlockController(
         // TTL>0 且新鲜缓存过期时后台重拉;TTL=0 只在进页/手动刷新拉,避免每 tick 打网。
         if (fresh == null && last != null && settings.cacheTtlMs > 0 && !inFlight.contains(query.bvid)) {
             scheduleSegmentFetch(query, false, "segments refetch")
+        }
+        // 冷启动首次拉取失败(status=-1 等,无任何缓存)时按冷却重试:
+        // 否则一次网络抖动 = 整个播放会话零片段且不再重拉(2026-09-29 真机实测)。
+        if (fresh == null && last == null && !inFlight.contains(query.bvid)) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val lastTry = emptyRefetchAtByBvid[query.bvid] ?: 0L
+            if (now - lastTry > EMPTY_REFETCH_COOLDOWN_MS) {
+                emptyRefetchAtByBvid[query.bvid] = now
+                scheduleSegmentFetch(query, false, "segments refetch (empty)")
+            }
         }
         val cached = fresh ?: last ?: return null
         val key = videoKey(state)
