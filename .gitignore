@@ -22,3 +22,6 @@ __pycache__/
 
 # WorkBuddy 工具状态与本机 memory（属本机数据，不入库）
 .workbuddy/
+
+# 真机验证的临时产物（截图/UI dump/日志切片），STATUS.md 以本地路径引用
+.tmp-test/

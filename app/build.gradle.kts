@@ -39,8 +39,11 @@ val hasReleaseSigning = releaseStorePath != null &&
 // 0.7.0 = 6.6.0 适配真机闭环；0.7.1 = 轮询生命周期重构 + 回归测试 + 浮层挂载点/分类常量收敛；
 // 0.7.2 = **修跨包资源解析**（宿主进程里拿模块的 R.string id 查宿主资源表，真机上表现为
 // 设置页标题/跳过 Toast 显示成 `res/anim/...`）——这条是真机实测暴露的，必须升版重发。
-val MODULE_VERSION_CODE = 12
-val MODULE_VERSION_NAME = "0.7.2"
+// 0.7.3 = **修 deferred bind 挂死**（6.6.0 上补绑的两个宿主触发器在正常播放期间都是死的，
+// pending 挂起后无人完成 → 无 handle ⇒ 无 poller ⇒ 整会话静默零跳过，真机实测 4.7 分钟）：
+// 挂起即拉起自持轮询、tick 先试补绑、teardown 清 pending 收窄到本 widget、加 stuck/expire 探针。
+val MODULE_VERSION_CODE = 13
+val MODULE_VERSION_NAME = "0.7.3"
 
 android {
     namespace = "com.ctf.bilisb"

@@ -4,9 +4,11 @@
 > （6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；6.6.0 真机拉取，分析见 `docs/APK_6.6.0_ANALYSIS.md`）。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：**0.7.1**（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 11）
+模块版本：**0.7.3**（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 13）
 —— `0.7.0`（10）为 **6.5.0/6.6.0 双版本主链路真机跑通（2026-09-29）** 的版本；
-`0.7.1` 在其上加了轮询生命周期重构、34 例回归测试与结构债清理（**未真机复核**，见「发布前收口」一节）。
+`0.7.1`（11）加了轮询生命周期重构、34 例回归测试与结构债清理；
+`0.7.2`（12）修跨包资源解析（真机验证通过，见「0.7.2 真机验证」一节）；
+`0.7.3` 修 deferred bind 挂死（见下节「修复落地」，单测 192 例 0 失败，**未真机复核**）。
 
 最近变更（0.7.0）：6.6.0 适配——观察者注册 `j0(E0)`→`l0(F0)`、当前视频 `D()`→`F()`、容器 `f`→`h`、
 int 进度回调 `G`→`J`（但 6.6.0 文本控件不实例化，进度改由模块自持 500ms 轮询 core 喂入）、
@@ -176,9 +178,20 @@ handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时�
 且控件面板不显示时连布局 draw 都没有）。bind 时 core==null 的 pending 没有任何自愈机制。
 `probePollerMissingForHandle` 只覆盖「handle 在、poller 不在」，不覆盖「pending 在、没人触发」这个状态。
 
-**修复方向（待做）**：pending 存在时也把 500ms 轮询拉起来（tick 里先尝试 `ensureDeferredBind`，poller 本就是
-自持定时器，不该依赖宿主 tick），并给「pending 超过 N 秒未完成」加探针。0.7.1 的「有 handle ⇒ 有 poller」
-不变式要补上「有 pending ⇒ 有看门狗」。
+**修复落地（0.7.3）**：
+1. **挂起即拉起自持轮询**：bind 时 core 未就绪，`pendingBindSlot.set` 后立刻 `startProgressPoller`——
+   补绑不再等任何宿主信号；`progressPollerTick` 每个 tick 先 `tryCompletePendingBindFromTick`
+   （core 三来源与 bind 路径同口径：widget → 容器 → director 服务），补绑成功则同一 tick 落到喂入分支
+   （completeBind 里的 startProgressPoller 对活任务幂等，不会双开）。
+2. **自停豁免**：tick 的「无 handle ⇒ 自停」放宽为「无 handle 且无本 context 的 pending 才自停」，
+   否则挂起路径拉起的轮询会被第一条 tick 误杀；pending 挂超 10s 打 `pendingBindStuck` 探针，
+   超 60s 放弃并自停（`pendingBindExpired`，host 八成已死）——不给死 pending 开永久空转的口子。
+3. **teardown 清 pending 收窄**：`performTeardown` 改 `pendingBindSlot.clearIfHost(host)`（=== 身份），
+   不再误清新页的 pending；`ensureRebindAfterTeardown` 与 controller 重建（applySnapshot）路径
+   也补上 pending 的轮询重启，「有 pending ⇒ 有 poller」在全路径成立。
+4. **状态机抽纯 JVM 类** `player/PendingBindSlot`（CAS 语义/身份清/sinceMs 不重置，8 例单测），
+   另加 3 例 tick-registry 协作契约测试（真实定时器）。单测总数 189 → **192 例 0 失败**。
+   **真机复核待做**：退出重进播放页（今天踩中的场景）确认 tick 内补绑 + `seekTick feed` 恢复。
 **次生隐患**：`performTeardown` 会无条件 `pendingBindRef.set(null)`，不分 context——旧页延迟清理若落在新页
 deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（本次是 teardown done 恰好先于 deferral 才未触发）。
 **严重度口径**：触发频率未量化（今日 ~3 次进页命中 1 次；6.5.0 上该状态每 500ms 自愈，是 6.6.0 特有死路）；
