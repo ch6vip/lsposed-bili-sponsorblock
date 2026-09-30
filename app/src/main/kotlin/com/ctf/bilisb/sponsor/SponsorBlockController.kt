@@ -331,6 +331,15 @@ class SponsorBlockController(
     fun hasHandle(contextHash: Int): Boolean =
         !closed.get() && playerHandles.containsKey(contextHash)
 
+    /**
+     * 当前真正绑着 handle 的 contextHash 集合。
+     *
+     * 供 Hook 侧在 controller 重建后，按「有 handle 就必须有进度 poller」这个不变式重建轮询表 ——
+     * 不能用旧的 poller 表项反推（那张表正是可能失同步的一方）。
+     */
+    fun activeContextHashes(): Set<Int> =
+        if (closed.get()) emptySet() else HashSet(playerHandles.keys)
+
     /** 诊断/喂入用：该 context 已绑定的播放器 core（6.6.0 tick 派发器钩子喂进度用）。 */
     fun coreForContext(contextHash: Int): Any? =
         if (closed.get()) null else playerHandles[contextHash]?.core
