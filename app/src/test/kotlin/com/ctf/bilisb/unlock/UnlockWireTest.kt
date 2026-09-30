@@ -3,6 +3,7 @@ package com.ctf.bilisb.unlock
 import com.ctf.bilisb.unlock.proto.VodInfo
 import com.google.protobuf.Any
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,5 +58,52 @@ class UnlockWireTest {
         val any = Any.parseFrom(bytes)
         assertEquals(PlayViewDecision.PGC_ANY_MODEL_TYPE_URL, any.typeUrl)
         assertTrue(payload.contentEquals(any.value.toByteArray()))
+    }
+}
+
+class RestrictedReplyPatchTest {
+
+    /**
+     * 真实 PGC 响应（6.6.0 宿主实拍 19625B 的 PlayViewUniteReply 完整序列化）。
+     * U4 运行时的补丁路径与这里完全一致：unite reply → supplement.value →
+     * PlayViewReply 清 view_info / is_preview=false → 重包 Any。
+     */
+    private val sample: ByteArray by lazy {
+        javaClass.classLoader!!.getResourceAsStream("unlock/restricted_reply_sample.bin")!!.readBytes()
+    }
+
+    @Test
+    fun `真实 unite reply 可被自备 schema 解析且 supplement 可提取`() {
+        val reply = com.ctf.bilisb.unlock.proto.PlayViewUniteReply.parseFrom(sample)
+        // supplement (Any) 存在且 type_url 为 PGC 模型
+        assertEquals(PlayViewDecision.PGC_ANY_MODEL_TYPE_URL, reply.supplement.typeUrl)
+        assertTrue(reply.supplement.value.size() > 0)
+        // playArc.cid 为本集真实 cid
+        assertEquals(40700545720L, reply.playArc.cid)
+    }
+
+    @Test
+    fun `清弹窗补丁在真实 supplement 上保留未知字段 v2`() {
+        val reply = com.ctf.bilisb.unlock.proto.PlayViewUniteReply.parseFrom(sample)
+        val origPayload = reply.supplement.value.toByteArray()
+        val origPgc = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(origPayload)
+
+        // U4 运行时同款补丁：清 view_info + is_preview=false
+        val patchedPayload = origPgc.toBuilder()
+            .clearViewInfo()
+            .setBusiness(origPgc.business.toBuilder().setIsPreview(false).build())
+            .build()
+            .toByteArray()
+
+        val repatched = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(patchedPayload)
+        // business 未知字段（episode_info 等 UI 数据）保留：体积接近原始
+        val before = origPgc.business.toByteArray()
+        val after = repatched.business.toByteArray()
+        assertTrue("business 体积保留（未知字段不丢）", after.size >= before.size - 8)
+        assertFalse("isPreview 应为 false", repatched.business.isPreview)
+        // view_info 已清
+        assertTrue("viewInfo 应已清空", !repatched.viewInfo.hasDialog() && repatched.viewInfo.dialog.type.isEmpty())
+        // 载荷体积应缩小（清掉的 area_limit 弹窗内容）
+        assertTrue("清弹窗后载荷应缩小", patchedPayload.size < origPayload.size)
     }
 }
