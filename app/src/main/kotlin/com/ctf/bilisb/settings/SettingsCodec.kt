@@ -238,9 +238,17 @@ object SettingsCodec {
         }
     }
 
+    /**
+     * 回读「默认标记类别」时校验。
+     *
+     * 存的是 **category 字面量**（`"sponsor"`），所以必须拿字面量集合校验。
+     * 旧实现拿 `displayNames`（显示名 → id）校验，`"sponsor" in {赞助/恰饭=sponsor,...}`
+     * 永远为 false —— 任何已保存的合法值都会被静默改回默认值（赞助/恰饭），
+     * 且用户看不到任何提示。现在按 [SponsorCategories.ids] 判定。
+     */
     private fun sanitizeCategory(raw: String?): String {
         val category = raw?.trim().orEmpty()
-        return if (category in com.ctf.bilisb.model.SponsorCategories.displayNames) {
+        return if (category in com.ctf.bilisb.model.SponsorCategories.ids) {
             category
         } else {
             SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE

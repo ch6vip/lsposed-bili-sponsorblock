@@ -45,6 +45,7 @@
     <string name="state_user_generated">已生成</string>
     <string name="state_user_missing">未生成</string>
     <string name="state_user_invalid">无效</string>
+    <string name="state_source_local_prefs">本地 SharedPreferences</string>
     <string name="state_module">模块状态：%1$s</string>
     <string name="state_settings_source">设置来源：%1$s</string>
     <string name="state_server">服务器：%1$s</string>
@@ -53,6 +54,7 @@
     <string name="state_enabled_categories">启用分类：%1$d/%2$d</string>
 
     <!-- SponsorBlock 设置页 -->
+    <string name="settings_section_sponsorblock">SponsorBlock</string>
     <string name="section_master_switch">总开关</string>
     <string name="enable_title">启用 SponsorBlock</string>
     <string name="enable_summary">关闭后模块不工作</string>
@@ -112,6 +114,17 @@
     <string name="category_hint_music_offtopic">MV中非音乐部分</string>
     <string name="category_hint_filler">笑话、重复片段</string>
     <string name="category_hint_poi_highlight">视频精彩部分</string>
+
+    <!-- 分类显示名（UI 用；模型层 SponsorCategories 里那份是给日志与存储的规范名）-->
+    <string name="category_name_sponsor">赞助/恰饭</string>
+    <string name="category_name_selfpromo">自我推广</string>
+    <string name="category_name_interaction">互动提醒</string>
+    <string name="category_name_intro">开场动画</string>
+    <string name="category_name_outro">结束画面</string>
+    <string name="category_name_preview">回顾/概要</string>
+    <string name="category_name_music_offtopic">非音乐片段</string>
+    <string name="category_name_filler">填充内容</string>
+    <string name="category_name_poi_highlight">精彩时刻</string>
 
     <!-- 颜色选择 -->
     <string name="color_custom_hex">自定义 (hex)：</string>

@@ -471,7 +471,7 @@ class SponsorBlockController(
                 return // 同一片段已在展示,避免重复重设按钮
             }
             manualButtonSegmentKeyByContext[contextHash] = skipKey
-            val categoryName = getCategoryDisplayName(segment.category)
+            val categoryName = getCategoryDisplayName(segment.category, contextHash)
             // segmentKey 必须显式传给按钮:ManualSkipButton 用它做「点击后短期抑制」,
             // 不传的话 seek 生效前的几帧进度回调会让按钮闪回来。
             ManualSkipButton.show(module, handle.container, categoryName, skipKey) {
@@ -524,7 +524,7 @@ class SponsorBlockController(
                 return
             }
             countdownSegmentKeyByContext[contextHash] = skipKey
-            val categoryName = getCategoryDisplayName(segment.category)
+            val categoryName = getCategoryDisplayName(segment.category, contextHash)
             val endMs = segment.endMs
             val startMs = segment.startMs
             SkipCountdownOverlay.start(
@@ -582,7 +582,7 @@ class SponsorBlockController(
         // 统计开关关闭时不累计（面板/设置页的「跳过次数统计」）
         if (settings.showSkipStats) SkipStatsStore.record(segment.category, segment.endMs - segment.startMs)
         if (settings.showToast) {
-            val categoryName = getCategoryDisplayName(segment.category)
+            val categoryName = getCategoryDisplayName(segment.category, contextHash)
             val durationSec = (segment.endMs - segment.startMs) / 1000.0
             val message = String.format(Locale.US, "%s (%.1f秒)", categoryName, durationSec)
             PlayerToastBridge.showSkipToast(module, handle.container, message)
@@ -900,8 +900,18 @@ class SponsorBlockController(
         repository.close()
     }
 
-    private fun getCategoryDisplayName(category: String): String =
-        com.ctf.bilisb.model.SponsorCategories.displayName(category)
+    /**
+     * 分类显示名（UI 用，按玩家容器的 locale 取资源）。
+     *
+     * 取不到容器时（极早期/已离开）退回规范中文名：日志与兜底文案仍可读，
+     * 但界面路径上有 Context 就一定能拿到本地化名称。
+     */
+    private fun getCategoryDisplayName(category: String, contextHash: Int): String {
+        val canonical = com.ctf.bilisb.model.SponsorCategories
+        val container = playerHandles[contextHash]?.container ?: return canonical.displayName(category)
+        val context = PlayerBridge.context(container) ?: return canonical.displayName(category)
+        return canonical.displayName(context, category)
+    }
 
     companion object {
         /** 片段健全性下限:短于 250ms 的片段不参与跳过/静音/标记。 */

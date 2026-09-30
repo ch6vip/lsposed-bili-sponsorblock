@@ -25,12 +25,23 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.ctf.bilisb.BuildConfig
+import com.ctf.bilisb.R
 import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SkipStatsStore
 import com.ctf.bilisb.sponsor.UserIdentityStore
 
 object SettingsScreenBuilder {
     private const val REPO_URL = "https://github.com/ch6vip/lsposed-bili-sponsorblock"
+
+    /**
+     * 取资源文案（英文用户自动走 `values-en`）。
+     *
+     * 设置页的用户可见文案一律走这里，不再写字面量 —— 目标宿主是国际版，
+     * 漏一处就是「英文界面里夹一句中文」。`SettingsScreenBuilderTextTest` 会扫描本文件的
+     * 中文字面量来防止回归。
+     */
+    private fun str(activity: Activity, resId: Int, vararg args: Any): String =
+        runCatching { activity.getString(resId, *args) }.getOrElse { "" }
 
     /** statusPanel 的兜底单例(模块进程内复用,避免反复 new SettingsWriter 泄漏线程/监听器)。 */
     @Volatile
@@ -69,7 +80,7 @@ object SettingsScreenBuilder {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(activity, 6), dp(activity, 8), dp(activity, 14), dp(activity, 8))
             addView(TextView(activity).apply {
-                text = "‹ 返回"
+                text = str(activity, R.string.common_back)
                 textSize = 15f
                 setTextColor(BILI_PINK)
                 setTypeface(typeface, Typeface.BOLD)
@@ -175,7 +186,7 @@ object SettingsScreenBuilder {
                     setTypeface(typeface, Typeface.BOLD)
                 })
                 addView(TextView(activity).apply {
-                    text = "SponsorBlock · B 站增强 —— 开源 LSPosed 模块(MIT)"
+                    text = str(activity, R.string.app_tagline)
                     textSize = 12f
                     setTextColor(0xE6FFFFFF.toInt())
                     setPadding(0, dp(activity, 2), 0, 0)
@@ -188,26 +199,26 @@ object SettingsScreenBuilder {
 
             // 功能卡片:SponsorBlock / B 站增强
             addView(card {
-                addView(entryRow(activity, "SponsorBlock", "赞助/片头等片段的跳过与标记设置", onSponsorBlockClick))
+                addView(entryRow(activity, str(activity, R.string.entry_sponsorblock_title), str(activity, R.string.entry_sponsorblock_summary), onSponsorBlockClick))
                 if (onEnhanceClick != null) {
                     addView(biliDivider(activity))
-                    addView(entryRow(activity, "B 站增强", "IP 属地 · 互动提示 · 首页刷新 · 分享 QQ", onEnhanceClick))
+                    addView(entryRow(activity, str(activity, R.string.entry_enhance_title), str(activity, R.string.entry_enhance_summary), onEnhanceClick))
                 }
             }, cardLayoutParams())
 
             // 关于卡片(版本行可点击 → 跳转 GitHub 项目页;发版说明以 GitHub Releases 为单一来源)
             addView(TextView(activity).apply {
-                text = "关于"
+                text = str(activity, R.string.common_about)
                 textSize = 13f
                 setTextColor(BILI_TEXT_SECONDARY)
                 setPadding(dp(activity, 4), dp(activity, 2), 0, dp(activity, 6))
             })
             addView(card {
-                addView(aboutItem(activity, "版本", "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})") {
+                addView(aboutItem(activity, str(activity, R.string.common_version), "${BuildConfig.VERSION_NAME}(versionCode ${BuildConfig.VERSION_CODE})") {
                     openUrl(activity, REPO_URL)
                 })
                 addView(biliDivider(activity))
-                addView(aboutItem(activity, "作者", "ch6vip"))
+                addView(aboutItem(activity, str(activity, R.string.common_author), "ch6vip"))
             })
         }
     }
@@ -219,15 +230,15 @@ object SettingsScreenBuilder {
      */
     fun buildEnhance(activity: Activity, prefs: SharedPreferences): LinearLayout {
         return biliPage(activity) {
-            biliSection(this, activity, "增强开关") {
-                addView(hint(activity, "移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭"))
+            biliSection(this, activity, str(activity, R.string.enhance_section)) {
+                addView(hint(activity, str(activity, R.string.enhance_note)))
                 val rows = listOf(
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, "评论/主页 IP 属地", "改写请求身份让服务端返回 IP 属地(重启宿主生效)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, "隐藏一键三连提示", "不显示三连动画与提示文案", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, "隐藏 UP 提示", "不显示关注引导气泡", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, "隐藏投票/互动弹幕", "不显示互动弹幕投票面板", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, "首页不自动刷新", "切回首页/从后台返回不重置列表(下拉仍可手动刷新)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, "分享到 QQ", "分享面板补回 QQ 入口(需已安装 QQ)", false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_IP_LOCATION, str(activity, R.string.enhance_ip_location_title), str(activity, R.string.enhance_ip_location_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_TRIPLE, str(activity, R.string.enhance_hide_triple_title), str(activity, R.string.enhance_hide_triple_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_UP_PROMPT, str(activity, R.string.enhance_hide_up_title), str(activity, R.string.enhance_hide_up_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_HIDE_VOTE, str(activity, R.string.enhance_hide_vote_title), str(activity, R.string.enhance_hide_vote_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_NO_AUTO_REFRESH, str(activity, R.string.enhance_no_refresh_title), str(activity, R.string.enhance_no_refresh_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.ENHANCE_SHARE_QQ, str(activity, R.string.enhance_share_qq_title), str(activity, R.string.enhance_share_qq_summary), false),
                 )
                 rows.forEachIndexed { index, row ->
                     if (index > 0) addView(biliDividerInner(activity))
@@ -247,25 +258,36 @@ object SettingsScreenBuilder {
         val prefs = writer.sharedPreferences
         val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
         val userIdState = when {
-            UserIdentityStore.isValidUserId(snapshot.userId) -> "已生成"
-            snapshot.userId.isBlank() -> "未生成"
-            else -> "无效"
+            UserIdentityStore.isValidUserId(snapshot.userId) -> str(activity, R.string.state_user_generated)
+            snapshot.userId.isBlank() -> str(activity, R.string.state_user_missing)
+            else -> str(activity, R.string.state_user_invalid)
         }
-        val source = SettingsSyncBridge.readSnapshot(activity)?.let { "Provider" } ?: "本地 SharedPreferences"
+        // "Provider" 是技术名（跨进程 IPC 取了权威存储），不翻译；本地兜底说明来源即可。
+        val source = SettingsSyncBridge.readSnapshot(activity)?.let { "Provider" }
+            ?: str(activity, R.string.state_source_local_prefs)
         val summary = listOf(
-            "模块状态：${if (snapshot.enabled) "已启用" else "已关闭"}",
-            "设置来源：$source",
-            "服务器：${snapshot.serverAddress}",
-            "缓存 TTL：${formatCacheTtl(snapshot.cacheTtlMs)}",
-            "用户 ID：$userIdState",
-            "启用分类：${snapshot.enabledCategories.size}/${SettingsKeys.CATEGORY_MAP.size}",
+            str(
+                activity,
+                R.string.state_module,
+                if (snapshot.enabled) str(activity, R.string.state_enabled) else str(activity, R.string.state_disabled),
+            ),
+            str(activity, R.string.state_settings_source, source),
+            str(activity, R.string.state_server, snapshot.serverAddress),
+            str(activity, R.string.state_cache_ttl, formatCacheTtl(activity, snapshot.cacheTtlMs)),
+            str(activity, R.string.state_user_id, userIdState),
+            str(
+                activity,
+                R.string.state_enabled_categories,
+                snapshot.enabledCategories.size,
+                SettingsKeys.CATEGORY_MAP.size,
+            ),
         ).joinToString("\n")
 
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(activity, 12), 0, dp(activity, 12))
             addView(TextView(activity).apply {
-                text = "状态"
+                text = str(activity, R.string.common_status)
                 textSize = 16f
                 setTextColor(primaryTextColor(activity))
                 setTypeface(typeface, Typeface.BOLD)
@@ -281,31 +303,31 @@ object SettingsScreenBuilder {
 
     fun buildDetail(activity: Activity, prefs: SharedPreferences): LinearLayout {
         return biliPage(activity) {
-            biliSection(this, activity, "SponsorBlock") {
-                addView(createCheckBox(activity, prefs, SettingsKeys.ENABLED, "启用 SponsorBlock", "关闭后模块不工作", true))
+            biliSection(this, activity, str(activity, R.string.settings_section_sponsorblock)) {
+                addView(createCheckBox(activity, prefs, SettingsKeys.ENABLED, str(activity, R.string.enable_title), str(activity, R.string.enable_summary), true))
             }
 
-            biliSection(this, activity, "自动跳过") {
+            biliSection(this, activity, str(activity, R.string.section_auto_skip)) {
                 val rows = listOf(
-                    createCheckBox(activity, prefs, SettingsKeys.AUTO_SKIP, "自动跳过", "检测到片段时自动跳过", true),
-                    createCheckBox(activity, prefs, SettingsKeys.MANUAL_SKIP, "手动跳过", "片段内显示跳过按钮,点按才跳(覆盖自动跳过)", false),
-                    createCheckBox(activity, prefs, SettingsKeys.MUTE_SEGMENTS, "片段静音", "对 mute 类片段静音而非跳过", false),
+                    createCheckBox(activity, prefs, SettingsKeys.AUTO_SKIP, str(activity, R.string.auto_skip_title), str(activity, R.string.auto_skip_summary), true),
+                    createCheckBox(activity, prefs, SettingsKeys.MANUAL_SKIP, str(activity, R.string.manual_skip_title), str(activity, R.string.manual_skip_summary), false),
+                    createCheckBox(activity, prefs, SettingsKeys.MUTE_SEGMENTS, str(activity, R.string.mute_segments_title), str(activity, R.string.mute_segments_summary), false),
                 )
                 rows.forEachIndexed { index, row ->
                     if (index > 0) addView(biliDividerInner(activity))
                     addView(row)
                 }
                 addView(biliDividerInner(activity))
-                addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, "最小片段时长(秒)：", "0"))
+                addView(numberRow(activity, prefs, SettingsKeys.MIN_SKIP_DURATION, str(activity, R.string.min_skip_duration_label), "0"))
                 addView(biliDividerInner(activity))
-                addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, "自动跳过倒计时(秒)：", "0"))
+                addView(numberRow(activity, prefs, SettingsKeys.SKIP_COUNTDOWN, str(activity, R.string.skip_countdown_label), "0"))
             }
 
-            biliSection(this, activity, "跳过类别") {
+            biliSection(this, activity, str(activity, R.string.section_categories)) {
                 // 顺序、设置键、显示名全部来自 SponsorCategories（单一事实来源）；
-                // 这里只保留「一句话说明」这类纯 UI 文案，别再手抄分类与显示名。
+                // 这里只保留「一句话说明」这类纯 UI 文案（同样走资源）。
                 val categories = SponsorCategories.ordered.map { category ->
-                    Triple(category.settingsKey, category.displayName, categoryHint(category.id))
+                    Triple(category.settingsKey, SponsorCategories.displayName(activity, category.id), categoryHint(activity, category.id))
                 }
                 categories.forEachIndexed { index, (key, title, summary) ->
                     if (index > 0) addView(biliDividerInner(activity))
@@ -313,20 +335,20 @@ object SettingsScreenBuilder {
                 }
             }
 
-            biliSection(this, activity, "标记颜色") {
-                addView(hint(activity, "点击色块自定义各分类在进度条上的标记颜色"))
-                SponsorCategories.displayNames.entries.forEachIndexed { index, (category, name) ->
+            biliSection(this, activity, str(activity, R.string.section_marker_colors)) {
+                addView(hint(activity, str(activity, R.string.marker_colors_hint)))
+                SponsorCategories.ordered.forEachIndexed { index, category ->
                     if (index > 0) addView(biliDividerInner(activity))
-                    addView(ColorPickerDialog.colorRow(activity, prefs, category, name))
+                    addView(ColorPickerDialog.colorRow(activity, prefs, category.id, SponsorCategories.displayName(activity, category.id)))
                 }
             }
 
-            biliSection(this, activity, "界面显示") {
+            biliSection(this, activity, str(activity, R.string.section_ui)) {
                 val rows = listOf(
-                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TOAST, "跳过提示", "跳过时显示 Toast", true),
-                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SEEKBAR_MARKER, "进度条标记", "标记片段位置", true),
-                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TIME_DEDUCTION, "时间扣减", "总时长减去跳过时长", true),
-                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SKIP_STATS, "跳过次数统计", "累计跳过次数与节省时长", true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TOAST, str(activity, R.string.show_toast_title), str(activity, R.string.show_toast_summary), true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SEEKBAR_MARKER, str(activity, R.string.show_marker_title), str(activity, R.string.show_marker_summary), true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_TIME_DEDUCTION, str(activity, R.string.show_time_deduction_title), str(activity, R.string.show_time_deduction_summary), true),
+                    createCheckBox(activity, prefs, SettingsKeys.SHOW_SKIP_STATS, str(activity, R.string.show_skip_stats_title), str(activity, R.string.show_skip_stats_summary), true),
                 )
                 rows.forEachIndexed { index, row ->
                     if (index > 0) addView(biliDividerInner(activity))
@@ -336,20 +358,20 @@ object SettingsScreenBuilder {
                 // SettingsKeys.SHOW_SUBMIT_BUTTON 暂时保留以兼容旧配置与编解码。
             }
 
-            biliSection(this, activity, "统计") {
+            biliSection(this, activity, str(activity, R.string.section_stats)) {
                 buildStats(activity, this)
             }
 
-            biliSection(this, activity, "提交配置") {
+            biliSection(this, activity, str(activity, R.string.section_submission)) {
                 addView(userIdRow(activity, prefs))
                 addView(biliDividerInner(activity))
                 addView(defaultSubmitCategoryRow(activity, prefs))
             }
 
-            biliSection(this, activity, "服务器") {
+            biliSection(this, activity, str(activity, R.string.section_server)) {
                 addView(serverRow(activity, prefs))
                 addView(biliDividerInner(activity))
-                addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, "缓存 TTL(分钟)：", SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
+                addView(numberRow(activity, prefs, SettingsKeys.CACHE_TTL_MINUTES, str(activity, R.string.cache_ttl_label), SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
             }
         }
     }
@@ -368,7 +390,7 @@ object SettingsScreenBuilder {
         // 模块进程下显示说明文案,不显示假数据。
         if (activity.packageName == SettingsSyncBridge.MODULE_PACKAGE) {
             parent.addView(TextView(activity).apply {
-                text = "统计只记录在宿主进程内,请在播放器「空降助手」面板查看。"
+                text = str(activity, R.string.stats_host_only)
                 textSize = 12f
                 setTextColor(Color.GRAY)
                 setPadding(0, 0, 0, dp(activity, 8))
@@ -387,12 +409,23 @@ object SettingsScreenBuilder {
 
         fun refresh() {
             val s = SkipStatsStore.snapshot()
-            summary.text = "已跳过 ${s.totalCount} 个片段 · 共节省 ${formatDuration(s.totalDurationMs)}"
+            summary.text = str(
+                activity,
+                R.string.stats_summary,
+                s.totalCount,
+                formatDuration(activity, s.totalDurationMs),
+            )
             detail.text = if (s.perCategory.isEmpty()) {
-                "暂无记录"
+                str(activity, R.string.stats_empty)
             } else {
                 s.perCategory.entries.joinToString("\n") { (cat, st) ->
-                    "  ${SponsorCategories.displayName(cat)}：${st.count} 个 · ${formatDuration(st.durationMs)}"
+                    str(
+                        activity,
+                        R.string.stats_category_line,
+                        SponsorCategories.displayName(activity, cat),
+                        st.count,
+                        formatDuration(activity, st.durationMs),
+                    )
                 }
             }
         }
@@ -401,16 +434,16 @@ object SettingsScreenBuilder {
         parent.addView(summary)
         parent.addView(detail)
         parent.addView(Button(activity).apply {
-            text = "重置统计"
+            text = str(activity, R.string.stats_reset)
             setOnClickListener {
                 SkipStatsStore.reset()
                 refresh()
-                Toast.makeText(activity, "统计已重置", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, str(activity, R.string.stats_reset_done), Toast.LENGTH_SHORT).show()
             }
         })
     }
 
-    private fun formatDuration(ms: Long): String {
+    private fun formatDuration(activity: Activity, ms: Long): String {
         val totalSec = ms / 1000
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
@@ -418,12 +451,16 @@ object SettingsScreenBuilder {
         return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
     }
 
-    private fun formatCacheTtl(ms: Long): String {
+    private fun formatCacheTtl(activity: Activity, ms: Long): String {
         val minutes = ms / 60_000.0
         return if (minutes % 1.0 == 0.0) {
-            "${minutes.toLong()} 分钟"
+            str(activity, R.string.cache_ttl_minutes, minutes.toLong())
         } else {
-            "${minutes.toString().trimEnd('0').trimEnd('.')} 分钟"
+            // 小数分钟去掉尾随 0（旧实现 trimEnd('0') 会把 "10" 变成 "1"，属于既有隐患；
+            // 这里只在含小数点时裁剪，语义不变但不会误伤整数）
+            val text = minutes.toString()
+            val trimmed = if (text.contains('.')) text.trimEnd('0').trimEnd('.') else text
+            str(activity, R.string.cache_ttl_minutes_fractional, trimmed)
         }
     }
 
@@ -518,7 +555,7 @@ object SettingsScreenBuilder {
             setPadding(0, dp(activity, 10), 0, dp(activity, 10))
             gravity = Gravity.CENTER_VERTICAL
             addView(TextView(activity).apply {
-                text = "服务器地址："
+                text = str(activity, R.string.server_address_label)
                 textSize = 14f
             })
             addView(EditText(activity).apply {
@@ -534,7 +571,7 @@ object SettingsScreenBuilder {
                         } else if (!SettingsSanitizer.isValidServerAddress(addr)) {
                             // 非法地址不落盘：SponsorBlockClient 直接拼 `${serverAddress}/api/...`，
                             // 无 scheme / 超长的地址只会让请求全挂，这里回显已存值并提示。
-                            Toast.makeText(activity, "服务器地址应以 http:// 或 https:// 开头", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(activity, str(activity, R.string.server_address_scheme_error), Toast.LENGTH_SHORT).show()
                             setText(prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER))
                         } else {
                             prefs.edit().putString(SettingsKeys.SERVER_ADDRESS, addr).apply()
@@ -548,7 +585,7 @@ object SettingsScreenBuilder {
     private fun defaultSubmitCategoryRow(activity: Activity, prefs: SharedPreferences): View {
         fun currentCategory(): String {
             val saved = prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE)
-            return if (saved in SponsorCategories.displayNames) {
+            return if (saved in SponsorCategories.ids) {
                 saved ?: SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
             } else {
                 SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
@@ -561,7 +598,7 @@ object SettingsScreenBuilder {
             setPadding(0, dp(activity, 2), 0, 0)
         }
         fun refresh() {
-            valueView.text = SponsorCategories.displayName(currentCategory())
+            valueView.text = SponsorCategories.displayName(activity, currentCategory())
         }
         refresh()
 
@@ -576,7 +613,7 @@ object SettingsScreenBuilder {
                 orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 addView(TextView(activity).apply {
-                    text = "默认标记类别"
+                    text = str(activity, R.string.default_category_title)
                     textSize = 16f
                     setTextColor(primaryTextColor(activity))
                     setTypeface(typeface, Typeface.BOLD)
@@ -589,17 +626,17 @@ object SettingsScreenBuilder {
                 setTextColor(Color.GRAY)
             })
             setOnClickListener {
-                val categories = SponsorCategories.displayNames.keys.toList()
-                val labels = categories.map { SponsorCategories.displayName(it) }.toTypedArray()
+                val categories = SponsorCategories.ordered.map { it.id }
+                val labels = categories.map { SponsorCategories.displayName(activity, it) }.toTypedArray()
                 val index = categories.indexOf(currentCategory()).coerceAtLeast(0)
                 AlertDialog.Builder(activity)
-                    .setTitle("默认标记类别")
+                    .setTitle(str(activity, R.string.default_category_title))
                     .setSingleChoiceItems(labels, index) { dialog, which ->
                         prefs.edit().putString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, categories[which]).apply()
                         refresh()
                         dialog.dismiss()
                     }
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(str(activity, R.string.common_cancel), null)
                     .show()
             }
         }
@@ -622,7 +659,7 @@ object SettingsScreenBuilder {
         }
         fun refresh() {
             valueView.text = currentUserId().takeIf { UserIdentityStore.isValidUserId(it) }
-                ?: "（未生成，点\"重置\"生成）"
+                ?: str(activity, R.string.user_id_empty_hint)
         }
         refresh()
 
@@ -630,7 +667,7 @@ object SettingsScreenBuilder {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(activity, 10), 0, dp(activity, 10))
             addView(TextView(activity).apply {
-                text = "用户 ID"
+                text = str(activity, R.string.user_id_title)
                 textSize = 16f
                 setTextColor(primaryTextColor(activity))
                 setTypeface(typeface, Typeface.BOLD)
@@ -639,28 +676,28 @@ object SettingsScreenBuilder {
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 addView(Button(activity).apply {
-                    text = "复制"
+                    text = str(activity, R.string.common_copy)
                     setOnClickListener {
                         val id = currentUserId()
                         if (!UserIdentityStore.isValidUserId(id)) {
-                            Toast.makeText(activity, "尚未生成用户 ID，请先点\"重置\"", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(activity, str(activity, R.string.user_id_not_generated), Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
                         }
                         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Bili2233 userId", id))
-                        Toast.makeText(activity, "已复制", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(activity, str(activity, R.string.user_id_copied), Toast.LENGTH_SHORT).show()
                     }
                 })
                 addView(Button(activity).apply {
-                    text = "重置"
+                    text = str(activity, R.string.common_reset)
                     setOnClickListener {
                         prefs.edit().putString(SettingsKeys.USER_ID, UserIdentityStore.generateUserId()).apply()
                         refresh()
-                        Toast.makeText(activity, "已重置", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(activity, str(activity, R.string.user_id_reset_done), Toast.LENGTH_SHORT).show()
                     }
                 })
                 addView(Button(activity).apply {
-                    text = "导入"
+                    text = str(activity, R.string.common_import)
                     setOnClickListener {
                         showUserIdImportDialog(activity, prefs, ::refresh)
                     }
@@ -677,22 +714,22 @@ object SettingsScreenBuilder {
         }
         lateinit var dialog: AlertDialog
         dialog = AlertDialog.Builder(activity)
-            .setTitle("导入用户 ID")
+            .setTitle(str(activity, R.string.user_id_import_title))
             .setView(edit)
-            .setPositiveButton("保存", null)
-            .setNegativeButton("取消", null)
+            .setPositiveButton(str(activity, R.string.common_save), null)
+            .setNegativeButton(str(activity, R.string.common_cancel), null)
             .create()
         dialog.setOnShowListener {
             val button = dialog.getButton(DialogInterface.BUTTON_POSITIVE)
             button.setOnClickListener {
                 val userId = edit.text.toString().trim()
                 if (!UserIdentityStore.isValidUserId(userId)) {
-                    Toast.makeText(activity, "用户 ID 必须是 32 位十六进制", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, str(activity, R.string.user_id_invalid_hex), Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 prefs.edit().putString(SettingsKeys.USER_ID, userId).apply()
                 onSaved()
-                Toast.makeText(activity, "已保存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, str(activity, R.string.saved), Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
         }
@@ -779,7 +816,7 @@ object SettingsScreenBuilder {
         runCatching {
             activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }.onFailure {
-            Toast.makeText(activity, "无法打开链接", Toast.LENGTH_SHORT).show()
+            Toast.makeText(activity, str(activity, R.string.cannot_open_link), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -798,20 +835,20 @@ object SettingsScreenBuilder {
     /**
      * 「跳过类别」每一行的一句话说明。
      *
-     * 分类与显示名走 [SponsorCategories]（权威表），只有这段给人看的解释留在这里；
+     * 分类与显示名走 [SponsorCategories]（权威表），这段解释也走资源；
      * 新增分类时若忘了补说明，会退回显示名而不是崩掉。
      */
-    private fun categoryHint(category: String): String = when (category) {
-        "sponsor" -> "付费推广、赞助商"
-        "selfpromo" -> "自己的商品、链接"
-        "interaction" -> "点赞、关注提示"
-        "intro" -> "片头动画"
-        "outro" -> "片尾鸣谢"
-        "preview" -> "前情回顾"
-        "music_offtopic" -> "MV中非音乐部分"
-        "filler" -> "笑话、重复片段"
-        com.ctf.bilisb.model.SponsorCategories.POI_HIGHLIGHT -> "视频精彩部分"
-        else -> SponsorCategories.displayName(category)
+    private fun categoryHint(activity: Activity, category: String): String = when (category) {
+        "sponsor" -> str(activity, R.string.category_hint_sponsor)
+        "selfpromo" -> str(activity, R.string.category_hint_selfpromo)
+        "interaction" -> str(activity, R.string.category_hint_interaction)
+        "intro" -> str(activity, R.string.category_hint_intro)
+        "outro" -> str(activity, R.string.category_hint_outro)
+        "preview" -> str(activity, R.string.category_hint_preview)
+        "music_offtopic" -> str(activity, R.string.category_hint_music_offtopic)
+        "filler" -> str(activity, R.string.category_hint_filler)
+        com.ctf.bilisb.model.SponsorCategories.POI_HIGHLIGHT -> str(activity, R.string.category_hint_poi_highlight)
+        else -> SponsorCategories.displayName(activity, category)
     }
 
     /**

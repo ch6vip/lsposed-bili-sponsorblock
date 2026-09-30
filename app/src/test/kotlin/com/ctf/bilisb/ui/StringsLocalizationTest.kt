@@ -112,4 +112,30 @@ class StringsLocalizationTest {
         val context = contextFor("zh", "CN")
         assertEquals("Bili2233", context.getString(R.string.module_name))
     }
+
+    /**
+     * 分类显示名也必须本地化：每个分类 id 都要有资源，
+     * 且英文 locale 下不能等于规范中文名（漏译的典型形态）。
+     */
+    @Test
+    fun `分类显示名两个 locale 都取得到且英文不是中文`() {
+        val zh = contextFor("zh", "CN")
+        val en = contextFor("en", "US")
+
+        assertEquals(
+            "每个分类都必须有 UI 显示名资源，缺失的会退回中文规范名",
+            com.ctf.bilisb.model.SponsorCategories.ids,
+            com.ctf.bilisb.model.SponsorCategories.displayNameResIds.keys,
+        )
+
+        val problems = com.ctf.bilisb.model.SponsorCategories.ordered.filter { category ->
+            val zhName = com.ctf.bilisb.model.SponsorCategories.displayName(zh, category.id)
+            val enName = com.ctf.bilisb.model.SponsorCategories.displayName(en, category.id)
+            // 中文 locale 应等于规范名；英文应非空且不含中文
+            zhName != category.displayName ||
+                enName.isBlank() ||
+                enName.any { it.code in 0x4E00..0x9FFF }
+        }
+        assertEquals("这些分类的显示名有问题：$problems", emptyList<com.ctf.bilisb.model.SponsorCategories.Category>(), problems)
+    }
 }
