@@ -204,6 +204,19 @@ deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（
 
 **附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
 
+## 解锁番剧 U1 观测钩（2026-09-30 深夜，装机验证通过）
+
+按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进（G1/G2 已决策延后至发版前，U8 落地）。
+U1 = `PlayerMoss.playViewUnite` 只读观测钩，不改任何行为。
+
+- 装机（0.7.3+U1 release，versionCode 不变）后真机验证：延迟重试命中
+  `hook ok: unlock:playViewUnite <- playViewUnite(2 args), executePlayViewUnite(1 args)`
+  ——suspend(2 参含 continuation) 与 1 参两种形态都挂上；hook summary 升至 33/38。
+- 探针工作正常：`unlock:reqFacts`（cid/season/ep/download）与
+  `unlock:verdict:NORMAL_UGC`（UGC 视频请求正确分类，判定链走通）。
+- 待验证：PGC（番剧）内容的 `NORMAL_PGC` 判定与受限场景——随日常使用观察探针积累，
+  或 U2 proto 管线（area_limit 弹窗级判定）落地后一并验。
+
 ## 增强四件套 6.6.0 屏幕复核（2026-09-30 晚，**全部收口**）
 
 背景：四件套自 0.6.3 起只验证过「安装命中」，屏幕效果从未在 6.6.0 复核；本轮同时核对
