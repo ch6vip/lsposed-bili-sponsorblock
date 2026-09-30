@@ -24,9 +24,13 @@ object UnlockConfig {
         val enabled: Boolean,
         val servers: List<RoamingClient.RoamingServer>,
         val testEpId: Long,
+        /** 缓存解锁：请求补参 fnval 拉满 + download=0（U6）。 */
+        val cacheUnlock: Boolean,
+        /** CDN upos 替换目标 host（空 = 不替换，U5）。 */
+        val uposHost: String,
     )
 
-    private val cache = AtomicReference(Pair(0L, Config(false, emptyList(), 0)))
+    private val cache = AtomicReference(Pair(0L, Config(false, emptyList(), 0, false, "")))
     private val lastAreaRef = AtomicReference<String?>(null)
 
     private const val TTL_MS = 60_000L
@@ -49,10 +53,12 @@ object UnlockConfig {
     private fun readFromMirror(module: XposedModule): Config {
         return runCatching {
             val file = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "sponsorblock_settings.json")
-            if (!file.isFile) return@runCatching Config(false, emptyList(), 0)
+            if (!file.isFile) return@runCatching Config(false, emptyList(), 0, false, "")
             val json = org.json.JSONObject(file.readText())
             val enabled = json.optBoolean("unlock_enabled", false)
             val testEpId = json.optLong("unlock_test_epid", 0L)
+            val cacheUnlock = json.optBoolean("unlock_cache", false)
+            val uposHost = json.optString("unlock_upos_host", "")
             val servers = mutableListOf<RoamingClient.RoamingServer>()
             val arr = runCatching {
                 org.json.JSONArray(json.optString("unlock_servers", "[]"))
@@ -69,9 +75,9 @@ object UnlockConfig {
                     )
                 }
             }
-            Config(enabled, servers, testEpId)
+            Config(enabled, servers, testEpId, cacheUnlock, uposHost)
         }.onFailure { t ->
             module.warn("unlock: config read failed: ${t.message}")
-        }.getOrDefault(Config(false, emptyList(), 0))
+        }.getOrDefault(Config(false, emptyList(), 0, false, ""))
     }
 }
