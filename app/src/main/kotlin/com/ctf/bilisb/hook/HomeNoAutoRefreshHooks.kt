@@ -3,6 +3,7 @@ package com.ctf.bilisb.hook
 import android.os.Handler
 import android.os.HandlerThread
 import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.host.HostTargets
 import com.ctf.bilisb.settings.EnhanceFlags
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -36,8 +37,6 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object HomeNoAutoRefreshHooks {
 
-    private const val VM_CLASS = "com.bilibili.pegasus.vm.PegasusViewModel"
-    private const val FLUSH_CLS = "com.bilibili.pegasus.data.request.PegasusFlush"
     private const val MAX_ATTEMPTS = 30
     private const val RETRY_DELAY_MS = 500L
 
@@ -61,8 +60,8 @@ object HomeNoAutoRefreshHooks {
             return
         }
         try {
-            val vm = Class.forName(VM_CLASS, false, cl)
-            val flush = Class.forName(FLUSH_CLS, false, cl)
+            val vm = Class.forName(HostTargets.PEGASUS_VM_CLASS, false, cl)
+            val flush = Class.forName(HostTargets.PEGASUS_FLUSH_CLASS, false, cl)
             // 结构匹配（跨版本稳定）：任意「第 3 参是 PegasusFlush」的方法。
             // 6.3.0 方法名 z0，6.4.0 改名 y0 —— 不再依赖方法名。
             val entry = vm.declaredMethods.firstOrNull { m ->

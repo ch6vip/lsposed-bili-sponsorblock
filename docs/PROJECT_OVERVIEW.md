@@ -232,7 +232,8 @@ music_offtopic / filler / poi_highlight
 
 ### 高
 
-1. **增强 hook 类名未进 `HostTargets`**：IP 属地 / 三连 / 首页刷新 / 分享 QQ 的候选散落在各文件，改版成本高于主链路。
+1. ~~**增强 hook 类名未进 `HostTargets`**~~（2026-09-30 收编完成：四件套候选集中进 `HostTargets` 增强段，
+   `EnhanceTargetsTest` 源码扫描钉住「宿主类名只进一张表」；SDK/平台/协议类名按口径留在 hook 文件。）
 2. **IP 属地多路径部分 miss**：6.5.0 上 `ip.kmpHeaderValue` / `ip.mossScope` / `ip.identityProvider` / `ip.restInterceptor` / `ip.restParams` 未挂上；现行活体是 REST 空间参数改写 + gRPC 头写入安装命中。评论区 loc 文案未截图复核。
 
 ### 中
