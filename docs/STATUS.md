@@ -141,9 +141,28 @@ handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时�
 
 ### 4. 本轮未做（有意）
 
-- **中文文案抽 `strings.xml` + `values-en`**（约 170 处）：目标宿主是国际版，这是清单里优先级最高的遗留项，
-  但属于大范围机械改动，不与发布同批，留作独立提交。
-- 浮层新挂载点的真机位置复核、增强四件套在 6.6.0 上的屏幕效果复核。
+- **浮层新挂载点的真机位置复核**、增强四件套在 6.6.0 上的屏幕效果复核。
+- **设置页文案的资源落点替换**（`SettingsScreenBuilder` 90+ 条）：资源已就位，替换留作下一步。
+
+## 文案国际化（2026-09-30，随下一版发布）
+
+目标宿主是**国际版**，但界面文案长期是硬编码中文字面量。本批抽出「播放器内用户可见」的文案：
+
+| 项 | 内容 |
+| --- | --- |
+| 资源 | `res/values/strings.xml` + 新增 `res/values-en/strings.xml`，120+ 条（通用/控制中心/增强页/状态区/设置页/分类说明/颜色选择/面板/浮层/Toast） |
+| 落点 | `SponsorBlockPlayerSheet`（全部行文案与子弹窗）、`PlayerToastBridge`、`ManualSkipButton`、`SkipCountdownOverlay` |
+| 结构 | 新增 `ui/SheetStrings.kt`：`SheetStateFormatter` 保持纯 JVM（可单测），文案经该接口注入；生产实现 `AndroidStrings` |
+| 测试 | 新增 `StringsLocalizationTest` 5 例：键集合一致 / 英文无中日韩字符 / 占位符一一对应 / **运行时**按 locale 取到各自语言 |
+
+**顺带修掉一个测试基础设施缺陷（重要）**：`isIncludeAndroidResources` 此前未显式开启，
+Robolectric 单测里读不到应用资源 —— 包名是 `org.robolectric.default`、
+`getString(R.string.module_name)` 直接抛 `Resources$NotFoundException`。
+也就是说**任何**依赖 `getString` 的代码在单测里都会崩；本轮改文案时面板 `show()` 整体失败才暴露。
+现已显式打开（AGP 8 默认值本就该是 true，写出来防止被静默改掉）。
+
+单测总数 167 → **172 例 0 失败**。待做：设置页 90+ 条文案落点、`SponsorCategories`
+分类显示名（同时是设置持久化的显示值，需连 `SettingsCodec` 的显示名反查一起改）。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 
