@@ -17,6 +17,16 @@ data class DashTrack(
     val codecid: Int,
     val md5: String,
     val size: Long,
+    /** 该流的 stream_info 元数据（真实响应每条 Stream 都带；缺失会被播放器选流逻辑忽略）。 */
+    val meta: StreamMeta? = null,
+)
+
+/** Stream 子消息 stream_info 的元数据（字段号实测，见 bilisb_unlock.proto）。 */
+data class StreamMeta(
+    val quality: Int,
+    val format: String,
+    val description: String,
+    val newDescription: String,
 )
 
 data class PlayurlData(
@@ -28,6 +38,8 @@ data class PlayurlData(
     val videos: List<DashTrack>,
     /** dash.audio 轨。 */
     val audios: List<DashTrack>,
+    /** support_formats: quality → 描述元数据（stream_info 构建用）。 */
+    val formats: Map<Int, JSONObject> = emptyMap(),
 )
 
 object PlayurlParser {
@@ -63,7 +75,26 @@ object PlayurlParser {
             }
         }
 
-        val videos = tracks("video")
+        // support_formats: quality → 描述元数据（stream_info 用）
+        val formatMap = HashMap<Int, JSONObject>()
+        val fmtArr = json.optJSONArray("support_formats")
+        if (fmtArr != null) {
+            for (i in 0 until fmtArr.length()) {
+                val f = fmtArr.optJSONObject(i) ?: continue
+                formatMap[f.optInt("quality")] = f
+            }
+        }
+        val videos = tracks("video").map { t ->
+            val f = formatMap[t.id]
+            if (f == null) t else t.copy(
+                meta = StreamMeta(
+                    quality = f.optInt("quality", t.id),
+                    format = f.optString("codecs", json.optString("format")),
+                    description = f.optString("new_description"),
+                    newDescription = f.optString("display_desc", f.optString("new_description")),
+                ),
+            )
+        }
         val filtered = preferCodecId?.let { prefer ->
             videos.filter { it.codecid == prefer }
                 .takeIf { picked -> picked.map { it.id }.containsAll(videos.map { it.id }.toSet()) }
@@ -76,6 +107,7 @@ object PlayurlParser {
             videoCodecid = json.optInt("video_codecid"),
             videos = filtered.ifEmpty { videos },
             audios = tracks("audio"),
+            formats = formatMap,
         )
     }.getOrNull()
 }

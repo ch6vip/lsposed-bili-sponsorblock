@@ -338,6 +338,16 @@ object PlayViewHook {
                         HookProbe.first(module, "unlock:uposReplaced", 3) { "host -> ${config.uposHost}" }
                     }
                     val inner = runCatching {
+                        if (config.passthrough) {
+                            // U4.6 纯重序列化测试：newBuilder(reply).build() 零修改
+                            val replyCls = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REPLY_CLASS)
+                            val b = replyCls.getMethod("newBuilder", replyCls).invoke(null, reply)
+                            val reserialized = b.javaClass.getMethod("build").invoke(b)
+                            val n1 = (reply.javaClass.getMethod("toByteArray").invoke(reply) as ByteArray).size
+                            val n2 = (reserialized.javaClass.getMethod("toByteArray").invoke(reserialized) as ByteArray).size
+                            HookProbe.first(module, "unlock:reserialized", 2) { "原 ${n1}B -> 重序列化 ${n2}B" }
+                            return@Callable reserialized
+                        }
                         ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
                     }.onFailure { t ->
                         HookProbe.first(module, "unlock:rebuildFailed", 5) {
