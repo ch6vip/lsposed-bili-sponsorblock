@@ -25,13 +25,17 @@ import android.widget.Toast
  * 模块设置页与宿主内设置弹窗共用本组件,避免重复。
  */
 object ColorPickerDialog {
-    // 预设色板:含 9 个分类默认色 + 常用基础色,4 列排布。
-    private val PRESETS = listOf(
-        "#00D200", "#FFFF00", "#AA00FF", "#00FFFF",
-        "#0064FF", "#FF8000", "#FF00B4", "#7F00FF",
-        "#FF1E1E", "#FF0000", "#00FF00", "#0000FF",
-        "#FFC400", "#FFFFFF", "#808080", "#000000",
-    )
+    // 预设色板：**前 9 个直接取分类默认色**（不再手抄十六进制字面量，避免与分类元数据漂移），
+    // 后面补常用基础色，4 列排布。
+    private val PRESETS: List<String> =
+        com.ctf.bilisb.model.SponsorCategories.ordered.map { it.defaultColorHex } +
+            listOf(
+                "#FF0000", "#00FF00", "#0000FF",
+                com.ctf.bilisb.model.SponsorCategories.toHex(
+                    com.ctf.bilisb.model.SponsorCategories.FALLBACK_COLOR,
+                ),
+                "#FFFFFF", "#808080", "#000000",
+            )
 
     /** 生成一行颜色配置项。点击整行打开选择器。 */
     fun colorRow(
@@ -41,7 +45,8 @@ object ColorPickerDialog {
         displayName: String,
     ): View {
         val key = SettingsKeys.colorKey(category)
-        val default = SettingsKeys.CATEGORY_COLOR_DEFAULTS[category] ?: "#FFC400"
+        val default = SettingsKeys.CATEGORY_COLOR_DEFAULTS[category]
+            ?: com.ctf.bilisb.model.SponsorCategories.defaultColorHex(category)
         val density = activity.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
 

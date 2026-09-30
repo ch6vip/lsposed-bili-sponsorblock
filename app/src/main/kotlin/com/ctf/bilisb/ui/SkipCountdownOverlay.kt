@@ -25,7 +25,8 @@ import java.util.WeakHashMap
  * 自动跳过倒计时浮层:进入片段后显示"N秒后跳过 xxx [取消]",每秒递减,
  * 倒计时结束触发 [onComplete](执行 seek)。用户点"取消"则中止,不跳过。
  *
- * 浮层挂在播放 Activity 的 decorView(FrameLayout)上,用 tag 去重复用。
+ * 浮层挂载点由 [OverlayAnchor] 解析：优先挂在**播放器容器**上（跟随播放器 bounds），
+ * 容器不可用时回落整屏 decorView（老行为），回落原因进探针。用 tag 去重复用。
  * 倒计时是 **deadline 驱动**的：进入时记下 `deadline = uptimeMillis + totalMs`，
  * 每次 tick 用真实时间重算剩余秒数。旧的「每秒减一」实现会因为主线程卡顿
  * （宿主播放页首帧、GC）累积漂移，用户看到的 5 秒可能拖到 8 秒。
@@ -72,15 +73,22 @@ object SkipCountdownOverlay {
                     probeNoActivity(module, "countdownNoActivity", host)
                     return@post
                 }
-                val decor = activity.window?.decorView as? ViewGroup ?: run {
-                    probeNoActivity(module, "countdownNoDecor", host)
-                    return@post
-                }
                 if (activity.isFinishing || activity.isDestroyed) {
                     HookProbe.first(module, "countdownActivityGone", 3) {
                         "countdown start: activity finishing/destroyed, host=${host.javaClass.name}"
                     }
                     return@post
+                }
+                // 挂载点：优先播放器容器（跟随播放器 bounds），不可用时回落 decorView。
+                // 回落原因进探针，否则真机上「浮层位置不对/不出现」无法区分宿主改版与回落。
+                val resolved = OverlayAnchor.resolve(activity, host) ?: run {
+                    probeNoActivity(module, "countdownNoAnchor", host)
+                    return@post
+                }
+                if (!resolved.followsPlayer) {
+                    HookProbe.first(module, "countdownAnchorFallback", 3) {
+                        "回落 decorView: ${resolved.reason} host=${host.javaClass.name}"
+                    }
                 }
 
                 val scope = System.identityHashCode(activity)
@@ -95,8 +103,14 @@ object SkipCountdownOverlay {
                 val state = stateFor(activity)
                 cancelTicker(state)
 
-                val row = (decor.findViewWithTag<View>(TAG) as? LinearLayout)
-                    ?: buildRow(activity).also { decor.addView(it, layoutParams(activity)) }
+                val root = resolved.parent
+                val existing = findRow(activity)
+                val row = existing ?: buildRow(activity).also { OverlayAnchor.addBottomEnd(root, it) }
+                // 复用的浮层可能还挂在上一轮的另一个容器上（整屏切换/回落变化）。
+                if (row.parent !== root) {
+                    (row.parent as? ViewGroup)?.removeView(row)
+                    OverlayAnchor.addBottomEnd(root, row)
+                }
                 row.visibility = View.VISIBLE
 
                 val text = row.getChildAt(0) as TextView
@@ -164,11 +178,15 @@ object SkipCountdownOverlay {
                 }
                 val state = stateByActivity[activity] ?: return@post
                 cancelTicker(state)
-                val decor = activity.window?.decorView as? ViewGroup ?: return@post
-                decor.findViewWithTag<View>(TAG)?.visibility = View.GONE
+                // 浮层可能挂在播放器容器上，也可能回落在 decorView 上：从窗口根递归找。
+                findRow(activity)?.visibility = View.GONE
             }
         }
     }
+
+    /** 在整棵窗口视图树里找我们的浮层（挂载点会随回落/整屏切换变化）。 */
+    private fun findRow(activity: Activity): LinearLayout? =
+        (activity.window?.decorView as? ViewGroup)?.findViewWithTag<View>(TAG) as? LinearLayout
 
     /** 浮层是否还应该继续倒计时。任何一条不成立都立即停。 */
     private fun isAlive(activity: Activity, row: View): Boolean {
@@ -214,17 +232,6 @@ object SkipCountdownOverlay {
                 minimumWidth = 0
                 setPadding(dp(activity, 8), 0, dp(activity, 8), 0)
             })
-        }
-    }
-
-    private fun layoutParams(activity: Activity): FrameLayout.LayoutParams {
-        return FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            bottomMargin = dp(activity, 72)
-            rightMargin = dp(activity, 16)
         }
     }
 

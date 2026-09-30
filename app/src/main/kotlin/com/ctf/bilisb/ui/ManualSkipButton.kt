@@ -21,9 +21,10 @@ import io.github.libxposed.api.XposedModule
  * 手动跳过按钮:开启"手动跳过"后,播放进入片段时在播放器右下角浮出一个
  * "跳过 xxx ▶" 按钮,由用户点按才跳过,而不是自动跳过。
  *
- * 类似 YouTube SponsorBlock 的跳过按钮。实现上把按钮直接挂到播放 Activity 的
- * decorView(FrameLayout)上,用 tag 去重复用;离开片段时隐藏。所有视图操作都
- * post 到主线程。
+ * 类似 YouTube SponsorBlock 的跳过按钮。挂载点由 [OverlayAnchor] 解析：
+ * 优先挂在**播放器容器**上（跟随播放器 bounds，详情页滚动/小窗时位置才正确），
+ * 容器不可用时回落整屏 decorView（老行为），回落原因进探针。
+ * 用 tag 去重复用；离开片段时隐藏。所有视图操作都 post 到主线程。
  */
 object ManualSkipButton {
     private const val TAG = "com.ctf.bilisb.manual_skip_button"
@@ -58,16 +59,23 @@ object ManualSkipButton {
                     probeNoActivity(module, "manualSkipNoActivity", host)
                     return@post
                 }
-                val decor = activity.window?.decorView as? ViewGroup ?: run {
-                    probeNoActivity(module, "manualSkipNoDecor", host)
-                    return@post
-                }
                 // Activity 已在销毁路上时不要再挂 View（会泄漏 decorView）。
                 if (activity.isFinishing || activity.isDestroyed) {
                     HookProbe.first(module, "manualSkipActivityGone", 3) {
                         "skip show: activity finishing/destroyed, host=${host.javaClass.name}"
                     }
                     return@post
+                }
+                // 挂载点：优先播放器容器（跟随播放器 bounds），不可用时回落 decorView（整屏右下角）。
+                // 回落原因进探针 —— 否则真机上「按钮位置不对/不出现」无法区分是宿主改版还是回落。
+                val resolved = OverlayAnchor.resolve(activity, host) ?: run {
+                    probeNoActivity(module, "manualSkipNoAnchor", host)
+                    return@post
+                }
+                if (!resolved.followsPlayer) {
+                    HookProbe.first(module, "manualSkipAnchorFallback", 3) {
+                        "回落 decorView: ${resolved.reason} host=${host.javaClass.name}"
+                    }
                 }
 
                 val scope = System.identityHashCode(activity)
@@ -77,8 +85,16 @@ object ManualSkipButton {
                     return@post
                 }
 
-                val button = (decor.findViewWithTag<View>(TAG) as? TextView)
-                    ?: createButton(activity).also { decor.addView(it, buttonLayoutParams(activity)) }
+                val root = resolved.parent
+                val existing = (activity.window?.decorView as? ViewGroup)?.findViewWithTag<View>(TAG)
+                val button = (existing as? TextView) ?: createButton(activity).also {
+                    OverlayAnchor.addBottomEnd(root, it)
+                }
+                // 复用的按钮可能挂在上一轮的另一个容器上（整屏切换/回落变化），确保它在当前挂载点里。
+                if (button.parent !== root) {
+                    (button.parent as? ViewGroup)?.removeView(button)
+                    OverlayAnchor.addBottomEnd(root, button)
+                }
 
                 button.text = "跳过 $label ▶"
                 button.visibility = View.VISIBLE
@@ -104,16 +120,18 @@ object ManualSkipButton {
                     probeNoActivity(module, "manualSkipHideNoActivity", host)
                     return@post
                 }
-                val decor = activity.window?.decorView as? ViewGroup ?: run {
-                    probeNoActivity(module, "manualSkipHideNoDecor", host)
-                    return@post
-                }
-                decor.findViewWithTag<View>(TAG)?.visibility = View.GONE
+                // 用带 tag 的 View 自己所在的父容器来隐藏：按钮可能挂在播放器容器上，
+                // 也可能回落在 decorView 上，从 root 递归找都能命中。
+                findButton(activity)?.visibility = View.GONE
             }.onFailure {
                 module.info("manual skip button hide failed: ${it.javaClass.name}: ${it.message}")
             }
         }
     }
+
+    /** 在整棵窗口视图树里找我们的按钮（挂载点会随回落/整屏切换变化）。 */
+    private fun findButton(activity: Activity): View? =
+        (activity.window?.decorView as? ViewGroup)?.findViewWithTag(TAG)
 
     private fun createButton(activity: Activity): TextView {
         return TextView(activity).apply {
@@ -130,18 +148,6 @@ object ManualSkipButton {
                 setStroke(dp(activity, 1), 0xFFFB7299.toInt()) // B站粉描边
             }
             contentDescription = "手动跳过片段"
-        }
-    }
-
-    private fun buttonLayoutParams(activity: Activity): FrameLayout.LayoutParams {
-        return FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            // 抬高到进度条上方,避免遮挡控制栏
-            bottomMargin = dp(activity, 72)
-            rightMargin = dp(activity, 16)
         }
     }
 

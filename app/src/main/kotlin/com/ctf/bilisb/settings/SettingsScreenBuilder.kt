@@ -302,22 +302,16 @@ object SettingsScreenBuilder {
             }
 
             biliSection(this, activity, "跳过类别") {
-                val categories = listOf(
-                Triple(SettingsKeys.CAT_SPONSOR, "赞助/恰饭", "付费推广、赞助商"),
-                Triple(SettingsKeys.CAT_SELFPROMO, "自我推广", "自己的商品、链接"),
-                Triple(SettingsKeys.CAT_INTERACTION, "互动提醒", "点赞、关注提示"),
-                Triple(SettingsKeys.CAT_INTRO, "开场动画", "片头动画"),
-                Triple(SettingsKeys.CAT_OUTRO, "结束画面", "片尾鸣谢"),
-                Triple(SettingsKeys.CAT_PREVIEW, "回顾/概要", "前情回顾"),
-                Triple(SettingsKeys.CAT_MUSIC_OFFTOPIC, "非音乐片段", "MV中非音乐部分"),
-                Triple(SettingsKeys.CAT_FILLER, "填充内容", "笑话、重复片段"),
-                Triple(SettingsKeys.CAT_POI_HIGHLIGHT, "精彩时刻", "视频精彩部分"),
-            )
-            categories.forEachIndexed { index, (key, title, summary) ->
-                if (index > 0) addView(biliDividerInner(activity))
-                addView(createCheckBox(activity, prefs, key, title, summary, true))
+                // 顺序、设置键、显示名全部来自 SponsorCategories（单一事实来源）；
+                // 这里只保留「一句话说明」这类纯 UI 文案，别再手抄分类与显示名。
+                val categories = SponsorCategories.ordered.map { category ->
+                    Triple(category.settingsKey, category.displayName, categoryHint(category.id))
+                }
+                categories.forEachIndexed { index, (key, title, summary) ->
+                    if (index > 0) addView(biliDividerInner(activity))
+                    addView(createCheckBox(activity, prefs, key, title, summary, true))
+                }
             }
-        }
 
             biliSection(this, activity, "标记颜色") {
                 addView(hint(activity, "点击色块自定义各分类在进度条上的标记颜色"))
@@ -799,6 +793,25 @@ object SettingsScreenBuilder {
         textSize = 12f
         setTextColor(Color.GRAY)
         setPadding(0, 0, 0, dp(activity, 4))
+    }
+
+    /**
+     * 「跳过类别」每一行的一句话说明。
+     *
+     * 分类与显示名走 [SponsorCategories]（权威表），只有这段给人看的解释留在这里；
+     * 新增分类时若忘了补说明，会退回显示名而不是崩掉。
+     */
+    private fun categoryHint(category: String): String = when (category) {
+        "sponsor" -> "付费推广、赞助商"
+        "selfpromo" -> "自己的商品、链接"
+        "interaction" -> "点赞、关注提示"
+        "intro" -> "片头动画"
+        "outro" -> "片尾鸣谢"
+        "preview" -> "前情回顾"
+        "music_offtopic" -> "MV中非音乐部分"
+        "filler" -> "笑话、重复片段"
+        com.ctf.bilisb.model.SponsorCategories.POI_HIGHLIGHT -> "视频精彩部分"
+        else -> SponsorCategories.displayName(category)
     }
 
     /**
