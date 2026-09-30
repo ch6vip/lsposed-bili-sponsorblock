@@ -65,17 +65,21 @@ object ResponseReconstructor {
             value?.javaClass?.getMethod("toByteArray")?.invoke(value) as? ByteArray
         }.getOrNull()
 
+        // PGC 载荷：video_info=漫游流 + business/view_info 修补（原值可解析时保留未知字段）
         val pgcPayload = if (origSupplementBytes != null && origSupplementBytes.isNotEmpty()) {
-            com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(origSupplementBytes).toBuilder()
-                .clearViewInfo()
-                .setBusiness(
-                    com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(origSupplementBytes)
-                        .business.toBuilder().setIsPreview(false).build(),
-                )
-                .build()
-                .toByteArray()
+            runCatching {
+                val parsed = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(origSupplementBytes)
+                parsed.toBuilder()
+                    .setVideoInfo(
+                        com.ctf.bilisb.unlock.proto.VodInfo.parseFrom(UnlockWire.buildVodInfoBytes(data)),
+                    )
+                    .clearViewInfo()
+                    .setBusiness(parsed.business.toBuilder().setIsPreview(false).build())
+                    .build()
+                    .toByteArray()
+            }.getOrElse { UnlockWire.buildPgcPayloadBytes(data) }
         } else {
-            UnlockWire.buildPgcPayloadBytes()
+            UnlockWire.buildPgcPayloadBytes(data)
         }
         val supplement = parseHost(
             cl,

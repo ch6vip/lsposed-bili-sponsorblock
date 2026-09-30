@@ -172,6 +172,31 @@ object PlayViewHook {
             }
     }
 
+    // ---- U4.5：真实 CDN 流地址提取（reply.vodInfo.streamList[].dashVideo.baseUrl）----
+
+    private val realStreamsLogged = AtomicInteger(0)
+
+    private fun captureRealStreams(module: XposedModule, cl: ClassLoader, reply: Any) {
+        if (realStreamsLogged.get() >= 2) return
+        runCatching {
+            val vodInfo = reply.javaClass.methods.firstOrNull { f -> f.name == "getVodInfo" }
+                ?.invoke(reply) ?: return
+            val streams = vodInfo.javaClass.methods.firstOrNull { f -> f.name == "getStreamListList" }
+                ?.invoke(vodInfo) as? List<*> ?: return
+            val urls = streams.mapNotNull { stream ->
+                val dv = stream?.javaClass?.methods?.firstOrNull { f -> f.name == "getDashVideo" }
+                    ?.invoke(stream) ?: return@mapNotNull null
+                dv.javaClass.methods.firstOrNull { f -> f.name == "getBaseUrl" }
+                    ?.invoke(dv) as? String
+            }.filter { it.isNotEmpty() }
+            if (urls.isEmpty()) return
+            urls.forEachIndexed { idx, u ->
+                HookProbe.first(module, "unlock:realUrl:$idx", 1) { u }
+            }
+            realStreamsLogged.incrementAndGet()
+        }
+    }
+
     // ---- 样本采集：受限/强制路径的原始 reply 落盘（每判定限 1 份，U2 管线回归素材）----
 
     private val capturedRestricted = AtomicInteger(0)
@@ -263,6 +288,9 @@ object PlayViewHook {
             if (verdict != PlayViewDecision.Verdict.RESTRICTED &&
                 verdict != PlayViewDecision.Verdict.THAI_REDIRECT && !forcedTest
             ) {
+                // U4.5 诊断：正常 PGC 响应里的真实 CDN 流地址（对照数据源——
+                // 强制受限路径用它们替换 canned 媒体，可解耦「媒体格式」与「重构正确性」）
+                runCatching { captureRealStreams(module, cl, reply) }
                 return reply
             }
             if (forcedTest) {

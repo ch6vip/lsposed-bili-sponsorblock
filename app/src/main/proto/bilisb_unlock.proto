@@ -139,10 +139,10 @@ message DashItem {
 // play_ext_conf=6, play_ext_info=7, hide_field=8}
 
 message PlayViewReply {
+  VodInfo video_info = 1;
   BusinessInfo business = 3;
   ViewInfo view_info = 5;
-  // video_info=1 / play_conf=2 / event=4 / play_ext_conf=6 / play_ext_info=7 /
-  // hide_field=8 未触碰
+  // play_conf=2 / event=4 / play_ext_conf=6 / play_ext_info=7 / hide_field=8 未触碰
 }
 
 message ViewInfo {

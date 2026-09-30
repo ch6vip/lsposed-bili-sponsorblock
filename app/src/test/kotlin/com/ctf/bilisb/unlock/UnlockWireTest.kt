@@ -43,12 +43,14 @@ class UnlockWireTest {
     }
 
     @Test
-    fun `pgc 载荷含空的 business 与 view_info 清弹窗`() {
-        val bytes = UnlockWire.buildPgcPayloadBytes()
-        // 载荷与 PlayViewReply@v2 wire 同构（business=3, view_info=5）；
-        // 这里用宿主同族的 v2 形状断言存在性：直接按 Any 载荷字节断言长度与标签
-        assertEquals(4, bytes.size)  // 2 个空消息字段：tag(1B)+len(1B) ×2
-        assertEquals(0x1a, bytes[0].toInt() and 0xff)  // field 3, wt 2 → (3<<3)|2 = 26 = 0x1a
+    fun `pgc 载荷携带 video_info 且 business_view_info 可清`() {
+        val bytes = UnlockWire.buildPgcPayloadBytes(data)
+        // 载荷与 PlayViewReply@v2 wire 同构（video_info=1, business=3, view_info=5）
+        val pgc = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(bytes)
+        assertEquals(80, pgc.videoInfo.quality)
+        assertEquals(1, pgc.videoInfo.streamListCount)
+        assertEquals("http://mock/video-80.m4s", pgc.videoInfo.getStreamList(0).dashVideo.baseUrl)
+        assertFalse(pgc.viewInfo.hasDialog())
     }
 
     @Test
