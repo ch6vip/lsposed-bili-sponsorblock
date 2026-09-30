@@ -1,8 +1,8 @@
 # 目标 APK 分析：bilibili 6.6.0（`com.bilibili.app.in`）
 
 > 本文档是 **6.6.0 适配的 Hook 事实来源**，格式对照 `docs/APK_6.5.0_ANALYSIS.md`。
-> 结论基于离线静态分析（`tools/dexscan` + build-tools 36.0.0 dexdump，2026-09-29），
-> **尚未在真机上验证**；真机结论请回写 `docs/STATUS.md`。
+> §1–§5 是**离线静态分析**结论（`tools/dexscan` + build-tools 36.0.0 dexdump，2026-09-29）；
+> §6 是**真机探针结论**（同日闭环）。真机功能回归证据统一回写在 `docs/STATUS.md`。
 > 只记录 6.5.0 → 6.6.0 的**增量漂移**；未提到的 hook 点沿用 6.5.0 分析文档的结论。
 
 ## 1. 目标包事实（静态实测）

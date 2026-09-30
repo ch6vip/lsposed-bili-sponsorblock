@@ -36,8 +36,10 @@ val hasReleaseSigning = releaseStorePath != null &&
     releaseKeyPassword != null
 
 // 版本单一来源(与 META-INF/xposed/module.prop 由下方 checkModuleProp 守卫一致性)
-val MODULE_VERSION_CODE = 10
-val MODULE_VERSION_NAME = "0.7.0"
+// 0.7.0 = 6.6.0 适配真机闭环的版本号；0.7.1 = 其后新增的轮询生命周期重构 + 34 例回归测试 +
+// 浮层挂载点/分类常量收敛（**均未真机复核**），发布包用 0.7.1，避免把未验证内容标成已验证版本。
+val MODULE_VERSION_CODE = 11
+val MODULE_VERSION_NAME = "0.7.1"
 
 android {
     namespace = "com.ctf.bilisb"

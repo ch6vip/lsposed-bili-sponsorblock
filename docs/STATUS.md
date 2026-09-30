@@ -4,7 +4,9 @@
 > （6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；6.6.0 真机拉取，分析见 `docs/APK_6.6.0_ANALYSIS.md`）。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
 
-模块版本：0.7.0（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 10）——**6.5.0/6.6.0 双版本主链路均真机跑通（2026-09-29）**
+模块版本：**0.7.1**（Bili2233，applicationId `io.github.ch6vip.bilisb` / versionCode 11）
+—— `0.7.0`（10）为 **6.5.0/6.6.0 双版本主链路真机跑通（2026-09-29）** 的版本；
+`0.7.1` 在其上加了轮询生命周期重构、34 例回归测试与结构债清理（**未真机复核**，见「发布前收口」一节）。
 
 最近变更（0.7.0）：6.6.0 适配——观察者注册 `j0(E0)`→`l0(F0)`、当前视频 `D()`→`F()`、容器 `f`→`h`、
 int 进度回调 `G`→`J`（但 6.6.0 文本控件不实例化，进度改由模块自持 500ms 轮询 core 喂入）、
@@ -94,6 +96,54 @@ handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时�
 
 未逐项复核（与 6.5.0 同口径不阻塞）：跳过 Toast 截图（代码路径与统计同分支，统计已落）；
 「⋯」面板行视觉样式；增强四件套运行时文案（安装命中，机制未变）。
+
+## 发布前收口（2026-09-29 晚，**0.7.1**）
+
+> 主题：**把「已经真机验证过的成果」变成可发布的东西**，并补掉两类静默失效风险。
+> 版本口径：`0.7.0`（versionCode 10）= 6.6.0 适配真机闭环的那一版；
+> `0.7.1`（versionCode 11）= 本节新增的改动，**均未经真机复核**（单测 167 例 0 失败 + release 构建通过）。
+> 单测 **167 例 0 失败**（新增 34 例）；`:app:assembleRelease` 出签名包；`v0.7.1` tag 触发 CI 发布 + 镜像同步。
+
+### 1. 进度轮询的生命周期与竞态（`M13`，影响 6.6.0 主链路）
+
+6.6.0 上**自动跳过完全依赖**模块自持的 500ms 轮询（宿主没有任何可依赖的进度 tick）。
+这段代码原来有三处失效形态，全部是「日志安静地不再跳过」——与「服务端拉不到片段」无法区分：
+
+| 问题 | 机理 | 处置 |
+| --- | --- | --- |
+| 任务体**两次读** `sponsorBlockController` | 守卫读一次、喂入再读一次；`applySnapshot` 关闭/重建 controller 的间隙里第二次读拿到 null → 任务经 `coreForContext == null` 自我摘表，而该 context 之后不一定还有 bind 来重启（`ensureRebindAfterTeardown` 走的正是没有 bind 的路径） | 一次 tick 只读一次，快照后全程复用 |
+| 「表项在、任务已停」挡住重启 | 旧实现 `pollerFutures.remove(h)?.cancel(false)` 里 `remove` 返回 null 会短路掉 `cancel`；自停留下的死表项让后续 `start` 的 containsKey 守卫静默失败 | 抽出 `ProgressPollerRegistry`：起表清死表项、自停只摘「自己」那一项（`thisFuture` 身份比对）、`stop` 显式入口幂等 |
+| 观测盲区 | 只有 `seekTick feed` 心跳的**沉默**能反推喂入停了 | 新增 `pollerMissingForHandle` 探针：**handle 在、poller 不在**这个组合必须在日志里有名字 |
+
+同时把「起表路径」补全：`ensureRebindAfterTeardown`（补绑路径**没有** `bindPlayerContainer` 回调）
+现在也会起表，`applySnapshot` 关 controller 时停表、按新 controller 的 handle 表重启。
+不变式写死为 **有 handle ⇒ 有 poller**。
+
+### 2. 回归测试补齐（新增 34 例）
+
+| 测试 | 例数 | 守什么 |
+| --- | --- | --- |
+| `ObserverRegistrationGateTest` | 6 | 新抽出的 `ObserverRegistrationGate`：**登记必须先于 invoke**（它内部会重入）。用动态代理真造一次重入，断言宿主方法只被调用一次、登记失败回滚 |
+| `ProgressPollerRegistryTest` | 6 | 幂等 start / stop 真停 / **自停后能重启** / 异常不杀周期任务 / 自停与重启交错不留死表项（真实定时器，非 mock） |
+| `SponsorCategoriesTest` | 8 | 分类元数据单一来源：顺序、hex↔ARGB 往返、派生表一致、未知分类兜底 |
+| `OverlayAnchorTest` | 11 | 浮层挂载点判定：尺寸阈值、attach 状态、`clipChildren`、覆盖整屏回落 |
+| `ProviderAuthorityTest` | 3 | manifest 与代码 authority 同源、占位符已替换、exported/权限形状 |
+
+### 3. 结构债清理
+
+- **分类常量收敛**：顺序/字面量/显示名/默认颜色/设置键合并进 `model/SponsorCategories.kt` 一张表；
+  `SettingsKeys` 的 init 守卫 + `ProgressMarkerPainter`/`ColorPickerDialog` 改为派生，消除四处手抄。
+- **浮层挂载点**：新增 `ui/OverlayAnchor.kt`，手动跳过按钮与倒计时浮层优先挂播放器容器
+  （跟随 bounds），容器不适用时回落 decorView 并打探针。**真机位置待复核**。
+- **authority 一致性**：加 `ProviderAuthorityTest` 固化。
+- **文档口径**：README 单测数（127→167）、ROADMAP 补 6.6.0 段落（M10–M13）、
+  HANDOVER_6.6.0.md 标注结案、APK_6.6.0_ANALYSIS.md 区分「静态分析 §1–§5」与「真机探针 §6」。
+
+### 4. 本轮未做（有意）
+
+- **中文文案抽 `strings.xml` + `values-en`**（约 170 处）：目标宿主是国际版，这是清单里优先级最高的遗留项，
+  但属于大范围机械改动，不与发布同批，留作独立提交。
+- 浮层新挂载点的真机位置复核、增强四件套在 6.6.0 上的屏幕效果复核。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 

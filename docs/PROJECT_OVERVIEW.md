@@ -4,7 +4,8 @@
 > 安装包 `<APK目录>\bilibili_6.5.0.apks`（6.6.0：`E:\ctf-aaa\bili\bilibili_6.6.0\`，真机拉取）。
 > 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)
 > 与 [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)。
-> 迁移已完成:当前仓库代码(0.7.0 / versionCode 10)按双版本候选表跑通,
+> 迁移已完成:当前仓库代码(0.7.1 / versionCode 11)按双版本候选表跑通;
+> `0.7.0`(10) 是 6.6.0 适配真机闭环的版本,`0.7.1` 在其上加了轮询生命周期重构与回归测试(未真机复核)。
 > 差距清单以 [`docs/ROADMAP.md`](./ROADMAP.md) 与 [`docs/STATUS.md`](./STATUS.md) 为准。
 
 ## 1. 项目定位与基本信息
@@ -18,7 +19,7 @@
 | **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi）；6.6.0 为真机拉取 base.apk + arm64 + xxhdpi |
 | 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36（6.6.0 为 34 个 dex） |
 | 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
-| 当前版本 | 0.7.0（versionCode 10）——**6.5.0 主链路真机跑通；6.6.0 安装期探针全对账（见 STATUS），运行时回归进行中** |
+| 当前版本 | 0.7.1（versionCode 11）——**6.6.0 主链路真机闭环（0.7.0 版代码）；0.7.1 的轮询重构/浮层挂载点/常量收敛未真机复核** |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
 | 构建 | AGP 8.7.3 / Kotlin 2.0.21 / Gradle 8.12 / compileSdk 35 / minSdk 23 / JDK 17 |

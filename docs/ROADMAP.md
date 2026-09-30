@@ -1,11 +1,13 @@
 # 路线图 / 待办（ROADMAP）
 
-> **目标口径（2026-09 起）**：唯一目标宿主 = `com.bilibili.app.in` **6.5.0（9110200）**，
-> 安装包 `<APK目录>\bilibili_6.5.0.apks`。旧目标（`tv.danmaku.bili` 8.96 / 8.98 patch）只作行为蓝本。
-> 类名与 Hook 依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)；真机验证步骤见 [`docs/DEVICE_PROBE.md`](./DEVICE_PROBE.md)。
+> **目标口径（2026-09-29 起）**：目标宿主 = `com.bilibili.app.in` **6.5.0（9110200）与 6.6.0（9130300）双版本**，
+> 共用一张候选表（`host/HostTargets.kt`），全部旧候选保留。6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；
+> 6.6.0 为真机 adb 拉取。旧目标（`tv.danmaku.bili` 8.96 / 8.98 patch）只作行为蓝本。
+> 类名与 Hook 依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md) /
+> [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)；真机验证步骤见 [`docs/DEVICE_PROBE.md`](./DEVICE_PROBE.md)。
 >
 > 状态标记：`[x]` 已完成，`[~]` 代码已实现/待真机确认，`[ ]` 待做，`[~]`（单列于「明确不做」节）明确不做，`[!]` 阻塞中。
-> 编号：`M*` = 6.5.0 迁移任务，`T*` = 功能任务（历史沿用），`R*` = 架构稳定性任务（历史沿用）。
+> 编号：`M*` = 宿主迁移任务（M0-M9 为 6.5.0，M10-M12 为 6.6.0），`T*` = 功能任务（历史沿用），`R*` = 架构稳定性任务（历史沿用）。
 
 ## 开发约定
 
@@ -76,15 +78,56 @@
       以及增强组屏幕效果（评论 loc / 三连 UI / 首页切后台是否真不刷新 / 分享面板 QQ 行）。
       验收文档：`docs/STATUS.md`。版本号已升到 0.6.3（versionCode 9，`checkModuleProp` 守卫）。
 
+## P0 - 6.6.0 适配（已完成，2026-09-29 真机闭环）
+
+> 共同验收前提：`.\gradlew.bat :app:assembleDebug` 通过，且 `docs/STATUS.md` 里每条 hook 的命中情况有真机日志证据。
+> 事实依据：[`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)；过程与方法论教训：
+> `.agents/notes/implemented/reverse/2026-09-29-host-660-adaptation.md`。
+
+- [x] **M10 静态重定位 + 候选表更新**（真机已验证）
+      六个失效点逐项用字节码核实，其中**两条交接结论被推翻**（观察者注册不是 `service.D0`；
+      `ip1.h` 在 6.5.0 就已消失，无需重定位）。
+      实际漂移：观察者注册 `PlayDirectorServiceV3#j0(E0)`→`l0(F0)`、当前视频 `D()`→`F()`、
+      容器类型 `f`→`h`、面板刷新 `f0`→`e0`、int 进度 `G`→`J`、long 进度 `j0`→`g0`、
+      moss 描述符 `kr1.*`→`xr1.*`。全部旧候选保留，不引入 versionCode 分支。
+      证据：安装期探针 `34/39 hit`，与 6.5.0 基线（33/38）逐键对账**等价**，主链路 0 MISS。
+
+- [x] **M11 观察者接口自洽解析**（真机已验证）
+      发现**同名类跨版本互换角色**：6.5.0 的观察者叫 `E0`（`F0` 是媒体资源接口），6.6.0 反过来。
+      「按候选名顺序取第一个能加载的类」在 6.6.0 会把代理实现到空标记接口上 → 静默收不到回调。
+      解法：对每个候选接口试 `forTarget(服务, ADD 候选, iface)`，**能解析出注册方法的接口即正身**。
+      实现在 `VideoDirectorListener.registerDirectorService`。
+      证据：`directorService <- PlayDirectorServiceV3#l0 (接口 F0)`，换集时新 id 正常派发。
+
+- [x] **M12 进度喂入重构 + 两处运行时回归修复**（真机已验证）
+      6.6.0 三个 `PlayerProgressTextWidget` 不再实例化、`seek.v3.g#draw` 播放期间不逐帧走、
+      `D0$c.run` 只在 seek 后打一炮 —— **没有可依赖的宿主 tick**。
+      改为模块自持 500ms 轮询已绑定 handle 的 core（`getCurrentPosition/getDuration` 真名跨版本稳定），
+      等价 6.5.0 tick 语义；handle 清理时轮询自停。
+      另修两个模块自身回归：① `registerDirectorService` 去重点被审查改动挪到 `invoke` 之后 →
+      反射调用触发 after 回调重入 → 6.6.0 在 `onCreate` 主线程内同步注册时无限重入（详情页黑屏 + 输入 ANR）；
+      ② 「⋯」面板条目接口构建/绑定方法改名换位 → 代理按旧名分发返回 null → 宿主 `onCreateViewHolder` NPE 闪退，
+      改为**按签名分发**且构建分支永不返回 null。
+      证据：自然播放 2ms 精度自动跳过、统计 +102.3s、彩色标记/剩余扣减/「我的」页入口截图。
+
+- [x] **M13 进度轮询的竞态与观测盲区**（代码已修 + 单测覆盖，待真机复验）
+      `startProgressPoller` 的任务体内**两次读** `sponsorBlockController`（守卫一次、喂入一次）：
+      `applySnapshot` 关闭并重建 controller 的间隙里，轮询线程可能读到已置 null 的引用 →
+      任务经 `coreForContext == null` 分支自我 `remove+cancel`，而该 context 不会再 bind →
+      本会话剩余时间**静默零跳过**。修法：任务体开头快照 controller/module 局部变量；
+      `applySnapshot` 关闭 controller 时同步停掉该 hash 的 poller；补「有 handle 但无 poller」的一次性探针。
+
 ## P1 - 结构整理（沿用旧编号，迁移后执行）
 
 - [ ] R1 设置存储收敛：抽出统一的 `SettingsRepository` / `SettingsSchema`，集中默认值、校验、迁移、序列化。
 - [ ] R2 设置通道收口：收紧 exported Provider 暴露面，补调用方校验与敏感字段分级。
+      （现状已由 `ProviderAuthorityTest` 固定下来：exported=true 且无读写权限；收紧时该测试会失败并提醒同步文档。）
 - [ ] R6 缓存职责单一化：明确 client / repository 的缓存边界，消除 TTL、失效、强刷重复。
 - [ ] R7 菜单注入稳态化：去掉字段猜测式兜底，补更多宿主页面布局的定位与回归验证。
 - [x] R3 设置 UI 共用：LauncherActivity 与 SponsorBlockSettingDialog 共用 SettingsScreenBuilder。
 - [x] 宿主类名集中化：`HostTargets` + `HookProbe`（本次迁移新增，替代散落的硬编码类名）。
-- [ ] 反射 Method 缓存：减少每个调用点重复 `getDeclaredMethod`；迁移后类名本就易变，缓存 + 缺失即上报更有价值。
+- [x] 反射 Method 缓存：`HookResolve.forTarget` 已改为 `ConcurrentHashMap` 缓存命中项（未命中不缓存，
+      因为类名/形状会随宿主改版变化，缓存空结果会让一次瞬时失败永久生效）。
 - [ ] Hook 命中状态面板：把 `HookProbe.summary()` 显示到设置页「关于/状态」区，替代只看日志。
 
 ## code review 修复（2026-09-14，4 路并行 reviewer）
@@ -113,14 +156,25 @@
 - [x] Bundle 往返单测需要 Robolectric 才能真正执行（此前被 `Assume` 跳过）：
       `app/build.gradle.kts` 已加 `testImplementation("org.robolectric:robolectric:4.14.1")`，
       `SettingsCodecTest` 类级 `@RunWith(RobolectricTestRunner)` + `@Config(sdk=[34])`，
-      Bundle 往返用例已真跑（124 例 0 失败 0 跳过）。
+      Bundle 往返用例已真跑（167 例 0 失败 0 跳过）。
 - [x] 面板本体行为测试：新增 `SponsorBlockPlayerSheetBehaviorTest`（Robolectric，5 例），
       覆盖主线程拒绝 / Activity finishing 拒绝 / already-showing 去重 / dismiss 回调 / Switch 开关回调 / 文案行渲染。
-- [ ] 手动跳过按钮 / 倒计时浮层目前挂在 decorView（整屏右下角），详情页滚动、小窗场景位置不准 —— 建议挂到播放器 widget 的父容器并跟随 bounds。
+- [x] 手动跳过按钮 / 倒计时浮层挂载点：新增 `ui/OverlayAnchor.kt`，优先挂**播放器容器**
+      （跟随播放器 bounds），容器未 attach/未测量/裁子 View/覆盖整屏时回落 decorView 并打探针
+      （`manualSkipAnchorFallback` / `countdownAnchorFallback`）。判定逻辑 11 例单测；
+      **真机位置仍待复核**（详情页滚动 / 小窗）。
 - [ ] 文案硬编码中文（目标宿主是国际版）—— 抽到 `strings.xml` + `values-en`。
-- [ ] 分类/高亮/actionType 常量在 4 处重复定义 —— 收敛到 `SponsorCategories` 单一来源。
-- [ ] `ContentProvider` authority 在清单与代码两处硬编码 —— 改字符串资源或加一致性测试。
-- [ ] 反射解析无缓存（`HookResolve` 每次 `getDeclaredMethod` 未命中靠异常控制流）—— 热路径可加 `ConcurrentHashMap` 缓存。
+      现状：UI 文案约 170 处仍是字面量（`SettingsScreenBuilder` 98 / `SponsorBlockPlayerSheet` 22 /
+      `SheetStateFormatter` 7 等）。**这是本清单里优先级最高的一项**：非中文用户目前只能看到中文界面。
+- [x] 分类/高亮/actionType 常量在 4 处重复定义 —— 收敛到 `SponsorCategories` 单一来源：
+      顺序 + 字面量 + 显示名 + 默认颜色 + 设置键全在一张表，`SettingsKeys` 的 init 守卫与
+      `SponsorCategoriesTest`（8 例）保证各派生表不漂移（`ProgressMarkerPainter` / `ColorPickerDialog`
+      的配色与色板改为从元数据派生）。
+- [x] `ContentProvider` authority 在清单与代码两处硬编码 —— 新增 `ProviderAuthorityTest`（3 例）：
+      读合并后的 manifest，断言清单 authority 含代码常量、`${applicationId}` 占位符已被替换，
+      并把 exported/权限形状固定下来（收紧为签名级权限时该测试会失败并提醒同步 ROADMAP R2）。
+- [x] 反射解析无缓存（`HookResolve` 每次 `getDeclaredMethod` 未命中靠异常控制流）—— 命中项已走
+      `ConcurrentHashMap` 缓存；未命中**不**缓存（宿主改版后的一次瞬时失败不该被永久记住）。
 - [ ] `SponsorSegment` 含 `LongArray`（data class 按引用比较）—— 将来若作为 Map 键需换实现。
 - [ ] `ModuleSettings.load()` 的进程内缓存语义与注释已统一，但 public API 仍建议只暴露 `reload()`。
 

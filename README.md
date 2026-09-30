@@ -184,7 +184,7 @@ export ANDROID_HOME=/path/to/android-sdk
 
 ./gradlew :app:assembleDebug        # debug APK
 ./gradlew :app:assembleRelease      # release APK（没有签名材料时产出未签名包）
-./gradlew :app:testDebugUnitTest    # 单元测试（127 例）
+./gradlew :app:testDebugUnitTest    # 单元测试（167 例）
 ```
 
 release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接宿主被混淆的类名，
@@ -198,8 +198,8 @@ release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接
 2. **自动同步到模块镜像仓库** [`Xposed-Modules-Repo/io.github.ch6vip.bilisb`](https://github.com/Xposed-Modules-Repo/io.github.ch6vip.bilisb)。
 
 ```bash
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.7.1
+git push origin v0.7.1
 ```
 
 第 2 步是有原因的：`modules.lsposed.org` 从镜像仓库取数据，而那个仓库**不会**从本仓库
