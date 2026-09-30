@@ -20,17 +20,25 @@
 统计备份内容（卸载前采集）：`totalCount=44`、`totalDurationMs=4221329`、6 个分类明细 —— 这份统计在**宿主**目录
 `/data/data/com.bilibili.app.in/sponsorblock_stats.json`，卸载模块**不会**删它，所以现在应该还在。
 
-## 2. 为什么会断（三条事实，供以后避免）
+## 2. 为什么会断（四条事实，供以后避免）
 
 1. **卸载模块会清掉 LSPosed 库里它的 scope 记录**（`modules` / `modules_state` 会随重装重建，
-   `scope` 不会），而守护进程的**模块表在重装当下会变陈旧** —— 崩溃转储里能同时看到
-   `Failed to find package info of io.github.ch6vip.bilisb`（16:17:12）与
-   `lsposed_module_updated` 通知（16:17:16）。
+   `scope` 不会）。重装后 `modules_state.enabled=1`、APK 路径都对，但 `scope` 表里
+   `io.github.ch6vip.bilisb → com.bilibili.app.in` **是空的** —— 于是模块被正常扫到、却永远不会
+   被注入到宿主进程：模块日志里其他模块（HyperPasskey/HyperCeiler）都有记录，只有我们没有。
+   这是 2026-09-30 重启后仍然不注入的**真正根因**（已补：`scope` 表加两条，
+   `com.bilibili.app.in` 与 `com.bilibili.app.in:download`）。
 2. **`lspd` 被 SIGKILL 后不会自愈**：`kill -9` 只留下 `daemon-*-crash-*.log` 与
-   `E LSPosed : lspd 1754 exited unexpectedly, code=137`。**以后不要 kill 它**。
-3. **手工拉起 daemon 补不回链路**：`service.sh` 里确实是 `daemon --force`，我照做后进程在
-   （`pidof lspd` 有值），但 `System server: not connected`、`lspctl module list` 为空、
-   模块日志是空文件（21 字节）。这条链只在**开机时**建立，所以只能重启。
+   `E LSPosed : lspd 1754 exited unexpectedly, code=137`。
+3. **`lspctl stop` 与 `kill -9` 等价危险**：它同样会断开 daemon ↔ system_server 的链接，
+   而这条链**只在开机时建立**。停掉之后手工 `daemon --force` 能拿到进程，但 `lspctl status`
+   会一直是 `System server: not connected`、`Modules: 0 installed`。
+4. **正确顺序是「先改数据，再重启」**：任何需要动 LSPosed 内部状态的操作（补 scope、
+   改 modules_state）都应当在**重启前**把数据写好，然后重启让它自然建链；
+   **不要去 stop/kill daemon**。反之若先 stop 再改数据，就得额外再重启一次。
+
+> 结论：以后遇到「重装模块后不注入」，先查 `scope` 表，补数据 → 重启，一步到位。
+
 
 ## 3. 恢复步骤（重启后）
 
