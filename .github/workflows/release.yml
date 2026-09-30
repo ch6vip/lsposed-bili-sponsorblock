@@ -39,8 +39,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # gh release create --generate-notes 需要完整历史来生成更新日志
+          # gh release create --generate-notes 需要完整历史来生成更新日志；
+          # fetch-tags 拉取 tag 对象，发布说明要从 tag 注释里读（见 Publish 步骤）
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -99,10 +101,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/*.apk \
-            --title "$TAG" \
-            --generate-notes \
-            --latest
+          set -e
+          # 发布说明的单一来源 = tag 注释（打 tag 时的 -m 内容）。
+          # 签名 tag 会把 PGP 块一起带出来，这里截掉；空注释时回退 --generate-notes。
+          git tag -l --format='%(contents)' "$TAG" \
+            | sed '/-----BEGIN PGP SIGNATURE-----/,$d' > "$RUNNER_TEMP/notes.md"
+          if [ -s "$RUNNER_TEMP/notes.md" ]; then
+            gh release create "$TAG" dist/*.apk \
+              --title "$TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --latest
+          else
+            gh release create "$TAG" dist/*.apk \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
 
   # ---------------------------------------------------------------------------
   # 同步到模块镜像仓库（modules.lsposed.org 从那里取数据）
@@ -194,11 +208,15 @@ jobs:
             cat "$RUNNER_TEMP/upstream.md"
           } > "$NOTES"
 
-          # 幂等：已存在则覆盖资产（便于手动重跑修复），否则新建
+          # 幂等：已存在则覆盖资产 + 更新正文（便于手动重跑修复），否则新建
           if GH_TOKEN="$MIRROR_TOKEN" gh release view "$MIRROR_TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            echo "镜像仓库已有 release $MIRROR_TAG，改为覆盖资产"
+            echo "镜像仓库已有 release $MIRROR_TAG，改为覆盖资产并刷新正文"
             GH_TOKEN="$MIRROR_TOKEN" gh release upload "$MIRROR_TAG" dist/*.apk \
               --repo "$MIRROR_REPO" --clobber
+            # 主仓库正文事后被编辑过时（如补充发布说明），重跑本流程能把镜像正文一并对齐
+            GH_TOKEN="$MIRROR_TOKEN" gh release edit "$MIRROR_TAG" --repo "$MIRROR_REPO" \
+              --notes-file "$NOTES" \
+              || echo "::warning::镜像正文更新失败（资产已覆盖成功）"
           else
             GH_TOKEN="$MIRROR_TOKEN" gh release create "$MIRROR_TAG" dist/*.apk \
               --repo "$MIRROR_REPO" \
