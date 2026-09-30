@@ -335,9 +335,17 @@ object HostTargets {
     const val PLAY_VIEW_UNITE_REQ_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq"
     const val PLAY_VIEW_UNITE_REPLY_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply"
 
-    /** 响应重构涉及的 playershared 内层类（字段号运行时实测，见 bilisb_unlock.proto）。 */
-    const val VOD_INFO_CLASS = "com.bapis.bilibili.app.playerunite.playershared.VodInfo"
+    /** 响应重构涉及的内层类（包名以 dex 索引为准：playershared 独立成包，Stream 系在 playurl.v1）。 */
+    const val VOD_INFO_CLASS = "com.bapis.bilibili.playershared.VodInfo"
+    const val PLAY_ARC_CLASS = "com.bapis.bilibili.playershared.PlayArc"
+    const val PLAY_ARC_CONF_CLASS = "com.bapis.bilibili.playershared.PlayArcConf"
+    const val ARC_CONF_CLASS = "com.bapis.bilibili.app.playurl.v1.ArcConf"
+    const val DASH_VIDEO_CLASS = "com.bapis.bilibili.playershared.DashVideo"
+    const val DASH_ITEM_CLASS = "com.bapis.bilibili.playershared.DashItem"
+    const val STREAM_CLASS = "com.bapis.bilibili.playershared.Stream"
     const val PLAY_VIEW_REPLY_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.PlayViewReply"
+    const val PGC_VIEW_INFO_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.ViewInfo"
+    const val PGC_BUSINESS_INFO_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.PlayViewBusinessInfo"
 
     /** 借宿主签名：`LibBili` 的静态 `(Map) -> SignedQuery` 方法（方法名按签名形状解析）。 */
     const val LIB_BILI_CLASS = "com.bilibili.nativelibrary.LibBili"

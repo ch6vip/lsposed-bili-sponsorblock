@@ -84,7 +84,7 @@ class RoamingClient(
             try {
                 val url = server.baseUrl.trimEnd('/') + path + "?" + sign(queryString, extra)
                 val content = fetch(url, if (thailand) TH_MOBI_APP else mobiApp)
-                if (content.contains("\"code\":0")) {
+                if (isCodeZero(content)) {
                     return RoamingResult(content, server.area, errors)
                 }
                 errors[server.area] = "code != 0: ${content.take(120)}"
@@ -103,6 +103,13 @@ class RoamingClient(
         const val TH_APPKEY = "7d089525d3611b1c"
         const val TH_BUILD = "1001310"
         const val TH_MOBI_APP = "bstar_a"
+
+        /** 探活：code==0（JSON 解析，兼容 kghost 的外层 result 包装与格式空格差异）。 */
+        fun isCodeZero(content: String): Boolean = runCatching {
+            var json = org.json.JSONObject(content)
+            json.opt("result")?.let { r -> if (r !is String) json = json.getJSONObject("result") }
+            json.optInt("code", -1) == 0
+        }.getOrDefault(false)
 
         /** 七参数查询串：参数为数字，无转义需求；顺序与参考实现一致。 */
         fun buildQuery(q: PlayQuery): String =

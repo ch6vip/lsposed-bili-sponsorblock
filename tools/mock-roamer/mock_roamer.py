@@ -29,7 +29,7 @@ CANNED_PLAYURL = {
     "quality": 80,
     "format": "dash",
     "type": "DASH",
-    "timelength": 30000000,
+    "timelength": 30000,
     "video_codecid": 12,
     "accept_quality": [80],
     "support_formats": [
