@@ -161,8 +161,20 @@ Robolectric 单测里读不到应用资源 —— 包名是 `org.robolectric.def
 也就是说**任何**依赖 `getString` 的代码在单测里都会崩；本轮改文案时面板 `show()` 整体失败才暴露。
 现已显式打开（AGP 8 默认值本就该是 true，写出来防止被静默改掉）。
 
-单测总数 167 → **172 例 0 失败**。待做：设置页 90+ 条文案落点、`SponsorCategories`
-分类显示名（同时是设置持久化的显示值，需连 `SettingsCodec` 的显示名反查一起改）。
+单测总数 167 → **175 例 0 失败**。
+
+**第二批（设置页 + 分类显示名）**：`SettingsScreenBuilder` 的 90+ 条文案与 9 个分类显示名
+全部改走资源（分类显示名新增 `SponsorCategories.displayName(context, category)`，
+规范中文名保留给日志与存储）。新增 `SettingsScreenBuilderTextTest` 做源码级防回归扫描
+（设置页不再有用户可见中文字面量 + 各段文案确实引用资源）。
+
+**又发现并修掉一个静默失效**：`SettingsCodec.sanitizeCategory` 用**显示名表**校验
+**category 字面量**（`"sponsor" in {赞助/恰饭=sponsor,…}` 恒为 false），
+导致用户选择的「默认标记类别」在每次回读时都被静默改回 `sponsor` —— 界面无任何提示。
+现在按 `SponsorCategories.ids` 判定。
+
+保留中文（有意）：日志/探针/异常说明、`SheetStateFormatter.defaultStrings` 兜底、
+`SettingsKeys` 的 init 守卫报错文案。
 
 ## 第二轮 code review 修复（2026-09-14，4 路并行 reviewer，42 条）
 

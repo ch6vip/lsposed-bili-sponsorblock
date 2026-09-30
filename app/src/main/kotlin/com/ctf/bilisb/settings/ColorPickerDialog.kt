@@ -145,7 +145,7 @@ object ColorPickerDialog {
             addView(preview)
             addView(grid)
             addView(TextView(activity).apply {
-                text = "自定义 (hex)："
+                text = activity.getString(com.ctf.bilisb.R.string.color_custom_hex)
                 textSize = 13f
             })
             addView(hexInput)
@@ -180,7 +180,7 @@ object ColorPickerDialog {
             }
             setPadding(dp(16), dp(12), dp(16), dp(10))
             addView(TextView(activity).apply {
-                text = "选择颜色"
+                text = activity.getString(com.ctf.bilisb.R.string.color_picker_title)
                 textSize = 17f
                 setTextColor(0xFF18191C.toInt())
                 setTypeface(typeface, Typeface.BOLD)
@@ -189,11 +189,15 @@ object ColorPickerDialog {
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
-                addView(textButton("取消", 0xFF61666D.toInt(), false) { dialogRef.get()?.dismiss() })
-                addView(textButton("确定", 0xFFFB7299.toInt(), true) {
+                addView(
+                    textButton(activity.getString(com.ctf.bilisb.R.string.common_cancel), 0xFF61666D.toInt(), false) {
+                        dialogRef.get()?.dismiss()
+                    },
+                )
+                addView(textButton(activity.getString(com.ctf.bilisb.R.string.common_confirm), 0xFFFB7299.toInt(), true) {
                     val picked = parseHexOrNull(hexInput.text.toString())
                     if (picked == null) {
-                        Toast.makeText(activity, "颜色格式应为 #RRGGBB", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(activity, activity.getString(com.ctf.bilisb.R.string.color_format_error), Toast.LENGTH_SHORT).show()
                     } else {
                         onPick(picked)
                         dialogRef.get()?.dismiss()

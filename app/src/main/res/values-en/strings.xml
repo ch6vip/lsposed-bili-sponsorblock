@@ -45,6 +45,7 @@
     <string name="state_user_generated">generated</string>
     <string name="state_user_missing">not generated</string>
     <string name="state_user_invalid">invalid</string>
+    <string name="state_source_local_prefs">local SharedPreferences</string>
     <string name="state_module">Module: %1$s</string>
     <string name="state_settings_source">Settings source: %1$s</string>
     <string name="state_server">Server: %1$s</string>
@@ -53,6 +54,7 @@
     <string name="state_enabled_categories">Categories enabled: %1$d/%2$d</string>
 
     <!-- SponsorBlock settings page -->
+    <string name="settings_section_sponsorblock">SponsorBlock</string>
     <string name="section_master_switch">Master switch</string>
     <string name="enable_title">Enable SponsorBlock</string>
     <string name="enable_summary">The module does nothing while off</string>
@@ -112,6 +114,18 @@
     <string name="category_hint_music_offtopic">Non-music parts of a music video</string>
     <string name="category_hint_filler">Jokes, repeated filler</string>
     <string name="category_hint_poi_highlight">Highlight moments</string>
+
+    <!-- Category display names (the Chinese ones in SponsorCategories are the canonical
+         names used for logs and persisted settings keys) -->
+    <string name="category_name_sponsor">Sponsor</string>
+    <string name="category_name_selfpromo">Self-promotion</string>
+    <string name="category_name_interaction">Interaction reminder</string>
+    <string name="category_name_intro">Intro</string>
+    <string name="category_name_outro">Outro</string>
+    <string name="category_name_preview">Preview/recap</string>
+    <string name="category_name_music_offtopic">Non-music section</string>
+    <string name="category_name_filler">Filler</string>
+    <string name="category_name_poi_highlight">Highlight</string>
 
     <!-- Color picker -->
     <string name="color_custom_hex">Custom (hex): </string>

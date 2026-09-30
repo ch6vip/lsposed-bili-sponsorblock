@@ -23,6 +23,7 @@ import com.ctf.bilisb.settings.SettingsKeys
 import com.ctf.bilisb.settings.SettingsWriter
 import com.ctf.bilisb.sponsor.SkipStatsStore
 import com.ctf.bilisb.ui.Callbacks
+import com.ctf.bilisb.ui.AndroidStrings
 import com.ctf.bilisb.ui.ManualSegmentItem
 import com.ctf.bilisb.ui.PlayerSheetState
 import com.ctf.bilisb.ui.ProgressMarkerPainter
@@ -683,12 +684,14 @@ object BiliSponsorBlockHooks {
         val inside = snapshot?.currentSegment
         val stats = SkipStatsStore.snapshot()
 
+        val formatterStrings = AndroidStrings(activity)
         val manualItems = snapshot?.segments.orEmpty().map { segment ->
             ManualSegmentItem(
                 label = SheetStateFormatter.formatManualSegmentItem(
-                    SponsorCategories.displayName(segment.category),
+                    SponsorCategories.displayName(activity, segment.category),
                     segment.startMs,
                     segment.endMs,
+                    formatterStrings,
                 ),
                 startMs = segment.startMs,
                 endMs = segment.endMs,
@@ -699,7 +702,7 @@ object BiliSponsorBlockHooks {
             segmentCount = snapshot?.segmentCount ?: 0,
             playheadInsideSegment = inside != null,
             insideSegmentLabel = inside?.let {
-                "${SponsorCategories.displayName(it.category)} " +
+                "${SponsorCategories.displayName(activity, it.category)} " +
                     "${SheetStateFormatter.formatSeconds(it.startMs)}-${SheetStateFormatter.formatSeconds(it.endMs)}"
             },
             autoSkipEnabled = settings.autoSkip,

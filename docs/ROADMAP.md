@@ -156,24 +156,29 @@
 - [x] Bundle 往返单测需要 Robolectric 才能真正执行（此前被 `Assume` 跳过）：
       `app/build.gradle.kts` 已加 `testImplementation("org.robolectric:robolectric:4.14.1")`，
       `SettingsCodecTest` 类级 `@RunWith(RobolectricTestRunner)` + `@Config(sdk=[34])`，
-      Bundle 往返用例已真跑（172 例 0 失败 0 跳过）。
+      Bundle 往返用例已真跑（175 例 0 失败 0 跳过）。
 - [x] 面板本体行为测试：新增 `SponsorBlockPlayerSheetBehaviorTest`（Robolectric，5 例），
       覆盖主线程拒绝 / Activity finishing 拒绝 / already-showing 去重 / dismiss 回调 / Switch 开关回调 / 文案行渲染。
 - [x] 手动跳过按钮 / 倒计时浮层挂载点：新增 `ui/OverlayAnchor.kt`，优先挂**播放器容器**
       （跟随播放器 bounds），容器未 attach/未测量/裁子 View/覆盖整屏时回落 decorView 并打探针
       （`manualSkipAnchorFallback` / `countdownAnchorFallback`）。判定逻辑 11 例单测；
       **真机位置仍待复核**（详情页滚动 / 小窗）。
-- [~] 文案硬编码中文（目标宿主是国际版）—— 抽到 `strings.xml` + `values-en`。
-      **已完成**：播放器面板全部行文案与子弹窗、跳过 Toast、手动跳过按钮、倒计时浮层，
-      共 120+ 条资源（`res/values/strings.xml` + `res/values-en/strings.xml`），
-      并新增 `StringsLocalizationTest`（5 例：键集合一致 / 英文无中日韩字符 / 占位符对应 /
-      运行时按 locale 取到各自语言）。
-      **顺带修掉一个测试基础设施缺陷**：`isIncludeAndroidResources` 此前未显式开启，
-      Robolectric 读不到应用资源（`getString` 一律抛 `Resources$NotFoundException`），
-      现已显式打开。
-      **待做**：`SettingsScreenBuilder` 的 90+ 条设置页文案落点替换（资源已就位）；
-      `SponsorCategories` 的分类显示名（它同时是设置持久化里的显示值，需连
-      `SettingsCodec` 的显示名反查一起改）。
+- [x] 文案硬编码中文（目标宿主是国际版）—— 抽到 `strings.xml` + `values-en`。
+      已完成：播放器面板全部行文案与子弹窗、跳过 Toast、手动跳过按钮、倒计时浮层、
+      **设置页全部文案**、**9 个分类的显示名**，共 160+ 条资源
+      （`res/values/strings.xml` + `res/values-en/strings.xml`）。
+      测试：`StringsLocalizationTest`（6 例：键集合一致 / 英文无中日韩字符 / 占位符对应 /
+      运行时按 locale 取到各自语言 / 分类显示名两个 locale 都取得到）+
+      `SettingsScreenBuilderTextTest`（2 例源码级扫描：设置页不再有用户可见中文字面量、
+      各段文案都确实引用了资源）。
+      **顺带修掉两个缺陷**：
+      ① `isIncludeAndroidResources` 此前未显式开启，Robolectric 读不到应用资源
+      （`getString` 一律抛 `Resources$NotFoundException`），任何依赖文案的代码在单测里都会崩；
+      ② `SettingsCodec.sanitizeCategory` 拿**显示名表**校验**category 字面量**
+      （`"sponsor" in {赞助/恰饭=sponsor,…}` 恒为 false）→ 任何已保存的默认标记类别
+      都会被静默改回 `sponsor`；现按 `SponsorCategories.ids` 判定。
+      保留中文的地方（有意）：日志/探针/异常说明、`SheetStateFormatter.defaultStrings` 兜底、
+      `SettingsKeys` 的 init 守卫报错文案。
 - [x] 分类/高亮/actionType 常量在 4 处重复定义 —— 收敛到 `SponsorCategories` 单一来源：
       顺序 + 字面量 + 显示名 + 默认颜色 + 设置键全在一张表，`SettingsKeys` 的 init 守卫与
       `SponsorCategoriesTest`（8 例）保证各派生表不漂移（`ProgressMarkerPainter` / `ColorPickerDialog`

@@ -78,6 +78,35 @@ object SponsorCategories {
 
     private val colorsByCategory: Map<String, Int> = defaultColors
 
+    /** 只用于「是不是一个合法分类」的判断（设置存储里存的是 category 字面量，不是显示名）。 */
+    val ids: Set<String> = ordered.map { it.id }.toSet()
+
+    /** UI 显示名 → 资源 id。新增分类时**必须**同时补两处：这里与 `res/values*`。 */
+    val displayNameResIds: Map<String, Int> = mapOf(
+        "sponsor" to com.ctf.bilisb.R.string.category_name_sponsor,
+        "selfpromo" to com.ctf.bilisb.R.string.category_name_selfpromo,
+        "interaction" to com.ctf.bilisb.R.string.category_name_interaction,
+        "intro" to com.ctf.bilisb.R.string.category_name_intro,
+        "outro" to com.ctf.bilisb.R.string.category_name_outro,
+        "preview" to com.ctf.bilisb.R.string.category_name_preview,
+        "music_offtopic" to com.ctf.bilisb.R.string.category_name_music_offtopic,
+        "filler" to com.ctf.bilisb.R.string.category_name_filler,
+        POI_HIGHLIGHT to com.ctf.bilisb.R.string.category_name_poi_highlight,
+    )
+
+    /**
+     * UI 用的显示名（按 locale 取资源）。
+     *
+     * 与 [displayNames] 的分工：
+     *   - [displayNames] 是**规范名**（中文），给日志与「没有 Context 可用的地方」用；
+     *   - 这里给界面用 —— 目标宿主是国际版，英文用户要看到英文分类名。
+     * 取出失败（资源缺失）时回退规范名，不会让界面变空。
+     */
+    fun displayName(context: android.content.Context, category: String): String {
+        val resId = displayNameResIds[category] ?: return displayName(category)
+        return runCatching { context.getString(resId) }.getOrDefault(displayName(category))
+    }
+
     fun displayName(category: String): String = displayNames[category] ?: category
 
     /** 默认颜色：未知分类回退 [FALLBACK_COLOR]（与进度条绘制的兜底一致）。 */
