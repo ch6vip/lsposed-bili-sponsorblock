@@ -92,21 +92,13 @@ object SettingsKeys {
     const val COLOR_PREFIX = "color_"
     fun colorKey(category: String): String = COLOR_PREFIX + category
 
-    /** 类别 → 默认标记颜色(hex)。与 ProgressMarkerPainter 内置配色一致。保序用于 UI 展示。 */
-    val CATEGORY_COLOR_DEFAULTS: Map<String, String> = linkedMapOf(
-        "sponsor" to "#00D200",         // 绿色
-        "selfpromo" to "#FFFF00",       // 黄色
-        "interaction" to "#AA00FF",     // 紫色
-        "intro" to "#00FFFF",           // 青色
-        "outro" to "#0064FF",           // 蓝色
-        "preview" to "#FF8000",         // 橙色
-        "music_offtopic" to "#FF00B4",  // 粉色
-        "filler" to "#7F00FF",          // 深紫
-        com.ctf.bilisb.model.SponsorCategories.POI_HIGHLIGHT to "#FF1E1E",   // 红色
-    )
+    /** 类别 → 默认标记颜色（hex）。**单一事实来源是 [com.ctf.bilisb.model.SponsorCategories]**，
+     *  这里只是它的「设置存储形态」（`#RRGGBB` 字符串），不要再另写一份字面量。 */
+    val CATEGORY_COLOR_DEFAULTS: Map<String, String> = com.ctf.bilisb.model.SponsorCategories.defaultColorHex
 
-    /** 类别 key → SponsorBlock category 字符串 */
-    val CATEGORY_MAP = mapOf(
+    /** 类别 key → SponsorBlock category 字符串。构成与顺序同样由 SponsorCategories 定，
+     *  这里只把 category 字面量换成对应的设置键。 */
+    val CATEGORY_MAP: Map<String, String> = mapOf(
         CAT_SPONSOR to "sponsor",
         CAT_SELFPROMO to "selfpromo",
         CAT_INTERACTION to "interaction",
@@ -117,5 +109,25 @@ object SettingsKeys {
         CAT_FILLER to "filler",
         CAT_POI_HIGHLIGHT to com.ctf.bilisb.model.SponsorCategories.POI_HIGHLIGHT,
     )
+
+    /**
+     * 一致性守卫（类加载即执行）：`CATEGORY_MAP` / 颜色默认值必须与
+     * [com.ctf.bilisb.model.SponsorCategories] 的分类集合完全一致。
+     * 两边任一处漏改都会在这里直接抛错，而不是等到「某个分类的开关静默失效」才被发现。
+     */
+    init {
+        // 注意方向：CATEGORY_MAP 是「设置键 → category」，元数据给的是「category → 设置键」。
+        val expected = com.ctf.bilisb.model.SponsorCategories.settingsKeysInverted
+        require(CATEGORY_MAP == expected) {
+            "SettingsKeys.CATEGORY_MAP 与 SponsorCategories 不一致:\n" +
+                "  CATEGORY_MAP       = $CATEGORY_MAP\n" +
+                "  SponsorCategories  = $expected"
+        }
+        val declaredOrder = com.ctf.bilisb.model.SponsorCategories.ordered.map { it.id }
+        require(CATEGORY_COLOR_DEFAULTS.keys.toList() == declaredOrder) {
+            "默认颜色表与 SponsorCategories 的分类列表不一致:" +
+                " ${CATEGORY_COLOR_DEFAULTS.keys} vs $declaredOrder"
+        }
+    }
 
 }

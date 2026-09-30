@@ -27,21 +27,12 @@ import com.ctf.bilisb.model.SponsorSegment
  * [drawInBounds]；旧的 `seek.v3.q` / `seek.v3.e` 已失效。
  */
 object ProgressMarkerPainter {
-    // 分类配色兜底(实色,无 alpha)。当快照里没有该分类颜色时回退到这里。
-    // 与 SettingsKeys.CATEGORY_COLOR_DEFAULTS 的默认值保持一致。
-    private val defaultCategoryColors = mapOf(
-        "sponsor" to Color.rgb(0, 210, 0),           // 绿色
-        "selfpromo" to Color.rgb(255, 255, 0),       // 黄色
-        "interaction" to Color.rgb(170, 0, 255),     // 紫色
-        "intro" to Color.rgb(0, 255, 255),           // 青色
-        "outro" to Color.rgb(0, 100, 255),           // 蓝色
-        "preview" to Color.rgb(255, 128, 0),         // 橙色
-        "music_offtopic" to Color.rgb(255, 0, 180),  // 粉色
-        "filler" to Color.rgb(127, 0, 255),          // 深紫
-        SponsorCategories.POI_HIGHLIGHT to Color.rgb(255, 30, 30),   // 红色
-    )
+    // 分类配色兜底（实色，无 alpha）：**不在本地另存一份**，直接引用分类元数据的默认色。
+    // 旧实现在这里手抄了一份与 SettingsKeys 同值的表，两份表任何一处漂移都会导致
+    // 「进度条颜色 ≠ 设置页显示的默认色」。
+    private val defaultCategoryColors: Map<String, Int> = SponsorCategories.defaultColors
 
-    private val defaultColor = Color.rgb(255, 196, 0)
+    private val defaultColor = SponsorCategories.FALLBACK_COLOR
 
     // 复用单个 Paint，避免每帧 new。FILL + 抗锯齿（圆点更平滑）。
     private val paint = Paint().apply {

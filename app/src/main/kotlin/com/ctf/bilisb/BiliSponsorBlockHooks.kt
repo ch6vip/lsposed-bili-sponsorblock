@@ -402,6 +402,11 @@ object BiliSponsorBlockHooks {
         val container = widget
         val controller = sponsorBlockController ?: return
         controller.bindPlayerHandle(PlayerHandle(contextHash, container, core))
+        // 这条路径**没有** bindPlayerContainer 回调，所以轮询不会由 bind 顺手拉起：
+        // 上一轮如果因为玩家离开把 poller 停了（handle 消失那条自停），这里不重启就永远没人喂进度
+        // —— 真机表现是「补绑日志每秒一条 rebound，但再也不跳过」。有 handle 就必须有 poller。
+        startProgressPoller(contextHash)
+        probePollerMissingForHandle(module, contextHash)
         VideoDirectorListener.noteContextHash(contextHash)
         // 光有 handle 不够:state 只能由 onVideoIds 创建。玩家重建后 Context 实例换了
         // (contextHash 变了),director 回调却只会带着「当时」的旧 hash —— 新 context
@@ -446,44 +451,81 @@ object BiliSponsorBlockHooks {
     }
 
     /**
-     * 进度轮询（6.6.0 主喂入源）：真机实测该版本的播放进度既不走文本控件回调
+     * 进度轮询表（6.6.0 主喂入源）：真机实测该版本的播放进度既不走文本控件回调
      * （控件不实例化）、不逐帧走 `g#draw`（仅布局/seek 爆发）、`D0$c.run` 也只在 seek 后
      * 打一炮——没有可依赖的宿主 tick。改为自持 500ms 轮询已绑定 handle 的 core
      * （getCurrentPosition/getDuration 是 6.5.0/6.6.0 稳定真名），等价 6.5.0 的 tick 语义。
-     * handle 被清理（coreForContext 返回 null）时轮询自停。
+     *
+     * 生命周期不变式：**有 handle ⇒ 有 poller**。三条起表路径（bind、补绑、controller 重建）
+     * 与两条停表路径（handle 消失、controller 关闭）都要维持它 —— 违反它的真机表现是
+     * 「日志安静地不再跳过」，与「服务端拉不到片段」完全无法区分（2026-09-29 排查就吃过这个亏）。
+     * 表本身的幂等/自停/死表项语义封在 [ProgressPollerRegistry]，有单测守着。
      */
-    private val progressPoller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
-        Thread(r, "Bili2233-progress-poll").apply { isDaemon = true }
+    private val progressPollers = com.ctf.bilisb.player.ProgressPollerRegistry { t ->
+        // 轮询线程绝不外抛（外抛会静默杀死周期任务），但异常必须留痕，否则又是「日志安静地不跳过」。
+        val m = moduleRef
+        if (m != null) {
+            HookProbe.first(m, "progressPollerError", 5) {
+                "poller 异常: ${t.javaClass.simpleName}: ${t.message}"
+            }
+        }
     }
-    private val pollerFutures = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.ScheduledFuture<*>>()
 
     private fun startProgressPoller(contextHash: Int) {
-        if (pollerFutures.containsKey(contextHash)) return
-        val future = progressPoller.scheduleWithFixedDelay(
-            {
-                try {
-                    val controller = sponsorBlockController ?: return@scheduleWithFixedDelay
-                    val core = controller.coreForContext(contextHash)
-                    if (core == null) {
-                        pollerFutures.remove(contextHash)?.cancel(false)
-                        return@scheduleWithFixedDelay
-                    }
-                    val m = moduleRef ?: return@scheduleWithFixedDelay
-                    val pos = PlayerActions.currentPositionMs(m, core)
-                    val dur = PlayerActions.durationMs(m, core)
-                    if (pos == null || dur == null) return@scheduleWithFixedDelay
-                    feedTickProgress(m, contextHash, pos, dur)
-                } catch (t: Throwable) {
-                    // 轮询线程绝不外抛：异常会静默杀死周期任务
-                }
-            },
-            500, 500, java.util.concurrent.TimeUnit.MILLISECONDS,
-        )
-        pollerFutures[contextHash] = future
+        progressPollers.start(contextHash) { progressPollerTick(contextHash) }
+    }
+
+    /** 显式停表（幂等）：handle 消失、controller 关闭/重建都走这里。 */
+    private fun stopProgressPoller(contextHash: Int) = progressPollers.stop(contextHash)
+
+    /**
+     * 启动后自检「handle 在、poller 不在」这个组合 —— 进度喂入是 6.6.0 的**唯一**主喂入源，
+     * 它一旦静默缺失，现象和「服务端拉不到片段」完全一样（零跳过、零标记），
+     * 所以这个组合必须在日志里有名字，而不是靠 `seekTick feed` 心跳的沉默去反推。
+     */
+    private fun probePollerMissingForHandle(module: XposedModule, contextHash: Int) {
+        val controller = sponsorBlockController ?: return
+        if (controller.hasHandle(contextHash) && !progressPollers.isRunning(contextHash)) {
+            HookProbe.first(module, "pollerMissingForHandle", 3) {
+                "context=$contextHash 已绑定 handle 但没有进度 poller（本会话不会自动跳过）"
+            }
+        }
+    }
+
+    /**
+     * 一次轮询 tick。返回 true 表示「该 handle 已不存在，请调用方停掉本 context 的 poller」。
+     *
+     * **整个 tick 只读一次 [sponsorBlockController]**：此前「守卫读一次、喂入再读一次」，
+     * 两次读之间的 controller 重建（[applySnapshot] 先换引用再 close 旧的）会让第二个读拿到
+     * null → 当时那条自停路径把轮询摘表，而该 context 之后不一定还有 bind 来重启它 →
+     * 本会话剩余时间静默零跳过（现象与「片段拉不到」无法区分）。
+     *
+     * 抽成独立函数也是为了能在单测里直接跑（不依赖真实宿主与定时器）。
+     */
+    private fun progressPollerTick(contextHash: Int): Boolean {
+        val controller = sponsorBlockController ?: return false
+        // 自停**只看 handle 还在不在**，不看 core 读不读得到：controller 重建的瞬间
+        // （applySnapshot 先换引用再 close 旧的）coreForContext 可以是 null，而 handle 正随
+        // adoptStateFrom 迁到新 controller —— 那种「瞬时 null」曾经直接把轮询摘表，
+        // 之后该 context 没有 bind 来重启（ensureRebindAfterTeardown 就走没有 bind 的路径），
+        // 本会话剩余时间静默零跳过。
+        if (!controller.hasHandle(contextHash)) return true
+        val core = controller.coreForContext(contextHash) ?: return false
+        val m = moduleRef ?: return false
+        val pos = PlayerActions.currentPositionMs(m, core) ?: return false
+        val dur = PlayerActions.durationMs(m, core) ?: return false
+        feedTickProgress(m, controller, contextHash, pos, dur)
+        return false
     }
 
     /** tick 喂入：bind 已完成，直接走进度决策链（与 hookProgressCallback 尾部同口径）。 */
-    private fun feedTickProgress(module: XposedModule, contextHash: Int, positionMs: Long, durationMs: Long) {
+    private fun feedTickProgress(
+        module: XposedModule,
+        controller: SponsorBlockController,
+        contextHash: Int,
+        positionMs: Long,
+        durationMs: Long,
+    ) {
         // 心跳：每 50 次 tick 打一条，证明派发器钩子真的在被调用（跳过不触发时先看这里）
         tickCounter.incrementAndGet().let { n ->
             if (n % 50L == 1L) {
@@ -497,8 +539,8 @@ object BiliSponsorBlockHooks {
             return
         }
         cancelDeferredTeardown(module, contextHash)
-        if (sponsorBlockController?.latestStateExists(contextHash) != true) return
-        sponsorBlockController?.onProgress(contextHash, positionMs, durationMs)
+        if (!controller.latestStateExists(contextHash)) return
+        controller.onProgress(contextHash, positionMs, durationMs)
     }
 
     private val tickCounter = java.util.concurrent.atomic.AtomicLong(0)
@@ -525,6 +567,7 @@ object BiliSponsorBlockHooks {
 
         // 6.6.0 主喂入源：自持 500ms 轮询（见 startProgressPoller 注释）
         startProgressPoller(contextHash)
+        probePollerMissingForHandle(module, contextHash)
     }
 
     /**
@@ -581,6 +624,9 @@ object BiliSponsorBlockHooks {
         if (!freshSettings.enabled) {
             sponsorBlockController?.close()
             sponsorBlockController = null
+            // controller 关掉后进度喂入没有任何意义：显式停掉全部 poller（而不是让它们每 500ms
+            // 空转等 coreForContext 返回 null 去自停 —— 那条自停路径有竞态，见 progressPollerTick）。
+            progressPollers.stopAll()
             module.info("SponsorBlock disabled in settings ($source)")
             return
         }
@@ -595,6 +641,17 @@ object BiliSponsorBlockHooks {
             // 旧 controller 上被丢弃;先切换引用则窗口内事件直接进新 controller。
             sponsorBlockController = replacement
             currentController?.close()
+            // 旧 controller 的 poller 一并停掉：任务体每 tick 只读一次 sponsorBlockController，
+            // 但重建窗口里它可能正好拿到那个已被 close 的旧实例（喂进去的进度没有 handle 可落）。
+            // 「停表 + 按新 controller 重启」才与「换了个 controller」语义一致；
+            // 注意：只有这个显式入口和 handle 消失能让 poller 停，任务体不会自己摘表。
+            progressPollers.stopAll()
+            // 重启按新 controller 的 handle 表来（handle 已随 adoptStateFrom 迁移过来），
+            // 而不是凭旧表项猜 —— 保证「有 handle ⇒ 有 poller」这个不变式在设置变更后仍成立。
+            replacement.activeContextHashes().forEach { hash ->
+                startProgressPoller(hash)
+                probePollerMissingForHandle(module, hash)
+            }
             module.info("SponsorBlock controller initialized settingsChanged=${currentController != null} ($source)")
         } else {
             module.info("SponsorBlock controller reused ($source)")
