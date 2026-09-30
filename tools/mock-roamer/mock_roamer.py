@@ -21,7 +21,11 @@ import re
 import sys
 
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
-from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# U4.5 诊断：若存在 real_urls.json（{"video": "...", "audio": "..."}），canned 响应的
+# base_url 用真实 B 站 CDN 地址——解耦「媒体格式」与「重构正确性」两个变量。
+REAL_URLS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "real_urls.json")
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8787
@@ -69,10 +73,16 @@ CANNED_PLAYURL = {
 
 
 def base_url_for(host: str) -> dict:
-    """把 base_url 里的 0.0.0.0 替换成请求方实际访问到的主机地址。"""
+    """U4.5：有 real_urls.json 用真实 CDN 地址；否则 0.0.0.0 换成本机地址。"""
     body = json.loads(json.dumps(CANNED_PLAYURL))
-    for track in body["dash"]["video"] + body["dash"]["audio"]:
-        track["base_url"] = track["base_url"].replace("0.0.0.0", host)
+    real = {}
+    if os.path.isfile(REAL_URLS_PATH):
+        with open(REAL_URLS_PATH, encoding="utf-8") as f:
+            real = json.load(f)
+    for track in body["dash"]["video"]:
+        track["base_url"] = real.get("video", track["base_url"].replace("0.0.0.0", host))
+    for track in body["dash"]["audio"]:
+        track["base_url"] = real.get("audio", track["base_url"].replace("0.0.0.0", host))
     return body
 
 
@@ -138,4 +148,4 @@ class RoamerHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     print(f"[mock] roamer listening on 0.0.0.0:{PORT} "
           f"(playurl: /pgc/player/api/playurl, media: /media/*)", flush=True)
-    HTTPServer(("0.0.0.0", PORT), RoamerHandler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PORT), RoamerHandler).serve_forever()

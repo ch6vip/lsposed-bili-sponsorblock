@@ -128,13 +128,16 @@ object UnlockWire {
     }
 
     /**
-     * PGC Any 载荷：PlayViewReply{business=3, view_info=5}——business/view_info 显式空，
-     * 清掉 area_limit 弹窗（wire 与 PlayViewReply 同构，宿主按 PGCAnyModel 解析）。
+     * PGC Any 载荷：PlayViewReply{video_info=1, business=3, view_info=5}——
+     * view_info 显式空（清 area_limit 弹窗）；video_info 携带漫游流——
+     * U4.5 实测：只填 unite 级 vod_info 播放器不读，PGC 内容的流要从
+     * supplement 内的 PGC video_info 读（宿主 6.6.0 实机行为）。
      */
-    fun buildPgcPayloadBytes(): ByteArray {
+    fun buildPgcPayloadBytes(data: PlayurlData): ByteArray {
         val w = WireWriter()
-        w.messageField(3, WireWriter().toByteArray())  // business
-        w.messageField(5, WireWriter().toByteArray())  // view_info
+        w.messageField(1, buildVodInfoBytes(data))     // video_info：漫游流
+        w.messageField(3, WireWriter().toByteArray())  // business（is_preview=false 走 builder 补丁）
+        w.messageField(5, WireWriter().toByteArray())  // view_info 空 = 无弹窗
         return w.toByteArray()
     }
 
