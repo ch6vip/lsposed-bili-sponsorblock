@@ -36,10 +36,11 @@ val hasReleaseSigning = releaseStorePath != null &&
     releaseKeyPassword != null
 
 // 版本单一来源(与 META-INF/xposed/module.prop 由下方 checkModuleProp 守卫一致性)
-// 0.7.0 = 6.6.0 适配真机闭环的版本号；0.7.1 = 其后新增的轮询生命周期重构 + 34 例回归测试 +
-// 浮层挂载点/分类常量收敛（**均未真机复核**），发布包用 0.7.1，避免把未验证内容标成已验证版本。
-val MODULE_VERSION_CODE = 11
-val MODULE_VERSION_NAME = "0.7.1"
+// 0.7.0 = 6.6.0 适配真机闭环；0.7.1 = 轮询生命周期重构 + 回归测试 + 浮层挂载点/分类常量收敛；
+// 0.7.2 = **修跨包资源解析**（宿主进程里拿模块的 R.string id 查宿主资源表，真机上表现为
+// 设置页标题/跳过 Toast 显示成 `res/anim/...`）——这条是真机实测暴露的，必须升版重发。
+val MODULE_VERSION_CODE = 12
+val MODULE_VERSION_NAME = "0.7.2"
 
 android {
     namespace = "com.ctf.bilisb"

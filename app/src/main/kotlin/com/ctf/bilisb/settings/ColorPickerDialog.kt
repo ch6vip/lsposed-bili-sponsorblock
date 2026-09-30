@@ -145,7 +145,7 @@ object ColorPickerDialog {
             addView(preview)
             addView(grid)
             addView(TextView(activity).apply {
-                text = activity.getString(com.ctf.bilisb.R.string.color_custom_hex)
+                text = com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.color_custom_hex)
                 textSize = 13f
             })
             addView(hexInput)
@@ -180,7 +180,7 @@ object ColorPickerDialog {
             }
             setPadding(dp(16), dp(12), dp(16), dp(10))
             addView(TextView(activity).apply {
-                text = activity.getString(com.ctf.bilisb.R.string.color_picker_title)
+                text = com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.color_picker_title)
                 textSize = 17f
                 setTextColor(0xFF18191C.toInt())
                 setTypeface(typeface, Typeface.BOLD)
@@ -190,14 +190,26 @@ object ColorPickerDialog {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.END
                 addView(
-                    textButton(activity.getString(com.ctf.bilisb.R.string.common_cancel), 0xFF61666D.toInt(), false) {
+                    textButton(
+                        com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.common_cancel),
+                        0xFF61666D.toInt(),
+                        false,
+                    ) {
                         dialogRef.get()?.dismiss()
                     },
                 )
-                addView(textButton(activity.getString(com.ctf.bilisb.R.string.common_confirm), 0xFFFB7299.toInt(), true) {
+                addView(textButton(
+                    com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.common_confirm),
+                    0xFFFB7299.toInt(),
+                    true,
+                ) {
                     val picked = parseHexOrNull(hexInput.text.toString())
                     if (picked == null) {
-                        Toast.makeText(activity, activity.getString(com.ctf.bilisb.R.string.color_format_error), Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            activity,
+                            com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.color_format_error),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } else {
                         onPick(picked)
                         dialogRef.get()?.dismiss()

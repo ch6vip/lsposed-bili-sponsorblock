@@ -32,7 +32,7 @@ object PlayerToastBridge {
         // 至少让「跳过了」这件事能被看到。
         val context = PlayerBridge.context(host)
         val text = context?.let {
-            runCatching { it.getString(com.ctf.bilisb.R.string.toast_skipped, message) }.getOrDefault(message)
+            ModuleStrings.get(it, com.ctf.bilisb.R.string.toast_skipped, message, fallback = message)
         } ?: message
         showToast(module, host, text)
     }

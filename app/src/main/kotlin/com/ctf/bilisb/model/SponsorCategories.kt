@@ -100,11 +100,14 @@ object SponsorCategories {
      * 与 [displayNames] 的分工：
      *   - [displayNames] 是**规范名**（中文），给日志与「没有 Context 可用的地方」用；
      *   - 这里给界面用 —— 目标宿主是国际版，英文用户要看到英文分类名。
-     * 取出失败（资源缺失）时回退规范名，不会让界面变空。
+     *
+     * **必须经 `ModuleStrings`**：调用方常常在宿主进程里（播放器面板、手动跳过按钮），
+     * 那个 context 是宿主的，直接 `getString` 会拿模块 id 去查宿主资源表（真机上会显示成
+     * `res/anim/...`）。取不到时回退规范名，界面不会变空。
      */
     fun displayName(context: android.content.Context, category: String): String {
         val resId = displayNameResIds[category] ?: return displayName(category)
-        return runCatching { context.getString(resId) }.getOrDefault(displayName(category))
+        return com.ctf.bilisb.ui.ModuleStrings.get(context, resId, fallback = displayName(category))
     }
 
     fun displayName(category: String): String = displayNames[category] ?: category

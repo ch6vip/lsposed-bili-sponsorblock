@@ -34,14 +34,15 @@ object SettingsScreenBuilder {
     private const val REPO_URL = "https://github.com/ch6vip/lsposed-bili-sponsorblock"
 
     /**
-     * 取资源文案（英文用户自动走 `values-en`）。
+     * 取资源文案。
      *
-     * 设置页的用户可见文案一律走这里，不再写字面量 —— 目标宿主是国际版，
-     * 漏一处就是「英文界面里夹一句中文」。`SettingsScreenBuilderTextTest` 会扫描本文件的
-     * 中文字面量来防止回归。
+     * **必须走 [ModuleStrings]**：本文件在宿主进程里被调用时 `activity` 是**宿主的** Activity，
+     * 直接 `activity.getString(R.string.x)` 会拿模块的资源 id 去查宿主的资源表 ——
+     * 真机上表现为标题显示成 `res/anim/abc_fade_in.xml`（见 ModuleStrings 的注释）。
+     * [ModuleStrings] 会按 `packageName` 自动区分「模块自己的进程」与「宿主进程」。
      */
     private fun str(activity: Activity, resId: Int, vararg args: Any): String =
-        runCatching { activity.getString(resId, *args) }.getOrElse { "" }
+        com.ctf.bilisb.ui.ModuleStrings.get(activity, resId, *args)
 
     /** statusPanel 的兜底单例(模块进程内复用,避免反复 new SettingsWriter 泄漏线程/监听器)。 */
     @Volatile

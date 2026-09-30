@@ -74,6 +74,9 @@ object BiliSponsorBlockHooks {
 
         val cl = param.defaultClassLoader
         moduleRef = module
+        // 登记模块实例：宿主进程里要靠它拿模块自己的资源表（见 ModuleStrings 的注释：
+        // 用宿主的 Resources 解析模块的 R.string id 会查到宿主资源，真机上表现为标题变成 res/anim/...）。
+        com.ctf.bilisb.ui.ModuleStrings.attach(module)
         module.info("Installing hooks for ${param.packageName} process=$processName with $cl")
 
         // aid/cid 消费方：观察者回调 -> controller

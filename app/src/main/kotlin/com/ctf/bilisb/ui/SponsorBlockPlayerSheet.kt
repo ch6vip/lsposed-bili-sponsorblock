@@ -216,7 +216,7 @@ object SponsorBlockPlayerSheet {
 
         // 文案统一走资源（values / values-en）；面板的拼装逻辑仍留在 SheetStateFormatter 里
         // （那是纯 JVM、有单测的部分），这里只负责把「文案来源」传进去。
-        val strings = AndroidStrings(activity)
+        val strings = SheetStrings.forContext(activity)
 
         // ---- 第一组：信息与操作 ----
         body.addView(row(activity, "🎬", s(activity, R.string.sheet_segment_info), valueText(activity,
@@ -637,9 +637,9 @@ object SponsorBlockPlayerSheet {
         runCatching { android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_SHORT).show() }
     }
 
-    /** 取资源文案（英文用户自动走 `values-en`）。 */
+    /** 取资源文案。必须走 [ModuleStrings]（宿主进程里 activity 是宿主的，见其注释）。 */
     private fun s(activity: Activity, resId: Int, vararg args: Any): String =
-        runCatching { activity.getString(resId, *args) }.getOrElse { "" }
+        ModuleStrings.get(activity, resId, *args)
 
     /** `isDestroyed()` 是 API 17+，minSdk 23 其实够用；用 runCatching 兜住个别 ROM 的实现差异。 */
     private fun isDestroyed(activity: Activity): Boolean =
