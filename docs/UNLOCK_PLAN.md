@@ -3,15 +3,18 @@
 > 前置材料：Phase 0 可行性报告 [`docs/UNLOCK_FEASIBILITY.md`](UNLOCK_FEASIBILITY.md)（链路实证与本报告的技术依据）。
 > 参考实现：[BiliRoaming](https://github.com/yujincheng08/BiliRoaming)（**GPL-3**）。
 
-## 0. 两个 Gate（未确认前不写实现代码）
+## 0. 两个 Gate（2026-09-30 决策：**延后至发布前**，开发先行）
 
-| Gate | 内容 | 产出物 |
-| --- | --- | --- |
-| **G1 定位反转** | 免责声明改写：项目范围扩展为「含受限内容接入」；账号风控风险由用户自担；解锁功能**默认关闭** | README / 免责声明 / module.prop 描述修订稿 |
-| **G2 许可证转 GPL-3** | LICENSE 替换为 GPL-3；README 徽章与许可节更新；BiliTamer 移植段（MIT）兼容并存；RELEASING.md 说明许可变更 | LICENSE + 文档修订 |
+| Gate | 内容 | 产出物 | 时机 |
+| --- | --- | --- | --- |
+| **G1 定位反转** | 免责声明改写：项目范围扩展为「含受限内容接入」；账号风控风险由用户自担；解锁功能**默认关闭** | README / 免责声明 / module.prop 描述修订稿 | 发版前 |
+| **G2 许可证转 GPL-3** | LICENSE 替换为 GPL-3；README 徽章与许可节更新；BiliTamer 移植段（MIT）兼容并存；RELEASING.md 说明许可变更 | LICENSE + 文档修订 | 发版前 |
 
-> G2 是硬前提：研读过 GPL-3 参考实现后，工程上实际的实现路径（复用其 proto schema 与协议结论）
-> 构成演绎，项目须整体转 GPL-3。MIT 段可并入，无法律障碍。
+> 用户决策（2026-09-30）：先实现看效果，G1/G2 推迟到发布前完成。
+> **硬约束：包含解锁代码的版本在 G1/G2 完成前不得发布**——不得以 MIT 名义打 tag / 发 Release /
+> 同步镜像。开发期提交与本地产物不受此限；此约束登记为发版检查项（U8 / RELEASING.md）。
+> 缓解措施：实现基于协议事实与本项目 dex 实证，用自己的代码风格与结构书写，不逐行复制 GPL 参考实现；
+> 若最终决定不发布解锁功能，G1/G2 无需发生。
 
 ## 1. 范围
 
@@ -43,7 +46,7 @@ PlayerMoss.playViewUnite(req, handler?)          ← HostTargets 新增「解锁
 
 | 里程碑 | 内容 | 验收标准 | 估时 |
 | --- | --- | --- | --- |
-| **U0** | G1/G2 决策落地 | LICENSE/README/声明修订合入 | 0.5 天 |
+| ~~**U0**~~ | ~~G1/G2 决策落地~~ → **延后为发版 Gate**（见 §0），开发直接从 U1 开始 | — | — |
 | **U1** | 拦截点基建（只读）：三形态钩子 + 受限判定 + 探针，**不改任何行为** | 真机播受限/非受限/非番剧三类内容，日志判定全部正确 | 1-2 天 |
 | **U2** | protobuf 管线：pgc playview + playurl.v1 的 .proto 定义入库，protobuf-lite 生成接入构建 | 序列化 round-trip 单测绿（宿主实拍字节 ↔ 自备类） | 1-2 天 |
 | **U3** | 本地 mock 漫游服务器（`tools/mock-roamer/`，canned playurl JSON）+ `RoamingClient` 四区择优/签名借宿主/超时降级 | 对 mock 的客户端单测绿；**真机零账号暴露** | 2 天 |
@@ -51,9 +54,9 @@ PlayerMoss.playViewUnite(req, handler?)          ← HostTargets 新增「解锁
 | **U5** | CDN upos 替换 | 替换后真机起播，探针记录替换明细 | 1 天 |
 | **U6** | 缓存解锁 | 真机受限内容出现缓存入口并可完成缓存 | 1 天 |
 | **U7** | 设置 UI + 管线：`unlock_*` 设置项（总开关/四区地址/accessKey/CDN/缓存）进控制中心，复用三级 fallback | 设置页可用；设置改动按现有生效语义工作 | 1-2 天 |
-| **U8** | 真机回归 + 文档收口：用户自配真实服务器全链路；STATUS/README/RELEASING 回写 | 全部真机验证项通过并记录证据 | 1-2 天 |
+| **U8** | 真机回归 + 文档收口 + **G1/G2 落地**：用户自配真实服务器全链路；STATUS/README/RELEASING 回写；许可与声明修订合入 | 全部真机验证项通过并记录证据；G1/G2 完成后方可发布 | 1-2 天 |
 
-**合计约 10-13 个工作日**（U0 与 U1-U3 可并行起步）。
+**合计约 10-13 个工作日**（U1-U3 可并行起步；U8 含发版 Gate，未过 Gate 不发布）。
 
 ## 4. 关键设计决策
 

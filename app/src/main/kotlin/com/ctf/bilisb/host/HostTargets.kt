@@ -322,4 +322,16 @@ object HostTargets {
      */
     val MOSS_DESCRIPTOR_G_TYPE_HINTS = listOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g")
     val MOSS_DESCRIPTOR_K_TYPE_HINTS = listOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k")
+
+    // ------------------------------------------------------------ 解锁番剧（U1 起，见 docs/UNLOCK_PLAN.md）
+
+    // 播放链路 6.6.0 已全 gRPC 化（moss/protobuf），旧 REST playurl 端点不存在。
+    // 本段全部是 bapis/**真名类**（protobuf 族宿主不混淆），跨版本稳定性远好于混淆短名；
+    // 实证见 docs/UNLOCK_FEASIBILITY.md §2.1（索引逐条验证，2026-09-30）。
+
+    /** 播放器聚合 moss 服务：`playViewUnite(req)` 是播放地址的唯一入口。 */
+    const val PLAYER_MOSS_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayerMoss"
+    val PLAY_VIEW_UNITE_METHODS = listOf("playViewUnite", "executePlayViewUnite")
+    const val PLAY_VIEW_UNITE_REQ_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq"
+    const val PLAY_VIEW_UNITE_REPLY_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply"
 }
