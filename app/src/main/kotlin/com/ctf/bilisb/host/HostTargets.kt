@@ -231,4 +231,95 @@ object HostTargets {
         "com.bilibili.lib.blrouter.BLRouter",
         "tv.danmaku.bili.ui.intent.IntentHandlerActivity",
     )
+
+    // ---------------------------------------------------------------- B 站增强（候选表，2026-09-30 收编）
+
+    // 「B 站增强」四件套的 hook 点原本散落在各自 hook 文件里（宿主改版要逐文件找），
+    // 现在与主链路同口径集中在这里。标注「真名」的是未混淆类（跨版本稳定）；
+    // 混淆短名（ip1.h / kr1.a / Aq0.a 这类）跨版本必漂移，一律给候选列表并保持既有尝试顺序。
+    // SDK/平台类（okhttp3.*、android.app.Activity、com.tencent.tauth.*）不混淆、不漂移，
+    // 留在各自 hook 文件里，不进这张表。
+
+    // ------------------------------------------------------------ 隐藏互动提示
+
+    /** 一键三连提示控件（真名，6.3.0-6.6.0 未漂移）。 */
+    const val TRIPLE_LIKE_CLASS = "com.bilibili.app.gemini.player.widget.like.VideoTripleLike"
+    const val TRIPLE_PROMPT_METHOD = "setPrompt"
+    const val TRIPLE_TOAST_METHOD = "getToast"
+
+    /** UP 关注引导气泡入口：静态、2 参、void 的方法（混淆签名会变，按「名字+形状」匹配）。 */
+    const val FOLLOW_POPUP_CLASS = "com.bilibili.playerbizcommonv2.widget.popup.FollowPopupUtil"
+    const val FOLLOW_POPUP_METHOD = "b"
+
+    /** 互动弹幕投票面板的数据入口。 */
+    const val VOTE_WIDGET_CLASS = "com.bilibili.playerbizcommonv2.danmaku.command.InteractDanmakuListWidget"
+    const val VOTE_SET_DATA_METHOD = "setData"
+
+    // ------------------------------------------------------------ 首页不自动刷新
+
+    /**
+     * feed 加载入口**按结构匹配**（任意「第 3 参类型是 PegasusFlush」的方法，跨版本稳定，
+     * 6.3.0=z0 / 6.4.0=y0 / 6.5.0=x0），不依赖方法名；这两个真名类是结构匹配的锚点。
+     */
+    const val PEGASUS_VM_CLASS = "com.bilibili.pegasus.vm.PegasusViewModel"
+    const val PEGASUS_FLUSH_CLASS = "com.bilibili.pegasus.data.request.PegasusFlush"
+
+    // ------------------------------------------------------------ 分享到 QQ
+
+    /** 6.4.0+ 宿主特征标记类（仅探测存在性，不 hook）。 */
+    const val HOME_APP_BAR_MARKER_CLASS = "tv.danmaku.bili.home.widget.top.HomeAppBarLayout"
+
+    /** 分享渠道 bean（真名，服务端下发渠道的载体）。 */
+    const val SHARE_CHANNELS_CLASS = "com.bilibili.lib.sharewrapper.online.api.ShareChannels"
+    const val SHARE_CHANNEL_ITEM_CLASS = "com.bilibili.lib.sharewrapper.online.api.ShareChannels\$ChannelItem"
+    const val SHARE_ABOVE_CHANNELS_GETTER = "getAboveChannels"
+
+    // ------------------------------------------------------------ IP 属地
+
+    /** KMP moss 发送入口（混淆名）：标记评论 RPC 的 ThreadLocal scope。 */
+    val MOSS_SCOPE_ENTRY_CLASSES = listOf("ip1.h")
+    val MOSS_SCOPE_ENTRY_METHODS = listOf("a")
+
+    /**
+     * KMP 头提供者兜底候选（混淆名，随构建漂移：6.3.0=up1.a / 6.4.0+=kr1.a；
+     * 6.5.0 起变接口+抽象中转+5 个具体提供者，无单点，形状校验会让它安静跳过）。
+     */
+    val KMP_HEADER_PROVIDER_CLASSES = listOf("kr1.a", "up1.a")
+
+    /** moss 公共头入口（真名，6.3.0-6.6.0 未漂移）：`b(2 参)`。 */
+    const val MOSS_COMMON_HEADERS_CLASS = "kntr.base.moss.ignet.impl.header.b"
+    const val MOSS_COMMON_HEADERS_METHOD = "b"
+
+    /** gRPC 二进制头唯一写入口（真名）：`f(String, byte[])`。 */
+    const val MOSS_GRPC_BIN_WRITE_CLASS = "kntr.base.moss.ignet.impl.grpc.c"
+    const val MOSS_GRPC_BIN_WRITE_METHOD = "f"
+
+    /** REST/旧 moss 身份 provider 候选（混淆名；6.3.0=mq0.a，6.4.0 起迁 oq0.a，方法同名 e/d）。 */
+    val IDENTITY_PROVIDER_CLASSES = listOf("mq0.a", "oq0.a")
+    val IDENTITY_PROVIDER_METHODS = listOf("e", "d")
+
+    /** REST 评论拦截器候选（混淆名；6.3.0=Aq0.a，6.4.0 起=Cq0.a，`intercept(1 参)`）。 */
+    val REST_INTERCEPTOR_CLASSES = listOf("Aq0.a", "Cq0.a")
+
+    /** okretro REST 公共参数基类（混淆名；6.4.0 移除，靠 Cq0.a 覆盖）。 */
+    const val REST_PARAMS_CLASS = "XA0.a"
+    const val REST_PARAMS_TO_URL_METHOD = "addCommonParamToUrl"
+    const val REST_PARAMS_MAP_METHOD = "addCommonParam"
+
+    /** 空间页专属 REST 参数拦截器（真名，天然定域：只有空间请求经过它）。 */
+    val SPACE_REST_PARAM_CLASSES = listOf("com.bilibili.app.comm.list.common.api.e")
+
+    /** 空间页 UI 定域窗口的 Activity 候选（Local=6.4.0+ 实际页面，在前）。 */
+    val SPACE_UI_ACTIVITY_CLASSES = listOf(
+        "com.bilibili.app.authorspace.local.LocalAuthorSpaceActivity",
+        "com.bilibili.app.authorspace.ui.AuthorSpaceActivity",
+    )
+
+    /**
+     * gRPC 方法描述符字段的**类型名提示**（字段挂在 MossInterceptor$e.b，类型随构建漂移：
+     * 6.3.0=jp1.g / 6.4.0=Zq1.g / 6.5.0=kr1.g / 6.6.0=xr1.g；服务名兜底字段同理为 *.k）。
+     * 顺序即尝试顺序。
+     */
+    val MOSS_DESCRIPTOR_G_TYPE_HINTS = listOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g")
+    val MOSS_DESCRIPTOR_K_TYPE_HINTS = listOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k")
 }

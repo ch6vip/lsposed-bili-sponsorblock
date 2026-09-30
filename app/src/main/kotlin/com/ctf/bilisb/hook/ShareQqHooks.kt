@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import com.ctf.bilisb.host.HookProbe
 import com.ctf.bilisb.host.HookResolve
+import com.ctf.bilisb.host.HostTargets
 import com.ctf.bilisb.settings.EnhanceFlags
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -69,7 +70,7 @@ object ShareQqHooks {
         // 6.4.0+ 特征探测（HomeAppBarLayout 为 6.4.0 首页引入）。
         // 与 BiliTamer 不同：我们不据此禁用注入，理由见类注释（官方签名宿主无 25201 问题）。
         val appBarV64 = runCatching {
-            Class.forName("tv.danmaku.bili.home.widget.top.HomeAppBarLayout", false, cl)
+            Class.forName(HostTargets.HOME_APP_BAR_MARKER_CLASS, false, cl)
         }.isSuccess
         HookProbe.skip(
             module,
@@ -96,22 +97,14 @@ object ShareQqHooks {
     // ------------------------------------------------------------ 渠道注入
 
     private fun installChannelInjection(module: XposedModule, cl: ClassLoader) {
-        val sc = Class.forName(
-            "com.bilibili.lib.sharewrapper.online.api.ShareChannels",
-            false,
-            cl,
-        )
-        val channelItemClass = Class.forName(
-            "com.bilibili.lib.sharewrapper.online.api.ShareChannels\$ChannelItem",
-            false,
-            cl,
-        )
+        val sc = Class.forName(HostTargets.SHARE_CHANNELS_CLASS, false, cl)
+        val channelItemClass = Class.forName(HostTargets.SHARE_CHANNEL_ITEM_CLASS, false, cl)
         val getShareChannel = channelItemClass.getMethod("getShareChannel")
         val setName = channelItemClass.getMethod("setName", String::class.java)
         val setShareChannel = channelItemClass.getMethod("setShareChannel", String::class.java)
         val setPicture = channelItemClass.getMethod("setPicture", String::class.java)
 
-        val above = HookResolve.declaredMethod(sc, listOf("getAboveChannels"))
+        val above = HookResolve.declaredMethod(sc, listOf(HostTargets.SHARE_ABOVE_CHANNELS_GETTER))
             ?: throw IllegalStateException("ShareChannels#getAboveChannels not found")
 
         val loggedOnce = AtomicBoolean(false)

@@ -2,6 +2,7 @@ package com.ctf.bilisb.hook
 
 import com.ctf.bilisb.host.HookProbe
 import com.ctf.bilisb.host.HookResolve
+import com.ctf.bilisb.host.HostTargets
 import com.ctf.bilisb.settings.EnhanceFlags
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -48,15 +49,11 @@ object InteractHintHooks {
     // ------------------------------------------------------------ 一键三连
 
     private fun installTriplePrompt(module: XposedModule, cl: ClassLoader) {
-        val vtl = Class.forName(
-            "com.bilibili.app.gemini.player.widget.like.VideoTripleLike",
-            false,
-            cl,
-        )
+        val vtl = Class.forName(HostTargets.TRIPLE_LIKE_CLASS, false, cl)
         var hooked = 0
 
         // setPrompt(boolean)：三连提示文案开关
-        HookResolve.declaredMethod(vtl, listOf("setPrompt"), java.lang.Boolean.TYPE)?.let { method ->
+        HookResolve.declaredMethod(vtl, listOf(HostTargets.TRIPLE_PROMPT_METHOD), java.lang.Boolean.TYPE)?.let { method ->
             runCatching { module.deoptimize(method) }
             module.hook(method)
                 .setPriority(XposedInterface.PRIORITY_DEFAULT)
@@ -77,7 +74,7 @@ object InteractHintHooks {
         } ?: HookProbe.miss(module, "hintTriple:setPrompt", "VideoTripleLike#setPrompt not found")
 
         // getToast()：清空提示文案
-        HookResolve.declaredMethod(vtl, listOf("getToast"))?.let { method ->
+        HookResolve.declaredMethod(vtl, listOf(HostTargets.TRIPLE_TOAST_METHOD))?.let { method ->
             runCatching { module.deoptimize(method) }
             module.hook(method)
                 .setPriority(XposedInterface.PRIORITY_DEFAULT)
@@ -104,13 +101,9 @@ object InteractHintHooks {
 
     /** UP 提示：FollowPopupUtil.b(...) 关注引导气泡入口直接跳过。 */
     private fun installFollowPopup(module: XposedModule, cl: ClassLoader) {
-        val fpu = Class.forName(
-            "com.bilibili.playerbizcommonv2.widget.popup.FollowPopupUtil",
-            false,
-            cl,
-        )
+        val fpu = Class.forName(HostTargets.FOLLOW_POPUP_CLASS, false, cl)
         val target = fpu.declaredMethods.firstOrNull { m ->
-            m.name == "b" &&
+            m.name == HostTargets.FOLLOW_POPUP_METHOD &&
                 m.parameterTypes.size == 2 &&
                 m.returnType == Void.TYPE &&
                 Modifier.isStatic(m.modifiers)
@@ -139,12 +132,8 @@ object InteractHintHooks {
 
     /** 投票/互动弹幕：InteractDanmakuListWidget.setData(List) 置空。 */
     private fun installVote(module: XposedModule, cl: ClassLoader) {
-        val widget = Class.forName(
-            "com.bilibili.playerbizcommonv2.danmaku.command.InteractDanmakuListWidget",
-            false,
-            cl,
-        )
-        val method = HookResolve.declaredMethod(widget, listOf("setData"), java.util.List::class.java)
+        val widget = Class.forName(HostTargets.VOTE_WIDGET_CLASS, false, cl)
+        val method = HookResolve.declaredMethod(widget, listOf(HostTargets.VOTE_SET_DATA_METHOD), java.util.List::class.java)
             ?: run {
                 HookProbe.miss(module, "hintVote", "InteractDanmakuListWidget#setData(List) not found")
                 return

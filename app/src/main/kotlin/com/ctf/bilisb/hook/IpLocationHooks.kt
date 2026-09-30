@@ -3,6 +3,7 @@ package com.ctf.bilisb.hook
 import android.os.Handler
 import android.os.HandlerThread
 import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.host.HostTargets
 import com.ctf.bilisb.settings.EnhanceFlags
 import com.ctf.bilisb.util.info
 import com.ctf.bilisb.util.warn
@@ -74,9 +75,6 @@ object IpLocationHooks {
         "MainList", "DetailList", "DialogList", "PreviewList", "ReplyInfo",
         "SearchItem", "SearchItemPreHook", "ShareRepliesInfo", "FoldList", "HotspotPage",
     )
-
-    // MossCommonHeadersProvider（kntr.base.moss.ignet.impl.header.j）
-    private const val COMMON_HEADERS_CLS = "kntr.base.moss.ignet.impl.header.b"
 
     private const val RETRY_DELAY_MS = 500L
     private const val MAX_RETRY = 30
@@ -203,9 +201,22 @@ object IpLocationHooks {
             return
         }
         try {
-            val ip1h = Class.forName("ip1.h", false, cl)
-            val m = ip1h.declaredMethods.firstOrNull { it.name == "a" && it.parameterTypes.size == 4 }
-                ?: throw NoSuchMethodException("ip1.h.a(4-arg) not found")
+            var ip1h: Class<*>? = null
+            var found: Method? = null
+            for (cn in HostTargets.MOSS_SCOPE_ENTRY_CLASSES) {
+                val c = loadQuiet(cl, cn) ?: continue
+                found = c.declaredMethods.firstOrNull {
+                    it.name == HostTargets.MOSS_SCOPE_ENTRY_METHODS.first() && it.parameterTypes.size == 4
+                }
+                if (found != null) {
+                    ip1h = c
+                    break
+                }
+            }
+            if (ip1h == null) {
+                throw ClassNotFoundException(HostTargets.MOSS_SCOPE_ENTRY_CLASSES.joinToString("|"))
+            }
+            val m = found ?: throw NoSuchMethodException("moss scope entry (4-arg) not found")
             runCatching { m.isAccessible = true }
             runCatching { module.deoptimize(m) }
             module.hook(m)
@@ -242,7 +253,7 @@ object IpLocationHooks {
                     }
                 }
             mossScopeReady.set(true)
-            HookProbe.ok(module, "ip.mossScope", "${ip1h.name}.a (attempt=${mossScopeAttempts.get()})")
+            HookProbe.ok(module, "ip.mossScope", "${ip1h.name}.${HostTargets.MOSS_SCOPE_ENTRY_METHODS.first()} (attempt=${mossScopeAttempts.get()})")
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "ip.mossScopeRetry", 3) {
                 "class not loaded yet, retry in ${RETRY_DELAY_MS}ms attempt=${mossScopeAttempts.get()}"
@@ -275,7 +286,7 @@ object IpLocationHooks {
         }
         var cls: Class<*>? = null
         var clsUsed: String? = null
-        for (cn in listOf("kr1.a", "up1.a")) {
+        for (cn in HostTargets.KMP_HEADER_PROVIDER_CLASSES) {
             val c = runCatching { Class.forName(cn, false, cl) }.getOrNull() ?: continue
             if (!isHeaderProviderBase(c)) {
                 module.info("ip: kmp provider candidate $cn shape mismatch, skip")
@@ -423,10 +434,10 @@ object IpLocationHooks {
      */
     private fun installCommonHeadersScope(module: XposedModule, cl: ClassLoader) {
         try {
-            val cls = Class.forName(COMMON_HEADERS_CLS, false, cl)
+            val cls = Class.forName(HostTargets.MOSS_COMMON_HEADERS_CLASS, false, cl)
             val m = cls.declaredMethods.firstOrNull {
-                it.name == "b" && it.parameterTypes.size == 2 && !it.isSynthetic
-            } ?: throw NoSuchMethodException("$COMMON_HEADERS_CLS.b(2-arg) not found")
+                it.name == HostTargets.MOSS_COMMON_HEADERS_METHOD && it.parameterTypes.size == 2 && !it.isSynthetic
+            } ?: throw NoSuchMethodException("${HostTargets.MOSS_COMMON_HEADERS_CLASS}.${HostTargets.MOSS_COMMON_HEADERS_METHOD}(2-arg) not found")
             runCatching { m.isAccessible = true }
             runCatching { module.deoptimize(m) }
             module.hook(m)
@@ -460,7 +471,7 @@ object IpLocationHooks {
             HookProbe.ok(module, "ip.commonHeadersScope", "${cls.name}.b")
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "ip.commonHeadersScopeRetry", 3) {
-                "$COMMON_HEADERS_CLS not loaded yet, retry in ${RETRY_DELAY_MS}ms"
+                "${HostTargets.MOSS_COMMON_HEADERS_CLASS} not loaded yet, retry in ${RETRY_DELAY_MS}ms"
             }
             retry(module, "commonHeadersScope") { installCommonHeadersScope(module, cl) }
         } catch (t: Throwable) {
@@ -495,7 +506,7 @@ object IpLocationHooks {
             // 字段语义一致（a=packageName, b=serviceName, c=methodName，kr1.g 经
             // KMethodDescriptor toString 实证），故只按类型名提示逐一尝试。
             // 描述符字段挂在父类 MossInterceptor$e.b 上（6.6.0 实测），沿层级查找即可。
-            val g = fieldTypedAnyHint(ctx, "b", arrayOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g"))
+            val g = fieldTypedAnyHint(ctx, "b", HostTargets.MOSS_DESCRIPTOR_G_TYPE_HINTS.toTypedArray())
             // 6.3.0 jp1.g：service 在字段 a；6.4.0/6.5.0：a=packageName, b=serviceName，
             // c=methodName —— 语义移位过，两个都试，取像服务名的那个
             var svc = if (g == null) null else strField(g, "b")
@@ -506,7 +517,7 @@ object IpLocationHooks {
             }
             if (svc == null) {
                 // 兜底：k 也有服务名字段（6.3.0=jp1.k / 6.4.0=Zq1.k / 6.5.0=kr1.k / 6.6.0=xr1.k）
-                val k = fieldTypedAnyHint(ctx, "a", arrayOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k"))
+                val k = fieldTypedAnyHint(ctx, "a", HostTargets.MOSS_DESCRIPTOR_K_TYPE_HINTS.toTypedArray())
                 svc = if (k == null) null else strField(k, "a")
             }
             if (svc == null && g != null) {
@@ -544,16 +555,16 @@ object IpLocationHooks {
             return
         }
         val f: Method = try {
-            val grpcC = Class.forName("kntr.base.moss.ignet.impl.grpc.c", false, cl)
+            val grpcC = Class.forName(HostTargets.MOSS_GRPC_BIN_WRITE_CLASS, false, cl)
             grpcC.declaredMethods.firstOrNull { mm ->
-                mm.name == "f" &&
+                mm.name == HostTargets.MOSS_GRPC_BIN_WRITE_METHOD &&
                     mm.parameterTypes.size == 2 &&
                     mm.parameterTypes[0] == String::class.java &&
                     mm.parameterTypes[1] == ByteArray::class.java
-            } ?: throw NoSuchMethodException("grpc.c.f(String,byte[]) not found")
+            } ?: throw NoSuchMethodException("grpc bin write (String,byte[]) not found")
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "ip.grpcBinHeaderWriteRetry", 3) {
-                "grpc.c not loaded yet, retry in ${RETRY_DELAY_MS}ms attempt=${grpcWriteAttempts.get()}"
+                "${HostTargets.MOSS_GRPC_BIN_WRITE_CLASS} not loaded yet, retry in ${RETRY_DELAY_MS}ms attempt=${grpcWriteAttempts.get()}"
             }
             retry(module, "grpcBinHeaderWrite") { installGrpcBinHeaderWrite(module, cl) }
             return
@@ -603,7 +614,7 @@ object IpLocationHooks {
                     }
                 }
             grpcWriteReady.set(true)
-            HookProbe.ok(module, "ip.grpcBinHeaderWrite", "kntr.base.moss.ignet.impl.grpc.c.f")
+            HookProbe.ok(module, "ip.grpcBinHeaderWrite", "${HostTargets.MOSS_GRPC_BIN_WRITE_CLASS}.${HostTargets.MOSS_GRPC_BIN_WRITE_METHOD}")
         } catch (t: Throwable) {
             HookProbe.miss(module, "ip.grpcBinHeaderWrite", "hook failed: ${t.javaClass.simpleName}: ${t.message}")
         }
@@ -619,14 +630,23 @@ object IpLocationHooks {
             return
         }
         try {
-            try {
-                installByteProvider(module, cl, "mq0.a", "e", true)  // metadata (6.3.0)
-                installByteProvider(module, cl, "mq0.a", "d", false) // device
-            } catch (oldMissing: Throwable) {
-                // 6.4.0: mq0.a 另作他用；REST 身份 provider 迁到 oq0.a（e/d 同名，
-                // 见 Cq0.a.intercept 对 oq0.a.e()/d() 的调用）
-                installByteProvider(module, cl, "oq0.a", "e", true)  // metadata (6.4.0)
-                installByteProvider(module, cl, "oq0.a", "d", false) // device
+            var installed = false
+            var lastError: Throwable? = null
+            // 候选顺序即版本顺序：6.3.0=mq0.a，6.4.0 起迁 oq0.a（e/d 同名，见 Cq0.a.intercept
+            // 对 oq0.a.e()/d() 的调用）。一个类上 e(metadata)/d(device) 必须成对成功。
+            for (cn in HostTargets.IDENTITY_PROVIDER_CLASSES) {
+                try {
+                    installByteProvider(module, cl, cn, "e", true)  // metadata
+                    installByteProvider(module, cl, cn, "d", false) // device
+                    installed = true
+                    break
+                } catch (t: Throwable) {
+                    lastError = t
+                }
+            }
+            if (!installed) {
+                throw lastError
+                    ?: ClassNotFoundException(HostTargets.IDENTITY_PROVIDER_CLASSES.joinToString("|"))
             }
             identityReady.set(true)
             HookProbe.ok(module, "ip.identityProvider", "mq0.a|oq0.a e/d (attempt=${identityAttempts.get()})")
@@ -715,7 +735,7 @@ object IpLocationHooks {
         installSpaceRestParams(module, cl)
         var restCls: Class<*>? = null
         var restClsUsed: String? = null
-        for (cn in listOf("Aq0.a", "Cq0.a")) {
+        for (cn in HostTargets.REST_INTERCEPTOR_CLASSES) {
             val c = runCatching { Class.forName(cn, false, cl) }.getOrNull() ?: continue
             val has = c.declaredMethods.any { it.name == "intercept" && it.parameterTypes.size == 1 }
             if (has) {
@@ -790,10 +810,10 @@ object IpLocationHooks {
             return
         }
         try {
-            val xa0 = Class.forName("XA0.a", false, cl)
+            val xa0 = Class.forName(HostTargets.REST_PARAMS_CLASS, false, cl)
             // addCommonParamToUrl(t, z.a)：记录 URL
             val toUrl = xa0.declaredMethods.firstOrNull {
-                it.name == "addCommonParamToUrl" && it.parameterTypes.size == 2
+                it.name == HostTargets.REST_PARAMS_TO_URL_METHOD && it.parameterTypes.size == 2
             }
             if (toUrl != null) {
                 runCatching { toUrl.isAccessible = true }
@@ -828,7 +848,7 @@ object IpLocationHooks {
             }
             // addCommonParam(Map)：改写 mobi_app/build/channel
             val acp = xa0.declaredMethods.firstOrNull {
-                it.name == "addCommonParam" && it.parameterTypes.size == 1 &&
+                it.name == HostTargets.REST_PARAMS_MAP_METHOD && it.parameterTypes.size == 1 &&
                     it.parameterTypes[0] == java.util.Map::class.java
             }
             if (acp != null) {
@@ -870,7 +890,7 @@ object IpLocationHooks {
             }
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "ip.restParamsRetry", 3) {
-                "XA0.a not loaded yet, retry attempt=${restParamsAttempts.get()}"
+                "${HostTargets.REST_PARAMS_CLASS} not loaded yet, retry attempt=${restParamsAttempts.get()}"
             }
             retry(module, "restParams") { installRestParams(module, cl) }
         } catch (t: Throwable) {
@@ -883,7 +903,7 @@ object IpLocationHooks {
     /** 6.4.0 空间页 REST 参数改写：空间身份走 URL 参数（mobi_app=android_i），
      *  不走 moss/proto 头。挂空间页专属拦截器 e.addCommonParam（天然定域：只有空间请求经过它）。 */
     private fun installSpaceRestParams(module: XposedModule, cl: ClassLoader) {
-        val cand = arrayOf("com.bilibili.app.comm.list.common.api.e")
+        val cand = HostTargets.SPACE_REST_PARAM_CLASSES
         for (cn in cand) {
             try {
                 val c = Class.forName(cn, false, cl)
@@ -935,10 +955,7 @@ object IpLocationHooks {
      *  6.4.0 空间 REST 由 kntr 直连 provider，svc 无法定位，只能按页面定位。 */
     private fun installSpaceUiScope(module: XposedModule, cl: ClassLoader) {
         // 6.4.0 实测用户打开的空间页 = LocalAuthorSpaceActivity；AuthorSpaceActivity 为 6.3.0/遗留候选
-        val acts = arrayOf(
-            "com.bilibili.app.authorspace.local.LocalAuthorSpaceActivity",
-            "com.bilibili.app.authorspace.ui.AuthorSpaceActivity",
-        )
+        val acts = HostTargets.SPACE_UI_ACTIVITY_CLASSES
         for (actName in acts) {
             try {
                 val act = Class.forName(actName, false, cl)
