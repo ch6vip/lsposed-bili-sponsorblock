@@ -89,12 +89,17 @@ object PlayViewHook {
             .setPriority(XposedInterface.PRIORITY_DEFAULT)
             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
             .intercept { chain ->
-                val reqFacts = extractRequestFacts(module, chain.args.getOrNull(0))
+                val req = chain.args.getOrNull(0)
+                val reqFacts = extractRequestFacts(module, req)
                 HookProbe.first(module, "unlock:reqFacts", 5) {
-                    "${m.name}: cid=${reqFacts.vodCid} season=${reqFacts.seasonId} " +
+                    "arg0=${req?.javaClass?.name} vod=${runCatching {
+                        req?.javaClass?.methods?.firstOrNull { f -> f.name == "getVod" }?.invoke(req)?.javaClass?.name
+                    }.getOrNull() ?: "null"} | cid=${reqFacts.vodCid} season=${reqFacts.seasonId} " +
                         "ep=${reqFacts.epId} download=${reqFacts.isDownload}"
                 }
                 val result = chain.proceed()
+                captureBytes(module, req, "req")
+                captureBytes(module, result, "reply")
                 val respFacts = extractResponseFacts(module, result)
                 val facts = PlayViewDecision.Facts(
                     reqVodCid = reqFacts.vodCid,
@@ -112,6 +117,37 @@ object PlayViewHook {
                 }
                 result
             }
+    }
+
+    // ---- U2 字节采集：实拍 req/reply 供 round-trip 单测（每类限 3 份，写宿主数据目录） ----
+
+    private val capturedReq = AtomicInteger(0)
+    private val capturedReply = AtomicInteger(0)
+
+    private fun captureBytes(module: XposedModule, obj: Any?, kind: String) {
+        if (obj == null) return
+        val n = (if (kind == "req") capturedReq else capturedReply).let {
+            if (!it.compareAndSet(3, 3)) it.incrementAndGet() else 3
+        }
+        if (n > 3) return
+        runCatching {
+            val bytes = obj.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+                ?.invoke(obj) as? ByteArray ?: return
+            val dir = java.io.File(
+                com.ctf.bilisb.host.HostTargets.HOST_DATA_DIRS.first(),
+                "unlock_capture",
+            )
+            dir.mkdirs()
+            val f = java.io.File(dir, "${kind}_$n.bin")
+            f.outputStream().use { it.write(bytes) }
+            HookProbe.first(module, "unlock:capture:$kind", 3) {
+                "${f.absolutePath} ${bytes.size}B"
+            }
+        }.onFailure { t ->
+            HookProbe.first(module, "unlock:captureFailed", 3) {
+                "$kind: ${t.javaClass.simpleName}: ${t.message}"
+            }
+        }
     }
 
     private data class RequestFacts(val vodCid: Long, val seasonId: String, val epId: String, val isDownload: Boolean)
