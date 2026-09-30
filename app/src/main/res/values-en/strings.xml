@@ -1,0 +1,162 @@
+<resources>
+    <string name="module_name">Bili2233</string>
+    <string name="module_description">SponsorBlock-style segment skipping for Bilibili</string>
+
+    <!-- Common -->
+    <string name="common_back">‹ Back</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_confirm">OK</string>
+    <string name="common_save">Save</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_copy">Copy</string>
+    <string name="common_import">Import</string>
+    <string name="common_about">About</string>
+    <string name="common_version">Version</string>
+    <string name="common_author">Author</string>
+    <string name="common_status">Status</string>
+    <string name="common_settings">Settings</string>
+
+    <!-- Control center (main screen) -->
+    <string name="app_tagline">SponsorBlock · Bilibili Enhance — open-source LSPosed module (MIT)</string>
+    <string name="entry_sponsorblock_title">SponsorBlock</string>
+    <string name="entry_sponsorblock_summary">Skip and mark sponsor, intro and other segments</string>
+    <string name="entry_enhance_title">Bilibili Enhance</string>
+    <string name="entry_enhance_summary">IP region · interaction prompts · home refresh · share to QQ</string>
+
+    <!-- Bilibili Enhance page -->
+    <string name="enhance_section">Enhancements</string>
+    <string name="enhance_note">Ported from BiliTamer (MIT); all disabled by default</string>
+    <string name="enhance_ip_location_title">IP region on comments/profile</string>
+    <string name="enhance_ip_location_summary">Rewrite request identity so the server returns the IP region (restart the host app to apply)</string>
+    <string name="enhance_hide_triple_title">Hide like/coin/favorite prompt</string>
+    <string name="enhance_hide_triple_summary">Hide the triple-action animation and prompt text</string>
+    <string name="enhance_hide_up_title">Hide follow prompt</string>
+    <string name="enhance_hide_up_summary">Hide the creator follow bubble</string>
+    <string name="enhance_hide_vote_title">Hide vote / interaction danmaku</string>
+    <string name="enhance_hide_vote_summary">Hide the interaction danmaku voting panel</string>
+    <string name="enhance_no_refresh_title">No auto refresh on home</string>
+    <string name="enhance_no_refresh_summary">Returning to home or from background keeps the list (pull-to-refresh still works)</string>
+    <string name="enhance_share_qq_title">Share to QQ</string>
+    <string name="enhance_share_qq_summary">Restore the QQ entry in the share sheet (requires QQ installed)</string>
+
+    <!-- Status block -->
+    <string name="state_enabled">enabled</string>
+    <string name="state_disabled">disabled</string>
+    <string name="state_user_generated">generated</string>
+    <string name="state_user_missing">not generated</string>
+    <string name="state_user_invalid">invalid</string>
+    <string name="state_module">Module: %1$s</string>
+    <string name="state_settings_source">Settings source: %1$s</string>
+    <string name="state_server">Server: %1$s</string>
+    <string name="state_cache_ttl">Cache TTL: %1$s</string>
+    <string name="state_user_id">User ID: %1$s</string>
+    <string name="state_enabled_categories">Categories enabled: %1$d/%2$d</string>
+
+    <!-- SponsorBlock settings page -->
+    <string name="section_master_switch">Master switch</string>
+    <string name="enable_title">Enable SponsorBlock</string>
+    <string name="enable_summary">The module does nothing while off</string>
+    <string name="section_auto_skip">Auto skip</string>
+    <string name="auto_skip_title">Auto skip</string>
+    <string name="auto_skip_summary">Skip automatically when a segment starts</string>
+    <string name="manual_skip_title">Manual skip</string>
+    <string name="manual_skip_summary">Show a skip button inside segments; skip only when tapped (overrides auto skip)</string>
+    <string name="mute_segments_title">Mute segments</string>
+    <string name="mute_segments_summary">Mute instead of skipping for mute-type segments</string>
+    <string name="min_skip_duration_label">Minimum segment length (s): </string>
+    <string name="skip_countdown_label">Skip countdown (s): </string>
+    <string name="section_categories">Categories</string>
+    <string name="section_marker_colors">Marker colors</string>
+    <string name="marker_colors_hint">Tap a swatch to customize each category\'s marker color on the progress bar</string>
+    <string name="section_ui">Interface</string>
+    <string name="show_toast_title">Skip toast</string>
+    <string name="show_toast_summary">Show a toast when skipping</string>
+    <string name="show_marker_title">Progress bar markers</string>
+    <string name="show_marker_summary">Mark segment positions</string>
+    <string name="show_time_deduction_title">Deduct skipped time</string>
+    <string name="show_time_deduction_summary">Subtract skipped time from total duration</string>
+    <string name="show_skip_stats_title">Skip statistics</string>
+    <string name="show_skip_stats_summary">Track skip count and time saved</string>
+    <string name="section_stats">Statistics</string>
+    <string name="section_submission">Submission</string>
+    <string name="section_server">Server</string>
+    <string name="cache_ttl_label">Cache TTL (minutes): </string>
+    <string name="stats_host_only">Statistics are recorded in the host app process; check them in the in-player "Skip Assistant" panel.</string>
+    <string name="stats_summary">Skipped %1$d segments · saved %2$s</string>
+    <string name="stats_empty">No records yet</string>
+    <string name="stats_category_line">  %1$s: %2$d · %3$s</string>
+    <string name="stats_reset">Reset statistics</string>
+    <string name="stats_reset_done">Statistics reset</string>
+    <string name="cache_ttl_minutes">%1$d min</string>
+    <string name="cache_ttl_minutes_fractional">%1$s min</string>
+    <string name="server_address_label">Server address: </string>
+    <string name="server_address_scheme_error">Server address must start with http:// or https://</string>
+    <string name="default_category_title">Default category</string>
+    <string name="user_id_title">User ID</string>
+    <string name="user_id_empty_hint">(not generated — tap "Reset" to create one)</string>
+    <string name="user_id_not_generated">No user ID yet — tap "Reset" first</string>
+    <string name="user_id_copied">Copied</string>
+    <string name="user_id_reset_done">Reset</string>
+    <string name="user_id_import_title">Import user ID</string>
+    <string name="user_id_invalid_hex">User ID must be 32 hex characters</string>
+    <string name="saved">Saved</string>
+    <string name="cannot_open_link">Cannot open link</string>
+
+    <!-- Category hints (names and order live in SponsorCategories) -->
+    <string name="category_hint_sponsor">Paid promotion, sponsors</string>
+    <string name="category_hint_selfpromo">Own products, referral links</string>
+    <string name="category_hint_interaction">Like / follow reminders</string>
+    <string name="category_hint_intro">Opening animation</string>
+    <string name="category_hint_outro">End credits</string>
+    <string name="category_hint_preview">Recap</string>
+    <string name="category_hint_music_offtopic">Non-music parts of a music video</string>
+    <string name="category_hint_filler">Jokes, repeated filler</string>
+    <string name="category_hint_poi_highlight">Highlight moments</string>
+
+    <!-- Color picker -->
+    <string name="color_custom_hex">Custom (hex): </string>
+    <string name="color_picker_title">Pick a color</string>
+    <string name="color_format_error">Color must be in #FFRRGGBB format</string>
+
+    <!-- In-player "Skip Assistant" panel -->
+    <string name="sheet_manual_skip">Manual skip</string>
+    <string name="sheet_open">Open panel</string>
+    <string name="sheet_segment_info">Segment info</string>
+    <string name="sheet_auto_skip">Skip assistant</string>
+    <string name="sheet_submit">Submit segment</string>
+    <string name="sheet_refresh">Refresh segments</string>
+    <string name="sheet_service_info">Service info</string>
+    <string name="sheet_show_toast">Show skip toast</string>
+    <string name="sheet_show_marker">Show progress bar markers</string>
+    <string name="sheet_min_duration">Minimum segment length</string>
+    <string name="sheet_min_duration_edit">Minimum segment length (s)</string>
+    <string name="sheet_user_id">User ID</string>
+    <string name="sheet_no_segments">No skippable segments in this video</string>
+    <string name="sheet_pick_segment">Pick a segment to jump to</string>
+    <string name="sheet_enter_number">Please enter a number</string>
+    <string name="sheet_not_empty">Cannot be empty</string>
+    <string name="sheet_user_id_invalid">User ID must be 32 hex characters</string>
+    <string name="sheet_segment_count_outside">%1$d segments · playhead outside any segment</string>
+    <string name="sheet_segment_count_inside">%1$d segments · playhead inside: %2$s</string>
+    <string name="sheet_status_normal">OK</string>
+    <string name="sheet_status_error">Error</string>
+    <string name="sheet_service_status">Status: %1$s · %2$d skips · %3$d s saved</string>
+    <string name="sheet_manual_summary">%1$d segments · tap to pick and jump to the end</string>
+    <string name="sheet_submit_hint">Mark and submit a skip segment</string>
+    <string name="sheet_submit_marked">Start marked at %1$s</string>
+    <string name="sheet_segment_one">segment</string>
+    <string name="sheet_refresh_summary">Fetch this video\'s segments again</string>
+
+    <!-- Player overlays and toasts -->
+    <string name="toast_skipped">Skipped: %1$s</string>
+    <string name="manual_skip_button">Skip %1$s ▶</string>
+    <string name="manual_skip_button_desc">Skip segment manually</string>
+    <string name="countdown_text">Skipping in %1$d s: %2$s</string>
+    <string name="countdown_cancel">Cancel</string>
+
+    <!-- Mine page entry -->
+    <string name="mine_entry_title">Bili2233</string>
+
+    <!-- Segment duration text -->
+    <string name="segment_duration_seconds">%1$s %2$s-%3$s (%4$s)</string>
+</resources>

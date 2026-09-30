@@ -87,6 +87,15 @@ android {
         buildConfig = true
     }
 
+    // Robolectric 要真读到 res/values*（面板/设置页文案已改为资源），必须把 Android 资源
+    // 放进单测运行时 classpath。AGP 8 默认即 true，这里显式写出来避免将来被默认值变化静默打断：
+    // 一旦资源不可见，所有 getString() 都会抛 Resources$NotFoundException。
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

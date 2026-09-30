@@ -23,21 +23,47 @@ object SheetStateFormatter {
     private const val ELLIPSIS = "…"
 
     /**
+     * 默认文案实现。
+     *
+     * 生产路径由调用方传入 [AndroidStrings]（走 `res/values*`，英文用户自动拿 `values-en`）；
+     * 这个默认值只为「调用方没传」的兜底存在，文案与 `values/strings.xml` 保持同形，
+     * 改文案时两处一起改（`SheetStringsCompletenessTest` 会盯住资源侧的完整性）。
+     */
+    val defaultStrings: SheetStrings = object : SheetStrings {
+        override fun segmentCountOutside(count: Int) = "$count 个片段 · 播放头不在片段内"
+        override fun segmentCountInside(count: Int, label: String) = "$count 个片段 · 播放头在片段内：$label"
+        override fun statusNormal() = "正常"
+        override fun statusError() = "异常"
+        override fun serviceStatus(status: String, count: Int, savedSeconds: Long) =
+            "状态：$status · 跳过 $count 次 · 节省 $savedSeconds 秒"
+
+        override fun manualSummary(count: Int) = "共 $count 个片段 · 点击选择并跳到末尾"
+        override fun segmentOne() = "片段"
+        override fun segmentItem(name: String, start: String, end: String, duration: String) =
+            "$name $start-$end ($duration)"
+    }
+
+    /**
      * 第一组「片段信息」行。
      *
      * @param count       当前视频的片段数。负数按 0 处理（调用方给的统计值理论上不该为负，
      *                    但真机数据来自网络/缓存，夹一下比显示「-1 个片段」好）。
      * @param insideLabel 播放头所在片段的描述（例如 `赞助/恰饭 300.0-600.0s`）；
      *                    null / 空白表示播放头不在任何片段内。
+     * @param strings     文案来源（默认 [defaultStrings]，生产传 [AndroidStrings]）
      * @return `"1 个片段 · 播放头不在片段内"` 或 `"1 个片段 · 播放头在片段内：赞助/恰饭 300.0-600.0s"`
      */
-    fun formatSegmentInfo(count: Int, insideLabel: String?): String {
+    fun formatSegmentInfo(
+        count: Int,
+        insideLabel: String?,
+        strings: SheetStrings = defaultStrings,
+    ): String {
         val safeCount = count.coerceAtLeast(0)
         val label = insideLabel?.trim()
         return if (label.isNullOrEmpty()) {
-            "$safeCount 个片段 · 播放头不在片段内"
+            strings.segmentCountOutside(safeCount)
         } else {
-            "$safeCount 个片段 · 播放头在片段内：$label"
+            strings.segmentCountInside(safeCount, label)
         }
     }
 
@@ -49,11 +75,16 @@ object SheetStateFormatter {
      * @param savedSeconds 累计节省秒数，负数按 0 处理
      * @return `"状态：正常 · 跳过 140 次 · 节省 5521 秒"`
      */
-    fun formatServiceStatus(ok: Boolean, skippedCount: Int, savedSeconds: Long): String {
-        val status = if (ok) "正常" else "异常"
+    fun formatServiceStatus(
+        ok: Boolean,
+        skippedCount: Int,
+        savedSeconds: Long,
+        strings: SheetStrings = defaultStrings,
+    ): String {
+        val status = if (ok) strings.statusNormal() else strings.statusError()
         val count = skippedCount.coerceAtLeast(0)
         val saved = savedSeconds.coerceAtLeast(0L)
-        return "状态：$status · 跳过 $count 次 · 节省 $saved 秒"
+        return strings.serviceStatus(status, count, saved)
     }
 
     /**
@@ -62,8 +93,8 @@ object SheetStateFormatter {
      * 0 个片段时仍然给同一句式（点击后弹出的选择列表会是空的），
      * 让调用方少一个分支；不要在这里拼「无片段」之类的新句式，否则单测与 UI 会有两套文案。
      */
-    fun formatManualSummary(count: Int): String =
-        "共 ${count.coerceAtLeast(0)} 个片段 · 点击选择并跳到末尾"
+    fun formatManualSummary(count: Int, strings: SheetStrings = defaultStrings): String =
+        strings.manualSummary(count.coerceAtLeast(0))
 
     /**
      * 毫秒 → `"12.3s"`。
@@ -96,11 +127,16 @@ object SheetStateFormatter {
      * 避免同一个片段在「片段信息」和「选择列表」里长得不一样。
      * 时长按 `end - start` 算并夹到非负（脏数据里 end < start 时不能显示负时长）。
      */
-    fun formatManualSegmentItem(displayName: String, startMs: Long, endMs: Long): String {
-        val name = displayName.trim().ifEmpty { "片段" }
+    fun formatManualSegmentItem(
+        displayName: String,
+        startMs: Long,
+        endMs: Long,
+        strings: SheetStrings = defaultStrings,
+    ): String {
+        val name = displayName.trim().ifEmpty { strings.segmentOne() }
         val start = formatSeconds(startMs)
         val end = formatSeconds(endMs)
         val duration = formatSeconds((endMs - startMs).coerceAtLeast(0L))
-        return "$name $start-$end ($duration)"
+        return strings.segmentItem(name, start, end, duration)
     }
 }

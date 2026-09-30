@@ -25,6 +25,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import com.ctf.bilisb.R
 
 /**
  * 播放器内的底部半屏面板（bottom sheet 样式）。
@@ -213,47 +214,51 @@ object SponsorBlockPlayerSheet {
             setPadding(0, 0, 0, dp(activity, 12))
         }
 
+        // 文案统一走资源（values / values-en）；面板的拼装逻辑仍留在 SheetStateFormatter 里
+        // （那是纯 JVM、有单测的部分），这里只负责把「文案来源」传进去。
+        val strings = AndroidStrings(activity)
+
         // ---- 第一组：信息与操作 ----
-        body.addView(row(activity, "🎬", "片段信息", valueText(activity,
-            SheetStateFormatter.formatSegmentInfo(state.segmentCount, state.insideSegmentLabel))))
-        body.addView(row(activity, "🎯", "空降助手", switchBox(activity, state.autoSkipEnabled) { on ->
+        body.addView(row(activity, "🎬", s(activity, R.string.sheet_segment_info), valueText(activity,
+            SheetStateFormatter.formatSegmentInfo(state.segmentCount, state.insideSegmentLabel, strings))))
+        body.addView(row(activity, "🎯", s(activity, R.string.sheet_auto_skip), switchBox(activity, state.autoSkipEnabled) { on ->
             callbacks.onToggleAutoSkip(on)
         }))
-        body.addView(row(activity, "📮", "提交片段", valueText(activity, state.submitHint)) {
+        body.addView(row(activity, "📮", s(activity, R.string.sheet_submit), valueText(activity, state.submitHint)) {
             callbacks.onSubmitSegment()
         })
-        body.addView(row(activity, "⏭", "手动跳过", valueText(activity, state.manualSkipSummary)) {
+        body.addView(row(activity, "⏭", s(activity, R.string.sheet_manual_skip), valueText(activity, state.manualSkipSummary)) {
             showManualSkipPicker(activity, state.manualSegments, callbacks, log)
         })
-        body.addView(row(activity, "🔄", "刷新片段", valueText(activity, "重新拉取当前视频片段")) {
+        body.addView(row(activity, "🔄", s(activity, R.string.sheet_refresh), valueText(activity, s(activity, R.string.sheet_refresh_summary))) {
             callbacks.onRefreshSegments()
         })
 
         body.addView(divider(activity))
 
         // ---- 第二组：设置项 ----
-        body.addView(row(activity, "📊", "服务信息", valueText(activity, state.serviceStatus)))
-        body.addView(row(activity, "🔔", "显示跳过 Toast", switchBox(activity, state.showToast) { on ->
+        body.addView(row(activity, "📊", s(activity, R.string.sheet_service_info), valueText(activity, state.serviceStatus)))
+        body.addView(row(activity, "🔔", s(activity, R.string.sheet_show_toast), switchBox(activity, state.showToast) { on ->
             callbacks.onToggleShowToast(on)
         }))
-        body.addView(row(activity, "🎨", "显示进度条片段", switchBox(activity, state.showSeekbarMarker) { on ->
+        body.addView(row(activity, "🎨", s(activity, R.string.sheet_show_marker), switchBox(activity, state.showSeekbarMarker) { on ->
             callbacks.onToggleSeekbarMarker(on)
         }))
-        body.addView(row(activity, "📈", "跳过次数统计", switchBox(activity, state.showSkipStats) { on ->
+        body.addView(row(activity, "📈", s(activity, R.string.show_skip_stats_title), switchBox(activity, state.showSkipStats) { on ->
             callbacks.onToggleSkipStats(on)
         }))
-        body.addView(row(activity, "⏱", "最短片段时长", valueText(activity, "${state.minSkipDurationLabel} ›")) {
+        body.addView(row(activity, "⏱", s(activity, R.string.sheet_min_duration), valueText(activity, "${state.minSkipDurationLabel} ›")) {
             // 回调按约定的签名不带值：面板不掌握持久化，弹窗里的输入通过可选接口
             // ValueEditingCallbacks 额外回传，调用方按自己支持的能力决定实现哪个。
-            editNumber(activity, "最短片段时长（秒）", state.minSkipDurationLabel, dialog, log,
+            editNumber(activity, s(activity, R.string.sheet_min_duration_edit), state.minSkipDurationLabel, dialog, log,
                 maxValue = state.minSkipDurationMaxSec) { value ->
                 (callbacks as? ValueEditingCallbacks)?.onMinSkipDurationEdited(value)
                 callbacks.onEditMinSkipDuration()
             }
         })
-        body.addView(row(activity, "👤", "用户 ID", valueText(activity,
+        body.addView(row(activity, "👤", s(activity, R.string.sheet_user_id), valueText(activity,
             "${SheetStateFormatter.formatUserId(state.userIdLabel)} ›")) {
-            editText(activity, "用户 ID", state.userIdLabel, dialog, log) { value ->
+            editText(activity, s(activity, R.string.sheet_user_id), state.userIdLabel, dialog, log) { value ->
                 (callbacks as? ValueEditingCallbacks)?.onUserIdEdited(value)
                 callbacks.onEditUserId()
             }
@@ -392,20 +397,20 @@ object SponsorBlockPlayerSheet {
         log: (String) -> Unit,
     ) {
         if (segments.isEmpty()) {
-            toast(activity, "当前视频没有可跳过的片段")
+            toast(activity, s(activity, R.string.sheet_no_segments))
             return
         }
         if (activity.isFinishing || isDestroyed(activity)) return
         runCatching {
             val labels = segments.map { it.label }.toTypedArray()
             AlertDialog.Builder(activity)
-                .setTitle("选择要跳到的片段")
+                .setTitle(s(activity, R.string.sheet_pick_segment))
                 .setItems(labels) { _, which ->
                     val item = segments.getOrNull(which) ?: return@setItems
                     runCatching { callbacks.onManualSkip(item) }
                         .onFailure { log("manual skip callback failed: ${it.javaClass.name}") }
                 }
-                .setNegativeButton("取消", null)
+                .setNegativeButton(s(activity, R.string.common_cancel), null)
                 .show()
         }.onFailure { log("manual skip picker failed: ${it.javaClass.name}: ${it.message}") }
     }
@@ -433,7 +438,7 @@ object SponsorBlockPlayerSheet {
         showEditDialog(activity, title, input, parent, log) {
             val parsed = input.text.toString().trim().toFloatOrNull()
             if (parsed == null) {
-                toast(activity, "请输入数字")
+                toast(activity, s(activity, R.string.sheet_enter_number))
                 false
             } else {
                 // 与 SettingsKeys 的 MAX clamp 对齐:非法/超大输入(1e30)不原样回调
@@ -461,10 +466,10 @@ object SponsorBlockPlayerSheet {
         showEditDialog(activity, title, input, parent, log) {
             val value = input.text.toString().trim()
             if (value.isEmpty()) {
-                toast(activity, "不能为空")
+                toast(activity, s(activity, R.string.sheet_not_empty))
                 false
             } else if (!com.ctf.bilisb.sponsor.UserIdentityStore.isValidUserId(value)) {
-                toast(activity, "用户 ID 须为 32 位十六进制")
+                toast(activity, s(activity, R.string.sheet_user_id_invalid))
                 false
             } else {
                 onConfirm(value)
@@ -527,8 +532,8 @@ object SponsorBlockPlayerSheet {
                     addView(LinearLayout(activity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.END
-                        addView(textButton("取消", 0xFF61666D.toInt(), false) { dialog.dismiss() })
-                        addView(textButton("保存", BRAND_PINK, true) {
+                        addView(textButton(s(activity, R.string.common_cancel), 0xFF61666D.toInt(), false) { dialog.dismiss() })
+                        addView(textButton(s(activity, R.string.common_save), BRAND_PINK, true) {
                             // 校验与回调都可能抛（调用方写入失败），就地兜住，不然会崩在主线程
                             val ok = runCatching { onConfirm() }
                                 .onFailure { log("edit dialog confirm failed: ${it.javaClass.name}: ${it.message}") }
@@ -631,6 +636,10 @@ object SponsorBlockPlayerSheet {
     private fun toast(activity: Activity, text: String) {
         runCatching { android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_SHORT).show() }
     }
+
+    /** 取资源文案（英文用户自动走 `values-en`）。 */
+    private fun s(activity: Activity, resId: Int, vararg args: Any): String =
+        runCatching { activity.getString(resId, *args) }.getOrElse { "" }
 
     /** `isDestroyed()` 是 API 17+，minSdk 23 其实够用；用 runCatching 兜住个别 ROM 的实现差异。 */
     private fun isDestroyed(activity: Activity): Boolean =
