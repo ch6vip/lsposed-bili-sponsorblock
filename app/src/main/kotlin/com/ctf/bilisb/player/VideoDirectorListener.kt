@@ -8,8 +8,6 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
-import java.util.Collections
-import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -35,11 +33,12 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object VideoDirectorListener {
     /**
-     * 已挂过代理的 director 服务 → (观察者 Proxy, 注册时的接口)。
-     * z0 成功后才从表摘掉,失败则保留以免重复挂代理。
+     * 已挂过代理的 director 服务集合（服务 → (观察者 Proxy, 注册时的接口)）。
+     *
+     * 去重与「登记必须先于 invoke」的顺序契约都封在 [ObserverRegistrationGate] 里，
+     * 并有单测断言顺序 —— 这段顺序曾被审查改动破坏，代价是 6.6.0 详情页黑屏 + 输入 ANR。
      */
-    private val observersByService: MutableMap<Any, Pair<Any, Class<*>>> =
-        Collections.synchronizedMap(WeakHashMap<Any, Pair<Any, Class<*>>>())
+    private val gate = ObserverRegistrationGate<Pair<Any, Class<*>>>()
 
     /** 最近一次绑定的播放器 contextHash（0 表示还没有播放器）。 */
     @Volatile
@@ -143,7 +142,7 @@ object VideoDirectorListener {
      * 调用点：Hook `PlayDirectorServiceV3#j0(E0)` 之后拿到服务实例时调用。
      */
     fun registerDirectorService(module: XposedModule, directorService: Any): Boolean {
-        if (observersByService.containsKey(directorService)) return true
+        if (gate.isRegistered(directorService)) return true
 
         val classLoader = directorService.javaClass.classLoader ?: run {
             HookProbe.miss(module, "director", "classLoader null")
@@ -174,16 +173,15 @@ object VideoDirectorListener {
             ObserverHandler(module),
         )
 
-        // 必须先登记再 invoke：我们挂在 l0/j0 上的 after 回调里调用本函数，而 invoke 走的
+        // 登记必须先于 invoke：我们挂在 l0/j0 上的 after 回调里调用本函数，而 invoke 走的
         // 就是这个被 hook 的方法（LSPosed 对反射调用同样生效）→ 回调重入本函数。
-        // 登记先行使重入在 containsKey 处终止（等价 0.6.3 registeredHosts.add 的旧序职责）；
-        // 若登记挪到 invoke 之后，6.6.0 在 onCreate 主线程内同步注册时无限重入，
-        // 详情页黑屏 + 输入 ANR（2026-09-29 真机 MIUIScout 栈定位）。
-        observersByService[directorService] = observer to observerInterface
-
+        // 顺序契约与回归测试见 ObserverRegistrationGate:若登记挪到 invoke 之后，
+        // 6.6.0 在 onCreate 主线程内同步注册时会无限重入，详情页黑屏 + 输入 ANR
+        // （2026-09-29 真机 MIUIScout 栈定位）。
         val ok = runCatching {
-            addMethod.invoke(directorService, observer)
-            true
+            gate.register(directorService, observer to observerInterface) {
+                addMethod.invoke(directorService, observer)
+            }
         }.getOrElse {
             module.info("director: addObserver(${addMethod.name}) failed: ${it.message}")
             false
@@ -196,10 +194,8 @@ object VideoDirectorListener {
                 "${directorService.javaClass.name}#${addMethod.name}(${observerInterface.simpleName})",
             )
             probeCurrentVideo(module, directorService)
-        } else {
-            // 注册失败回滚登记，避免留下无法注销的死账（removeObserver 依赖这张表）
-            observersByService.remove(directorService, observer to observerInterface)
         }
+        // 失败时 gate.register 已回滚登记（见其 catch 分支），不留下无法注销的死账。
         return ok
     }
 
@@ -229,29 +225,32 @@ object VideoDirectorListener {
     }
 
     private fun resolveService(host: Any): Any? {
-        if (observersByService.containsKey(host)) return host
+        if (gate.isRegistered(host)) return host
         return HookResolve.invokeNoArg(host, HostTargets.DIRECTOR_GET_SERVICE_METHODS)
     }
 
     private fun removeObserver(module: XposedModule, directorService: Any) {
-        val registered = observersByService[directorService] ?: return
+        val registered = gate.get(directorService) ?: return
         val (observer, observerInterface) = registered
-        val removeMethod = HookResolve.forTarget(
-            directorService,
-            HostTargets.DIRECTOR_REMOVE_OBSERVER_METHODS,
-            observerInterface,
-        )
-        if (removeMethod == null) {
-            HookProbe.miss(module, "directorRemove", "z0 not found on ${directorService.javaClass.name}")
-            return
-        }
+        // 表只在真正注销成功后才摘（gate.unregister 内部语义），失败保留以便下次重试。
         val removed = runCatching {
-            removeMethod.invoke(directorService, observer)
+            gate.unregister(directorService, registered) {
+                val removeMethod = HookResolve.forTarget(
+                    directorService,
+                    HostTargets.DIRECTOR_REMOVE_OBSERVER_METHODS,
+                    observerInterface,
+                ) ?: throw IllegalStateException(
+                    "removeObserver not found on ${directorService.javaClass.name}",
+                )
+                removeMethod.invoke(directorService, observer)
+            }
             true
-        }.onFailure { module.info("director: removeObserver failed: ${it.message}") }
-            .getOrDefault(false)
+        }.getOrElse {
+            module.info("director: removeObserver failed: ${it.message}")
+            false
+        }
         if (removed) {
-            observersByService.remove(directorService, registered)
+            HookProbe.ok(module, "directorRemove", directorService.javaClass.name)
         }
     }
 
