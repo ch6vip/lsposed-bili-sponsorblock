@@ -144,6 +144,48 @@ handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时�
 - **浮层新挂载点的真机位置复核**、增强四件套在 6.6.0 上的屏幕效果复核。
 - **设置页文案的资源落点替换**（`SettingsScreenBuilder` 90+ 条）：资源已就位，替换留作下一步。
 
+## 0.7.2 真机验证（2026-09-30 晚，6.6.0 宿主）
+
+装机：`app-release.apk`（0.7.2 / versionCode 12，17:39 构建）与当前源码树构建产物 **SHA-256 一致**——测试对象就是工作区代码，无需重装。
+设备 Xiaomi 23078RKD5C / Android 16 / KernelSU + LSPosed，宿主 6.6.0（9130300）。
+
+**结论：0.7.2 的跨包资源解析修复验证通过，可提交发版；另发现一个 6.6.0 上的 deferred bind 挂死 bug（非 0.7.2 回归，见下）。**
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 冷启动加载 | ✅ | `Bili2233 module loaded in com.bilibili.app.in`；子进程 `Skip hooks in non-main process` |
+| 安装期探针 | ✅ | `hook summary: 32/37 hit`，miss 全部是既录的 IP 属地旧路径（`ip.restInterceptor`/`ip.identityProvider`/`ip.restParams`/`ip.kmpHeaderValue`/`ip.mossScope`），skip 是 `legacyContainer`/`shareQqHostProbe`，与 6.6.0 基线逐键对账一致 |
+| 主链路 hook | ✅ 0 miss | director `l0(F0)`、containerBinding、playerTeardown、seekTrack `g#draw`、progressInt `J`×3、progressLong `g0`、timeDeduction、mineAdapter、uriRouter、morePanelRefresh `e0` 全 OK |
+| 设置弹窗文案（本版核心修复） | ✅ | 标题「Bili2233」、副标题、SponsorBlock/B 站增强/关于各区全部正常——**不再是 `res/anim/abc_fade_in.xml`**（截图 `.tmp-test/s2.png`） |
+| 设置详情页文案 | ✅ | 启用/自动跳过/手动跳过/片段静音、数值输入、9 个分类显示名+说明、标记颜色区、界面显示区全部走资源正常渲染（截图 `.tmp-test/s4.png`/`s5.png`） |
+| 拉片段 | ✅ | `segments fetched video=BV14741127BN status=200 count=8`；另一视频 `count=0`（服务端合法空） |
+| 自动跳过 | ✅ | `auto-skipped position=0 segment=0-30015 category=intro`；恢复播放落片段内（29.94s）二次跳过也正常；5:00 sponsor 片段 `auto-skipped segment=300019-600014` |
+| 跳过 Toast（走修复后的 ModuleStrings 链路） | ✅ | `showToast: 跳过: 赞助/恰饭 (300.0秒)`——资源解析出的正确文案 |
+
+### 发现新 bug：deferred bind 在 6.6.0 上可能挂死（非 0.7.2 回归）
+
+**现象**：20:02:43 重进播放页时 `bindPlayerContainer` 触发但 core 未就绪，走 deferred bind（`pendingBindRef` 挂起）；
+之后 **4.7 分钟**内 1:59–3:00 的 selfpromo 片段播完未跳过、`seekTick feed` 零心跳；20:07:25 用户触碰播放器 UI 触发
+`seek.v3.g#draw` 爆发 → `ensureDeferredBind` 补完 → 轮询启动 → 立即跳过当时所在的 sponsor 片段。行为与「服务端拉不到片段」无法区分。
+**判定为「静默零跳过」第四种形态的依据**（排除替代解释）：视频画面自身走字证明在播且在片段内（连拍帧 77.4s → 142.5s → 176.3s，
+后两者均在 119.4–180.0s 片段内）——排除「视频暂停」；窗口期内模块每 30s 仍在打设置日志——排除「进程死了」；
+轮询心跳每 25s 一条、窗口内应出 ~11 条实际 0 条，且标记绘制的按实例探针在窗口内同样零命中、20:07:25 恢复——排除「有喂入但决策拒判」。
+
+**根因**：`ensureDeferredBind` 的两个触发器（进度文本控件回调 `hookProgressCallback`、`feedProgressFromSeekDraw`）
+在 6.6.0 正常播放期间**都是死的**——前者控件不实例化（0.7.0 已知），后者播放期间不逐帧 draw（仅布局/seek 爆发，
+且控件面板不显示时连布局 draw 都没有）。bind 时 core==null 的 pending 没有任何自愈机制。
+`probePollerMissingForHandle` 只覆盖「handle 在、poller 不在」，不覆盖「pending 在、没人触发」这个状态。
+
+**修复方向（待做）**：pending 存在时也把 500ms 轮询拉起来（tick 里先尝试 `ensureDeferredBind`，poller 本就是
+自持定时器，不该依赖宿主 tick），并给「pending 超过 N 秒未完成」加探针。0.7.1 的「有 handle ⇒ 有 poller」
+不变式要补上「有 pending ⇒ 有看门狗」。
+**次生隐患**：`performTeardown` 会无条件 `pendingBindRef.set(null)`，不分 context——旧页延迟清理若落在新页
+deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（本次是 teardown done 恰好先于 deferral 才未触发）。
+**严重度口径**：触发频率未量化（今日 ~3 次进页命中 1 次；6.5.0 上该状态每 500ms 自愈，是 6.6.0 特有死路）；
+用户一旦触碰进度条 UI 即恢复。修复前可先加「pending 存活时长」探针量化真实频率。
+
+**附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
+
 ## 文案国际化（2026-09-30，随下一版发布）
 
 目标宿主是**国际版**，但界面文案长期是硬编码中文字面量。本批抽出「播放器内用户可见」的文案：

@@ -155,7 +155,7 @@ object SponsorBlockSettingDialog {
         val dialog = AlertDialog.Builder(activity)
             .setView(
                 SettingsScreenBuilder.detailPage(
-                    activity, activity.getString(com.ctf.bilisb.R.string.entry_enhance_title), onBack = { back() },
+                    activity, com.ctf.bilisb.ui.ModuleStrings.get(activity, com.ctf.bilisb.R.string.entry_enhance_title), onBack = { back() },
                     SettingsScreenBuilder.buildEnhance(activity, prefs(activity)),
                 )
             )

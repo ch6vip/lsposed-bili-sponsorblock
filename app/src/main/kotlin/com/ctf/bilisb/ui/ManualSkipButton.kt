@@ -96,9 +96,11 @@ object ManualSkipButton {
                     OverlayAnchor.addBottomEnd(root, button)
                 }
 
-                button.text = button.resources.getString(
+                button.text = ModuleStrings.get(
+                    button.context,
                     com.ctf.bilisb.R.string.manual_skip_button,
                     label,
+                    fallback = label,
                 )
                 button.visibility = View.VISIBLE
                 button.setOnClickListener {
@@ -150,7 +152,11 @@ object ManualSkipButton {
                 setColor(0xCC000000.toInt())
                 setStroke(dp(activity, 1), 0xFFFB7299.toInt()) // B站粉描边
             }
-            contentDescription = resources.getString(com.ctf.bilisb.R.string.manual_skip_button_desc)
+            contentDescription = ModuleStrings.get(
+                context,
+                com.ctf.bilisb.R.string.manual_skip_button_desc,
+                fallback = "skip",
+            )
         }
     }
 
