@@ -35,6 +35,9 @@ object PlayViewHook {
     private const val MAX_RETRY = 30
     private const val RETRY_DELAY_MS = 1000L
 
+    /** fnval 全能力位（dash/hdr/4k/dolby/dolby 视/8k/av1）——与参考实现一致。 */
+    private const val MAX_FNVAL = 16 or 64 or 128 or 256 or 512 or 1024 or 2048
+
     private val attempts = AtomicInteger(0)
 
     /**
@@ -137,6 +140,14 @@ object PlayViewHook {
                         "ep=${reqFacts.epId} download=${reqFacts.isDownload}"
                 }
                 val transformer = ResponseTransformer(module, cl, req, reqFacts)
+                val config = UnlockConfig.load(module)
+
+                // U6 缓存解锁：请求补参（fnval 拉满 + fourk + download=0），wire bytes 往返
+                val effectiveReq = if (config.enabled && config.cacheUnlock && req != null) {
+                    patchRequestForCache(module, cl, req)
+                } else {
+                    req
+                }
 
                 // 双参形态（req, 回调）：包装回调，在回调里对 reply 做变换
                 if (chain.args.size >= 2 && chain.args[1] != null) {
@@ -151,13 +162,13 @@ object PlayViewHook {
                             method.invoke(handler, *(args ?: emptyArray()))
                         },
                     )
-                    val result = chain.proceed(arrayOf(req, wrapped))
+                    val result = chain.proceed(arrayOf(effectiveReq, wrapped))
                     if (result == null || isSuspendedMarker(result)) return@intercept null
                     return@intercept transformer.apply("return", result)
                 }
 
                 // 同步形态：proceed 后对返回值做变换
-                transformer.apply("return", chain.proceed())
+                transformer.apply("return", chain.proceed(arrayOf(effectiveReq)))
             }
     }
 
@@ -179,6 +190,32 @@ object PlayViewHook {
             }
         }
     }
+
+    /**
+     * U6 缓存解锁：req 补参（wire bytes 往返——自备 schema 补参后由宿主类 parseFrom，
+     * 与 ResponseReconstructor 同款技术）。fnval 拉满 + fourk + download=0。
+     */
+    private fun patchRequestForCache(module: XposedModule, cl: ClassLoader, req: Any): Any? = runCatching {
+        val bytes = req.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+            ?.invoke(req) as? ByteArray ?: return@runCatching null
+        val parsed = com.ctf.bilisb.unlock.proto.PlayViewUniteReq.parseFrom(bytes)
+        // javalite Builder 无 getVodBuilder：setVod(补参后的 vod)
+        val patched = parsed.toBuilder()
+            .setVod(parsed.vod.toBuilder().setFnval(MAX_FNVAL).setFourk(true).setDownload(0).build())
+            .build()
+            .toByteArray()
+        val hostReq = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REQ_CLASS)
+            .getMethod("parseFrom", ByteArray::class.java)
+            .invoke(null, patched)
+        HookProbe.first(module, "unlock:reqPatched", 3) {
+            "fnval=$MAX_FNVAL fourk=true download=0 (原 fnval=${parsed.vod.fnval} download=${parsed.vod.download})"
+        }
+        hostReq
+    }.onFailure { t ->
+        HookProbe.first(module, "unlock:patchFailed", 3) {
+            "${t.javaClass.simpleName}: ${t.message}"
+        }
+    }.getOrNull()
 
     /** 回调接口里携带响应的方法名（moss KCall 与 Kotlin Continuation 两种家族）。 */
     private fun isResponseCarrier(name: String): Boolean =
@@ -262,10 +299,15 @@ object PlayViewHook {
                         HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
                         return@Callable null
                     }
-                    val data = PlayurlParser.parse(result.content!!)
-                    if (data == null || data.videos.isEmpty()) {
+                    val data0 = PlayurlParser.parse(result.content!!)
+                    if (data0 == null || data0.videos.isEmpty()) {
                         HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
                         return@Callable null
+                    }
+                    // U5 CDN upos 替换（配置了目标 host 才生效；PCDN 形态自动跳过）
+                    val data = UposReplacer.applyTo(data0, config.uposHost)
+                    if (data !== data0) {
+                        HookProbe.first(module, "unlock:uposReplaced", 3) { "host -> ${config.uposHost}" }
                     }
                     val inner = runCatching {
                         ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
