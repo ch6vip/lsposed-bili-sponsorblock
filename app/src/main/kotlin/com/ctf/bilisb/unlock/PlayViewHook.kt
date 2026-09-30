@@ -86,6 +86,7 @@ object PlayViewHook {
                 return
             }
             HookProbe.ok(module, "unlock:playViewUnite", hooked.joinToString(", "))
+            dumpFieldNumbers(module, cl)
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "unlock:playViewUniteRetry", 3) {
                 "class not loaded yet, retry in ${RETRY_DELAY_MS}ms attempt=${attempts.get()}"
@@ -93,6 +94,28 @@ object PlayViewHook {
             retry(module, cl)
         } catch (t: Throwable) {
             HookProbe.miss(module, "unlock:playViewUnite", "install threw: ${t.javaClass.simpleName}: ${t.message}")
+        }
+    }
+
+    /** U2 校准：Stream 族的字段号运行时实测（手工 wire 字节的字段号以此为准）。 */
+    private fun dumpFieldNumbers(module: XposedModule, cl: ClassLoader) {
+        runCatching {
+            for (name in listOf(
+                "com.bapis.bilibili.playershared.Stream",
+                "com.bapis.bilibili.playershared.DashVideo",
+                "com.bapis.bilibili.playershared.DashItem",
+                "com.bapis.bilibili.playershared.VodInfo",
+            )) {
+                val cls = runCatching { Class.forName(name, true, cl) }.getOrNull() ?: continue
+                val dump = cls.declaredFields
+                    .filter { it.name.endsWith("_FIELD_NUMBER") }
+                    .sortedBy { it.name }
+                    .joinToString(", ") { f ->
+                        "${f.name.removeSuffix("_FIELD_NUMBER").lowercase()}=" +
+                            runCatching { f.get(null) }.getOrDefault("?")
+                    }
+                HookProbe.first(module, "unlock:fieldNumbers:${name.substringAfterLast('.')}", 1) { dump }
+            }
         }
     }
 

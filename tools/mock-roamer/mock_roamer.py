@@ -16,7 +16,11 @@
   其他路径                               → 404 {"code":-404}
 """
 import json
+import os
+import re
 import sys
+
+MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 
@@ -91,15 +95,31 @@ class RoamerHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/media/"):
-            # 占位媒体：有真实样本就回文件，否则 404（链路验证不依赖它）
+            # 占位媒体：有真实样本就回文件（支持 Range 206——DASH 播放器按分段拉取）
             try:
-                with open(f"media/{parsed.path.rsplit('/', 1)[-1]}", "rb") as f:
+                with open(os.path.join(MEDIA_DIR, parsed.path.rsplit('/', 1)[-1]), "rb") as f:
                     body = f.read()
+                rng = self.headers.get("Range", "")
+                m = re.match(r"bytes=(\d+)-(\d*)", rng)
+                ctype = "video/mp4" if parsed.path.endswith(".mp4") else "audio/mp4"
+                if m:
+                    start = int(m.group(1))
+                    end = int(m.group(2)) if m.group(2) else len(body) - 1
+                    chunk = body[start:end + 1]
+                    self.send_response(206)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{len(body)}")
+                    self.send_header("Content-Length", str(len(chunk)))
+                    self.end_headers()
+                    self.wfile.write(chunk)
+                    print(f"[mock] 206 {parsed.path} {start}-{end}/{len(body)}", flush=True)
+                    return
                 self.send_response(200)
-                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                print(f"[mock] 200 {parsed.path} {len(body)}B", flush=True)
                 return
             except FileNotFoundError:
                 pass
