@@ -334,4 +334,12 @@ object HostTargets {
     val PLAY_VIEW_UNITE_METHODS = listOf("playViewUnite", "executePlayViewUnite")
     const val PLAY_VIEW_UNITE_REQ_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq"
     const val PLAY_VIEW_UNITE_REPLY_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply"
+
+    /** 响应重构涉及的 playershared 内层类（字段号运行时实测，见 bilisb_unlock.proto）。 */
+    const val VOD_INFO_CLASS = "com.bapis.bilibili.app.playerunite.playershared.VodInfo"
+    const val PLAY_VIEW_REPLY_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.PlayViewReply"
+
+    /** 借宿主签名：`LibBili` 的静态 `(Map) -> SignedQuery` 方法（方法名按签名形状解析）。 */
+    const val LIB_BILI_CLASS = "com.bilibili.nativelibrary.LibBili"
+    const val SIGNED_QUERY_CLASS = "com.bilibili.nativelibrary.SignedQuery"
 }

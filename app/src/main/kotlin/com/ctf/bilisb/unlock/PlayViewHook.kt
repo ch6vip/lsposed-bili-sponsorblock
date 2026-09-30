@@ -8,19 +8,27 @@ import com.ctf.bilisb.util.warn
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
+import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * `PlayerMoss.playViewUnite` 的**只读观测钩**（解锁功能 U1，见 docs/UNLOCK_PLAN.md）。
+ * `PlayerMoss.playViewUnite` 的解锁钩（U4 最小闭环，见 docs/UNLOCK_PLAN.md）。
  *
- * 本钩**不改任何行为**：拦截后先提取请求事实（vod.cid / extraContent 的 season_id、ep_id、
- * download 标记），proceed 后提取响应事实（playArc.cid / supplement typeUrl / 结果是否存在），
- * 交给 [PlayViewDecision] 判定并打限频探针。受限/重定向的**处置**（走漫游服务器）是 U4 的事，
- * 这里只负责把「受限判定」从推测变成日志实证。
+ * ## 响应形态
+ * 宿主实机（6.6.0）的 `playViewUnite` 是 **(req, 回调) 双参形态**：响应经第二参的
+ * 回调/continuation 回来，`proceed()` 的返回值不可用（U1 实测 usable=false）。
+ * 因此响应拦截走 **包装第二参** 的路线：`Proxy` 挂上其全部接口，拦
+ * `resumeWith`/`onNext`/`onCompleted` 三种响应携带方法，对 reply 应用变换后转发。
+ * 1 参的 `executePlayViewUnite`（若有同步返回）走返回值替换路径。
  *
- * 安装时 `PlayerMoss` 往往还没加载（播放器类按需加载），照 IP 属地的延迟重试模式
- * （30 次 × 1s）；give-up 探针留名——若真机显示 give-up 率高（冷启动后久不开播放页），
- * 改挂到播放器 bind 事件后再装（UNLOCK_PLAN U4 备选）。
+ * ## 变换语义
+ * 受限判定（[PlayViewDecision]）为 RESTRICTED/THAI_REDIRECT 且开关开启时：
+ * req 七参数 → [RoamingClient]（签名借宿主 LibBili，mock 阶段恒等签名即可）→
+ * 经典 playurl JSON → [PlayurlParser] → [ResponseReconstructor] 用宿主类重建 reply。
+ * **任何失败退化为放行原响应**（宁可不解锁不黑屏），探针留名。
+ *
+ * 开关与服务器配置来自设置镜像的 `unlock_*` 键（[UnlockConfig]，U7 并入设置管线），
+ * **默认关闭**；G1/G2 完成前本功能不随版本发布。
  */
 object PlayViewHook {
 
@@ -55,7 +63,7 @@ object PlayViewHook {
                 }) {
                     runCatching { m.isAccessible = true }
                     runCatching { module.deoptimize(m) }
-                    hookOne(module, m)
+                    hookOne(module, cl, m)
                     hooked += "${m.name}(${m.parameterTypes.size} args)"
                 }
             }
@@ -83,8 +91,7 @@ object PlayViewHook {
         }.onFailure { t -> module.warn("unlock: retry scheduling failed: ${t.message}") }
     }
 
-    /** 单方法单钩：before 提取请求事实，proceed 后提取响应事实并判定。异常一律退化为放行。 */
-    private fun hookOne(module: XposedModule, m: Method) {
+    private fun hookOne(module: XposedModule, cl: ClassLoader, m: Method) {
         module.hook(m)
             .setPriority(XposedInterface.PRIORITY_DEFAULT)
             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
@@ -92,79 +99,211 @@ object PlayViewHook {
                 val req = chain.args.getOrNull(0)
                 val reqFacts = extractRequestFacts(module, req)
                 HookProbe.first(module, "unlock:reqFacts", 5) {
-                    "arg0=${req?.javaClass?.name} vod=${runCatching {
-                        req?.javaClass?.methods?.firstOrNull { f -> f.name == "getVod" }?.invoke(req)?.javaClass?.name
-                    }.getOrNull() ?: "null"} | cid=${reqFacts.vodCid} season=${reqFacts.seasonId} " +
+                    "${m.name}: cid=${reqFacts.vodCid} season=${reqFacts.seasonId} " +
                         "ep=${reqFacts.epId} download=${reqFacts.isDownload}"
                 }
-                val result = chain.proceed()
-                captureBytes(module, req, "req")
-                captureBytes(module, result, "reply")
-                val respFacts = extractResponseFacts(module, result)
-                val facts = PlayViewDecision.Facts(
-                    reqVodCid = reqFacts.vodCid,
-                    seasonId = reqFacts.seasonId,
-                    epId = reqFacts.epId,
-                    isDownload = reqFacts.isDownload,
-                    respUsable = respFacts.usable,
-                    respPlayArcCid = respFacts.respCid,
-                    supplementTypeUrl = respFacts.typeUrl,
-                )
-                val verdict = PlayViewDecision.classify(facts)
-                HookProbe.first(module, "unlock:verdict:${verdict.name}", 5) {
-                    "cid=${facts.reqVodCid} respCid=${facts.respPlayArcCid} " +
-                        "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
+                val transformer = ResponseTransformer(module, cl, req, reqFacts)
+
+                // 双参形态（req, 回调）：包装回调，在回调里对 reply 做变换
+                if (chain.args.size >= 2 && chain.args[1] != null) {
+                    val handler = chain.args[1]
+                    val wrapped = Proxy.newProxyInstance(
+                        cl,
+                        handler.javaClass.interfaces,
+                        { _, method, args ->
+                            if (args != null && args.isNotEmpty() && isResponseCarrier(method.name)) {
+                                args[0] = transformer.apply(method.name, args[0])
+                            }
+                            method.invoke(handler, *(args ?: emptyArray()))
+                        },
+                    )
+                    val result = chain.proceed(arrayOf(req, wrapped))
+                    if (result == null || isSuspendedMarker(result)) return@intercept null
+                    return@intercept transformer.apply("return", result)
                 }
-                result
+
+                // 同步形态：proceed 后对返回值做变换
+                transformer.apply("return", chain.proceed())
             }
     }
 
-    // ---- U2 字节采集：实拍 req/reply 供 round-trip 单测（每类限 3 份，写宿主数据目录） ----
+    // ---- 样本采集：受限/强制路径的原始 reply 落盘（每判定限 1 份，U2 管线回归素材）----
 
-    private val capturedReq = AtomicInteger(0)
-    private val capturedReply = AtomicInteger(0)
+    private val capturedRestricted = AtomicInteger(0)
 
-    private fun captureBytes(module: XposedModule, obj: Any?, kind: String) {
-        if (obj == null) return
-        val n = (if (kind == "req") capturedReq else capturedReply).let {
-            if (!it.compareAndSet(3, 3)) it.incrementAndGet() else 3
-        }
-        if (n > 3) return
+    private fun captureReplyOnce(module: XposedModule, reply: Any, verdictName: String) {
+        if (!capturedRestricted.compareAndSet(0, 1)) return
         runCatching {
-            val bytes = obj.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
-                ?.invoke(obj) as? ByteArray ?: return
-            val dir = java.io.File(
-                com.ctf.bilisb.host.HostTargets.HOST_DATA_DIRS.first(),
-                "unlock_capture",
-            )
+            val bytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+                ?.invoke(reply) as? ByteArray ?: return
+            val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
             dir.mkdirs()
-            val f = java.io.File(dir, "${kind}_$n.bin")
+            val f = java.io.File(dir, "restricted_reply_$verdictName.bin")
             f.outputStream().use { it.write(bytes) }
-            HookProbe.first(module, "unlock:capture:$kind", 3) {
+            HookProbe.first(module, "unlock:capture:restricted", 1) {
                 "${f.absolutePath} ${bytes.size}B"
             }
-        }.onFailure { t ->
-            HookProbe.first(module, "unlock:captureFailed", 3) {
-                "$kind: ${t.javaClass.simpleName}: ${t.message}"
-            }
         }
     }
 
-    private data class RequestFacts(val vodCid: Long, val seasonId: String, val epId: String, val isDownload: Boolean)
+    /** 回调接口里携带响应的方法名（moss KCall 与 Kotlin Continuation 两种家族）。 */
+    private fun isResponseCarrier(name: String): Boolean =
+        name == "onNext" || name == "onCompleted" || name == "resumeWith" || name == "onSuccess"
 
-    private data class ResponseFacts(val usable: Boolean, val respCid: Long, val typeUrl: String?)
+    /** COROUTINE_SUSPENDED 标记（类名比对，避免依赖 kotlin.coroutines 运行时符号）。 */
+    private fun isSuspendedMarker(result: Any): Boolean =
+        result.javaClass == Any::class.java && result.toString() == "COROUTINE_SUSPENDED"
 
-    /** getVod().getCid()/getDownload() + getExtraContentMap()；任何失败按缺省值降级并留探针。 */
-    private fun extractRequestFacts(module: XposedModule, req: Any?): RequestFacts {
-        if (req == null) return RequestFacts(0, "0", "0", isDownload = false)
+    /**
+     * 响应变换器：对一次 playViewUnite 调用的 reply 应用解锁变换。
+     * 每次调用新建（轻量）；只在命中受限且开关开启时做网络与重构。
+     */
+    private class ResponseTransformer(
+        private val module: XposedModule,
+        private val cl: ClassLoader,
+        private val req: Any?,
+        private val reqFacts: ExtractedRequestFacts,
+    ) {
+        fun apply(via: String, reply: Any?): Any? {
+            if (reply == null) return reply
+            val respFacts = extractResponseFacts(module, reply)
+            val facts = PlayViewDecision.Facts(
+                reqVodCid = reqFacts.vodCid,
+                seasonId = reqFacts.seasonId,
+                epId = reqFacts.epId,
+                isDownload = reqFacts.isDownload,
+                respUsable = respFacts.usable,
+                respPlayArcCid = respFacts.respCid,
+                supplementTypeUrl = respFacts.typeUrl,
+            )
+            val verdict = PlayViewDecision.classify(facts)
+            HookProbe.first(module, "unlock:verdict:${verdict.name}", 5) {
+                "via=$via cid=${facts.reqVodCid} respCid=${facts.respPlayArcCid} " +
+                    "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
+            }
+            val config = UnlockConfig.load(module)
+            // 开发专用强制路径：命中的 ep_id == unlock_test_epid 的正常 PGC 请求
+            // 被强制按受限处理——没有已知受限样本时验证闭环用（U7 评估去留）
+            val forcedTest = config.testEpId != 0L &&
+                verdict == PlayViewDecision.Verdict.NORMAL_PGC &&
+                facts.epId.toLongOrNull() == config.testEpId
+            if (verdict != PlayViewDecision.Verdict.RESTRICTED &&
+                verdict != PlayViewDecision.Verdict.THAI_REDIRECT && !forcedTest
+            ) {
+                return reply
+            }
+            if (forcedTest) {
+                HookProbe.first(module, "unlock:forceTest", 3) { "ep=${facts.epId} 强制受限路径（开发验证）" }
+            }
+            captureReplyOnce(module, reply, verdict.name)
+
+            if (!config.enabled || config.servers.isEmpty()) {
+                HookProbe.first(module, "unlock:skippedOff", 3) { "受限但解锁未启用/未配置服务器" }
+                return reply
+            }
+
+            // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
+            val cid = reqFacts.vodCid.takeIf { it != 0L } ?: respFacts.respCid
+            val playQuery = RoamingClient.PlayQuery(
+                epId = reqFacts.epId.toLongOrNull() ?: 0L,
+                cid = cid,
+                qn = reqFacts.qn,
+                fnver = reqFacts.fnver,
+                fnval = reqFacts.fnval,
+                forceHost = reqFacts.forceHost,
+                fourk = reqFacts.fourk,
+            )
+            val client = RoamingClient(
+                sign = HostSigner(module, cl),
+                fetch = ::defaultFetch,
+                mobiApp = "android",
+            )
+            val result = client.fetchPlayUrl(config.servers, playQuery, priorityArea = UnlockConfig.lastArea())
+            if (!result.isSuccess) {
+                HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
+                return reply
+            }
+            val data = PlayurlParser.parse(result.content!!)
+            if (data == null || data.videos.isEmpty()) {
+                HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
+                return reply
+            }
+            val rebuilt = runCatching {
+                ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
+            }.onFailure { t ->
+                HookProbe.first(module, "unlock:rebuildFailed", 5) {
+                    "${t.javaClass.simpleName}: ${t.message}"
+                }
+            }.getOrNull()
+            if (rebuilt != null) {
+                HookProbe.first(module, "unlock:proxied", 5) {
+                    "area=${result.areaUsed} quality=${data.quality} streams=${data.videos.size} " +
+                        "audio=${data.audios.size} cid=$cid ep=${playQuery.epId}"
+                }
+                UnlockConfig.rememberArea(result.areaUsed)
+            }
+            return rebuilt ?: reply
+        }
+    }
+
+    /** 生产 HTTP 传输：GET + gzip + 超时。 */
+    private fun defaultFetch(url: String, mobiApp: String): String {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        conn.setRequestProperty("Accept-Encoding", "gzip")
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 BiliDroid/$mobiApp")
+        val stream = try {
+            conn.inputStream
+        } catch (e: java.io.IOException) {
+            conn.errorStream ?: throw e
+        }
+        val body = (if (conn.contentEncoding == "gzip") java.util.zip.GZIPInputStream(stream) else stream)
+            .bufferedReader().use { it.readText() }
+        conn.disconnect()
+        return body
+    }
+
+    // ---- 事实提取（ResponseTransformer 复用）----
+
+    data class ExtractedRequestFacts(
+        val vodCid: Long,
+        val qn: Long,
+        val fnver: Int,
+        val fnval: Int,
+        val forceHost: Int,
+        val fourk: Boolean,
+        val seasonId: String,
+        val epId: String,
+        val isDownload: Boolean,
+    )
+
+    data class ExtractedResponseFacts(val usable: Boolean, val respCid: Long, val typeUrl: String?)
+
+    private fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
+        if (req == null) return ExtractedRequestFacts(0, 0, 0, 0, 0, false, "0", "0", false)
         var vodCid = 0L
+        var qn = 0L
+        var fnver = 0
+        var fnval = 0
+        var forceHost = 0
+        var fourk = false
         var seasonId = "0"
         var epId = "0"
         var isDownload = false
         runCatching {
             req.javaClass.methods.firstOrNull { it.name == "getVod" }?.invoke(req)?.let { vod ->
-                vodCid = (vod.javaClass.methods.firstOrNull { it.name == "getCid" }?.invoke(vod) as? Number)?.toLong() ?: 0L
-                isDownload = ((vod.javaClass.methods.firstOrNull { it.name == "getDownload" }?.invoke(vod) as? Number)?.toInt() ?: 0) >= 1
+                fun num(name: String): Number? =
+                    vod.javaClass.methods.firstOrNull { it.name == name }?.invoke(vod) as? Number
+                fun bool(name: String): Boolean =
+                    vod.javaClass.methods.firstOrNull { it.name == name }?.invoke(vod) as? Boolean ?: false
+                vodCid = num("getCid")?.toLong() ?: 0L
+                qn = num("getQn")?.toLong() ?: 0L
+                fnver = num("getFnver")?.toInt() ?: 0
+                fnval = num("getFnval")?.toInt() ?: 0
+                forceHost = num("getForceHost")?.toInt() ?: 0
+                fourk = bool("getFourk")
+                isDownload = (num("getDownload")?.toInt() ?: 0) >= 1
             }
             val extra = req.javaClass.methods.firstOrNull { it.name == "getExtraContentMap" }?.invoke(req)
             @Suppress("UNCHECKED_CAST")
@@ -175,11 +314,10 @@ object PlayViewHook {
         }.onFailure { t ->
             HookProbe.first(module, "unlock:extractFailed", 3) { "req: ${t.javaClass.simpleName}: ${t.message}" }
         }
-        return RequestFacts(vodCid, seasonId, epId, isDownload)
+        return ExtractedRequestFacts(vodCid, qn, fnver, fnval, forceHost, fourk, seasonId, epId, isDownload)
     }
 
-    /** hasVodInfo / getPlayArc().getCid() / getSupplement().getTypeUrl()；失败按缺省值降级并留探针。 */
-    private fun extractResponseFacts(module: XposedModule, result: Any?): ResponseFacts {
+    private fun extractResponseFacts(module: XposedModule, result: Any?): ExtractedResponseFacts {
         var usable = result != null
         var respCid = 0L
         var typeUrl: String? = null
@@ -187,7 +325,7 @@ object PlayViewHook {
             result?.let { res ->
                 val hasVod = res.javaClass.methods.firstOrNull { it.name == "hasVodInfo" }
                     ?.invoke(res) as? Boolean
-                if (hasVod == false) return ResponseFacts(false, 0L, null)
+                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null)
                 val playArc = res.javaClass.methods.firstOrNull { it.name == "getPlayArc" }?.invoke(res)
                 playArc?.let {
                     respCid = (it.javaClass.methods.firstOrNull { f -> f.name == "getCid" }?.invoke(it) as? Number)?.toLong() ?: 0L
@@ -198,6 +336,6 @@ object PlayViewHook {
         }.onFailure { t ->
             HookProbe.first(module, "unlock:extractFailed", 3) { "resp: ${t.javaClass.simpleName}: ${t.message}" }
         }
-        return ResponseFacts(usable, respCid, typeUrl)
+        return ExtractedResponseFacts(usable, respCid, typeUrl)
     }
 }
