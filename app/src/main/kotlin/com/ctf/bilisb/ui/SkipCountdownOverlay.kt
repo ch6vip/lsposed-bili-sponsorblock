@@ -155,7 +155,11 @@ object SkipCountdownOverlay {
                         }
 
                         val remaining = ceil((deadline - now) / 1000.0).toInt().coerceAtLeast(1)
-                        text.text = "${remaining}秒后跳过 $label"
+                        text.text = text.resources.getString(
+                            com.ctf.bilisb.R.string.countdown_text,
+                            remaining,
+                            label,
+                        )
                         state.ticker = this
                         // 绝对时间调度：不需要累计漂移补偿，也不会因延迟而少跳一拍。
                         handler.postAtTime(this, now + 1_000L)
@@ -223,7 +227,7 @@ object SkipCountdownOverlay {
                 gravity = Gravity.CENTER_VERTICAL
             })
             addView(Button(activity).apply {
-                text = "取消"
+                text = resources.getString(com.ctf.bilisb.R.string.countdown_cancel)
                 textSize = 13f
                 isAllCaps = false
                 setTextColor(0xFFFB7299.toInt())

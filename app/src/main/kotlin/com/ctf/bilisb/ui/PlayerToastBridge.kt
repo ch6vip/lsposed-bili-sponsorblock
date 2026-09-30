@@ -28,7 +28,13 @@ object PlayerToastBridge {
     private val throttle = ToastThrottle()
 
     fun showSkipToast(module: XposedModule, host: Any, message: String) {
-        showToast(module, host, "跳过: $message")
+        // 前缀文案走资源（英文用户走 values-en）；Context 取不到时退回无前缀的原文，
+        // 至少让「跳过了」这件事能被看到。
+        val context = PlayerBridge.context(host)
+        val text = context?.let {
+            runCatching { it.getString(com.ctf.bilisb.R.string.toast_skipped, message) }.getOrDefault(message)
+        } ?: message
+        showToast(module, host, text)
     }
 
     private fun showToast(module: XposedModule, host: Any, message: String) {

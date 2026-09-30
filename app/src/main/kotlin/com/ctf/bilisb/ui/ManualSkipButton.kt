@@ -96,7 +96,10 @@ object ManualSkipButton {
                     OverlayAnchor.addBottomEnd(root, button)
                 }
 
-                button.text = "跳过 $label ▶"
+                button.text = button.resources.getString(
+                    com.ctf.bilisb.R.string.manual_skip_button,
+                    label,
+                )
                 button.visibility = View.VISIBLE
                 button.setOnClickListener {
                     it.visibility = View.GONE
@@ -147,7 +150,7 @@ object ManualSkipButton {
                 setColor(0xCC000000.toInt())
                 setStroke(dp(activity, 1), 0xFFFB7299.toInt()) // B站粉描边
             }
-            contentDescription = "手动跳过片段"
+            contentDescription = resources.getString(com.ctf.bilisb.R.string.manual_skip_button_desc)
         }
     }
 

@@ -1,4 +1,162 @@
 <resources>
     <string name="module_name">Bili2233</string>
     <string name="module_description">Bilibili 跳过片段增强模块</string>
+
+    <!-- 通用 -->
+    <string name="common_back">‹ 返回</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_confirm">确定</string>
+    <string name="common_save">保存</string>
+    <string name="common_reset">重置</string>
+    <string name="common_copy">复制</string>
+    <string name="common_import">导入</string>
+    <string name="common_about">关于</string>
+    <string name="common_version">版本</string>
+    <string name="common_author">作者</string>
+    <string name="common_status">状态</string>
+    <string name="common_settings">设置</string>
+
+    <!-- 控制中心（主界面）-->
+    <string name="app_tagline">SponsorBlock · B 站增强 —— 开源 LSPosed 模块(MIT)</string>
+    <string name="entry_sponsorblock_title">SponsorBlock</string>
+    <string name="entry_sponsorblock_summary">赞助/片头等片段的跳过与标记设置</string>
+    <string name="entry_enhance_title">B 站增强</string>
+    <string name="entry_enhance_summary">IP 属地 · 互动提示 · 首页刷新 · 分享 QQ</string>
+
+    <!-- B 站增强页 -->
+    <string name="enhance_section">增强开关</string>
+    <string name="enhance_note">移植自 BiliTamer(MIT) 的客户端增强能力,全部默认关闭</string>
+    <string name="enhance_ip_location_title">评论/主页 IP 属地</string>
+    <string name="enhance_ip_location_summary">改写请求身份让服务端返回 IP 属地(重启宿主生效)</string>
+    <string name="enhance_hide_triple_title">隐藏一键三连提示</string>
+    <string name="enhance_hide_triple_summary">不显示三连动画与提示文案</string>
+    <string name="enhance_hide_up_title">隐藏 UP 提示</string>
+    <string name="enhance_hide_up_summary">不显示关注引导气泡</string>
+    <string name="enhance_hide_vote_title">隐藏投票/互动弹幕</string>
+    <string name="enhance_hide_vote_summary">不显示互动弹幕投票面板</string>
+    <string name="enhance_no_refresh_title">首页不自动刷新</string>
+    <string name="enhance_no_refresh_summary">切回首页/从后台返回不重置列表(下拉仍可手动刷新)</string>
+    <string name="enhance_share_qq_title">分享到 QQ</string>
+    <string name="enhance_share_qq_summary">分享面板补回 QQ 入口(需已安装 QQ)</string>
+
+    <!-- 状态区 -->
+    <string name="state_enabled">已启用</string>
+    <string name="state_disabled">已关闭</string>
+    <string name="state_user_generated">已生成</string>
+    <string name="state_user_missing">未生成</string>
+    <string name="state_user_invalid">无效</string>
+    <string name="state_module">模块状态：%1$s</string>
+    <string name="state_settings_source">设置来源：%1$s</string>
+    <string name="state_server">服务器：%1$s</string>
+    <string name="state_cache_ttl">缓存 TTL：%1$s</string>
+    <string name="state_user_id">用户 ID：%1$s</string>
+    <string name="state_enabled_categories">启用分类：%1$d/%2$d</string>
+
+    <!-- SponsorBlock 设置页 -->
+    <string name="section_master_switch">总开关</string>
+    <string name="enable_title">启用 SponsorBlock</string>
+    <string name="enable_summary">关闭后模块不工作</string>
+    <string name="section_auto_skip">自动跳过</string>
+    <string name="auto_skip_title">自动跳过</string>
+    <string name="auto_skip_summary">检测到片段时自动跳过</string>
+    <string name="manual_skip_title">手动跳过</string>
+    <string name="manual_skip_summary">片段内显示跳过按钮,点按才跳(覆盖自动跳过)</string>
+    <string name="mute_segments_title">片段静音</string>
+    <string name="mute_segments_summary">对 mute 类片段静音而非跳过</string>
+    <string name="min_skip_duration_label">最小片段时长(秒)：</string>
+    <string name="skip_countdown_label">自动跳过倒计时(秒)：</string>
+    <string name="section_categories">跳过类别</string>
+    <string name="section_marker_colors">标记颜色</string>
+    <string name="marker_colors_hint">点击色块自定义各分类在进度条上的标记颜色</string>
+    <string name="section_ui">界面显示</string>
+    <string name="show_toast_title">跳过提示</string>
+    <string name="show_toast_summary">跳过时显示 Toast</string>
+    <string name="show_marker_title">进度条标记</string>
+    <string name="show_marker_summary">标记片段位置</string>
+    <string name="show_time_deduction_title">时间扣减</string>
+    <string name="show_time_deduction_summary">总时长减去跳过时长</string>
+    <string name="show_skip_stats_title">跳过次数统计</string>
+    <string name="show_skip_stats_summary">累计跳过次数与节省时长</string>
+    <string name="section_stats">统计</string>
+    <string name="section_submission">提交配置</string>
+    <string name="section_server">服务器</string>
+    <string name="cache_ttl_label">缓存 TTL(分钟)：</string>
+    <string name="stats_host_only">统计只记录在宿主进程内,请在播放器「空降助手」面板查看。</string>
+    <string name="stats_summary">已跳过 %1$d 个片段 · 共节省 %2$s</string>
+    <string name="stats_empty">暂无记录</string>
+    <string name="stats_category_line">  %1$s：%2$d 个 · %3$s</string>
+    <string name="stats_reset">重置统计</string>
+    <string name="stats_reset_done">统计已重置</string>
+    <string name="cache_ttl_minutes">%1$d 分钟</string>
+    <string name="cache_ttl_minutes_fractional">%1$s 分钟</string>
+    <string name="server_address_label">服务器地址：</string>
+    <string name="server_address_scheme_error">服务器地址应以 http:// 或 https:// 开头</string>
+    <string name="default_category_title">默认标记类别</string>
+    <string name="user_id_title">用户 ID</string>
+    <string name="user_id_empty_hint">（未生成，点"重置"生成）</string>
+    <string name="user_id_not_generated">尚未生成用户 ID，请先点"重置"</string>
+    <string name="user_id_copied">已复制</string>
+    <string name="user_id_reset_done">已重置</string>
+    <string name="user_id_import_title">导入用户 ID</string>
+    <string name="user_id_invalid_hex">用户 ID 必须是 32 位十六进制</string>
+    <string name="saved">已保存</string>
+    <string name="cannot_open_link">无法打开链接</string>
+
+    <!-- 分类说明（一行解释，分类名与顺序见 SponsorCategories）-->
+    <string name="category_hint_sponsor">付费推广、赞助商</string>
+    <string name="category_hint_selfpromo">自己的商品、链接</string>
+    <string name="category_hint_interaction">点赞、关注提示</string>
+    <string name="category_hint_intro">片头动画</string>
+    <string name="category_hint_outro">片尾鸣谢</string>
+    <string name="category_hint_preview">前情回顾</string>
+    <string name="category_hint_music_offtopic">MV中非音乐部分</string>
+    <string name="category_hint_filler">笑话、重复片段</string>
+    <string name="category_hint_poi_highlight">视频精彩部分</string>
+
+    <!-- 颜色选择 -->
+    <string name="color_custom_hex">自定义 (hex)：</string>
+    <string name="color_picker_title">选择颜色</string>
+    <string name="color_format_error">颜色格式应为 #FFRRGGBB</string>
+
+    <!-- 播放器「空降助手」面板 -->
+    <string name="sheet_manual_skip">手动跳过</string>
+    <string name="sheet_open">打开面板</string>
+    <string name="sheet_segment_info">片段信息</string>
+    <string name="sheet_auto_skip">空降助手</string>
+    <string name="sheet_submit">提交片段</string>
+    <string name="sheet_refresh">刷新片段</string>
+    <string name="sheet_service_info">服务信息</string>
+    <string name="sheet_show_toast">显示跳过 Toast</string>
+    <string name="sheet_show_marker">显示进度条片段</string>
+    <string name="sheet_min_duration">最短片段时长</string>
+    <string name="sheet_min_duration_edit">最短片段时长（秒）</string>
+    <string name="sheet_user_id">用户 ID</string>
+    <string name="sheet_no_segments">当前视频没有可跳过的片段</string>
+    <string name="sheet_pick_segment">选择要跳到的片段</string>
+    <string name="sheet_enter_number">请输入数字</string>
+    <string name="sheet_not_empty">不能为空</string>
+    <string name="sheet_user_id_invalid">用户 ID 须为 32 位十六进制</string>
+    <string name="sheet_segment_count_outside">%1$d 个片段 · 播放头不在片段内</string>
+    <string name="sheet_segment_count_inside">%1$d 个片段 · 播放头在片段内：%2$s</string>
+    <string name="sheet_status_normal">正常</string>
+    <string name="sheet_status_error">异常</string>
+    <string name="sheet_service_status">状态：%1$s · 跳过 %2$d 次 · 节省 %3$d 秒</string>
+    <string name="sheet_manual_summary">共 %1$d 个片段 · 点击选择并跳到末尾</string>
+    <string name="sheet_submit_hint">标记并提交跳过段</string>
+    <string name="sheet_submit_marked">已标记起点 %1$s</string>
+    <string name="sheet_segment_one">片段</string>
+    <string name="sheet_refresh_summary">重新拉取当前视频片段</string>
+
+    <!-- 播放器浮层与 Toast -->
+    <string name="toast_skipped">跳过: %1$s</string>
+    <string name="manual_skip_button">跳过 %1$s ▶</string>
+    <string name="manual_skip_button_desc">手动跳过片段</string>
+    <string name="countdown_text">%1$d秒后跳过 %2$s</string>
+    <string name="countdown_cancel">取消</string>
+
+    <!-- 我的页入口 -->
+    <string name="mine_entry_title">Bili2233</string>
+
+    <!-- 段时长文案 -->
+    <string name="segment_duration_seconds">%1$s %2$s-%3$s (%4$s)</string>
 </resources>

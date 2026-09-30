@@ -145,7 +145,13 @@ class SponsorBlockPlayerSheetBehaviorTest {
         val dialog = currentDialog()
         assertTrue(dialog != null)
         val allText = collectTexts(dialog!!.window!!.decorView)
-        assertTrue("片段信息行应包含片段数", allText.any { it.contains("3 个片段") })
+        // 文案已改为资源（Robolectric 默认 locale 是 en），所以期望值要按**当前 locale** 算，
+        // 不能再硬编码中文 —— 这里刻意与面板走同一条取文案路径。
+        val strings = AndroidStrings(activity)
+        assertTrue(
+            "片段信息行应包含片段数",
+            allText.any { it == SheetStateFormatter.formatSegmentInfo(3, null, strings) },
+        )
         assertTrue("提交片段说明应渲染", allText.any { it.contains("标记并提交跳过段") })
         assertTrue("手动跳过说明应渲染", allText.any { it.contains("共 1 个片段") })
 
