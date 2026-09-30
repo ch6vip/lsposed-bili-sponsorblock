@@ -1,0 +1,81 @@
+package com.ctf.bilisb.unlock
+
+import org.json.JSONObject
+
+/**
+ * 漫游服务器返回的经典 playurl JSON → 中间模型。纯 JVM，可单测。
+ *
+ * 映射口径与参考实现的 toVideoInfo 一致（协议事实）：DASH 形态取
+ * `dash.video[]`（按 preferCodec 过滤出可用的全集）与 `dash.audio[]`；
+ * 字段名是宿主 VodInfo/Stream/DashVideo 的 wire 语义。
+ */
+data class DashTrack(
+    val id: Int,
+    val baseUrl: String,
+    val backupUrls: List<String>,
+    val bandwidth: Int,
+    val codecid: Int,
+    val md5: String,
+    val size: Long,
+)
+
+data class PlayurlData(
+    val quality: Int,
+    val format: String,
+    val timelength: Long,
+    val videoCodecid: Int,
+    /** dash.video 轨（按 codecid 过滤后的优选集，含全部清晰度）。 */
+    val videos: List<DashTrack>,
+    /** dash.audio 轨。 */
+    val audios: List<DashTrack>,
+)
+
+object PlayurlParser {
+
+    /**
+     * 解析经典 playurl JSON。`code != 0` 或缺 dash 时返回 null（调用方降级放行）。
+     * 兼容 kghost 形态：外层可能包一层 `result`。
+     */
+    fun parse(content: String, preferCodecId: Int? = null): PlayurlData? = runCatching {
+        var json = JSONObject(content)
+        json.opt("result")?.let { result ->
+            if (result !is String) json = json.getJSONObject("result")
+        }
+        if (json.optInt("code", 0) != 0) return null
+        val dash = json.optJSONObject("dash") ?: return null
+
+        fun tracks(key: String): List<DashTrack> {
+            val arr = dash.optJSONArray(key) ?: return emptyList()
+            return (0 until arr.length()).mapNotNull { i ->
+                val t = arr.optJSONObject(i) ?: return@mapNotNull null
+                DashTrack(
+                    id = t.optInt("id"),
+                    baseUrl = t.optString("base_url"),
+                    backupUrls = buildList {
+                        val bk = t.optJSONArray("backup_url")
+                        for (j in 0 until (bk?.length() ?: 0)) bk?.optString(j)?.let { add(it) }
+                    },
+                    bandwidth = t.optInt("bandwidth"),
+                    codecid = t.optInt("codecid"),
+                    md5 = t.optString("md5"),
+                    size = t.optLong("size"),
+                )
+            }
+        }
+
+        val videos = tracks("video")
+        val filtered = preferCodecId?.let { prefer ->
+            videos.filter { it.codecid == prefer }
+                .takeIf { picked -> picked.map { it.id }.containsAll(videos.map { it.id }.toSet()) }
+        } ?: videos
+
+        PlayurlData(
+            quality = json.optInt("quality"),
+            format = json.optString("format"),
+            timelength = json.optLong("timelength"),
+            videoCodecid = json.optInt("video_codecid"),
+            videos = filtered.ifEmpty { videos },
+            audios = tracks("audio"),
+        )
+    }.getOrNull()
+}
