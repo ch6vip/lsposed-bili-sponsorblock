@@ -204,6 +204,29 @@ deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（
 
 **附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
 
+## 解锁番剧 U4：真机闭环验证（2026-10-01 凌晨）
+
+按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进至 U4（G1/G2 维持发版前 Gate）。
+U1 观测钩升级为解锁钩；U2 proto 管线；U3 漫游客户端+mock 服务器；U4 全部落地。
+
+**链路验证证据链**（真机 Spy Classroom EP1，unlock_test_epid 强制受限路径）：
+
+| 环节 | 证据 |
+| --- | --- |
+| 强制受限触发 | `unlock:forceTest ep=5189397` |
+| 签名借宿主 | mock 收到含 `ts=`+sign 的完整签名查询（LibBili 形状解析生效） |
+| 响应探活 | JSON code==0 解析（字符串匹配曾被 json.dumps 空格误判） |
+| 响应重构被宿主接受 | `unlock:proxied area=cn quality=80 streams=1 audio=1` |
+| 播放器拉流 | mock 日志 `206 /media/sample.mp4 + sample.m4a`（Range 分段双轨） |
+
+**待收口**：canned 媒体在播放器内核不解码（缓冲不渲染）——mock 媒体格式工程问题
+（fMP4 已用仍不解，疑播放器对 DASH 轨有额外要求），真实漫游服务器返回 B 站原生
+格式时不存在，实播确认归入 U8。
+
+**联调踩坑**（全记录在 commit b5eedd4/60f889b/本节）：主线程网络、宿主类名
+playershared 独立包、Builder API 差异（改 wire bytes + parseFrom 路线）、
+findMethod 重载通配、探活空格、mock 媒体相对路径/僵尸进程/Range。
+
 ## 解锁番剧 U1 观测钩（2026-09-30 深夜，装机验证通过）
 
 按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进（G1/G2 已决策延后至发版前，U8 落地）。
