@@ -165,6 +165,12 @@ data class SettingsSnapshot(
     val hideVote: Boolean = false,
     val noAutoRefresh: Boolean = false,
     val shareQq: Boolean = false,
+    // ---- 解锁番剧（默认关闭；服务器用户自配）----
+    val unlockEnabled: Boolean = false,
+    val unlockServerUrl: String = "",
+    val unlockServerAccessKey: String = "",
+    val unlockCache: Boolean = false,
+    val unlockUposHost: String = "",
 ) {
     companion object {
         val DEFAULT = SettingsCodec.defaultSnapshot()

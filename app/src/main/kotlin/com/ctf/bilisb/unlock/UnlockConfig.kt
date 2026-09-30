@@ -8,15 +8,16 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * 解锁功能的运行配置（U4 最小形态，U7 并入设置管线）。
  *
- * 读取设置镜像 JSON 的 `unlock_*` 键（直接读文件，不走 IPC——开发期足够，
- * 与 EnhanceFlags 的 TTL 缓存同思路）：
+ * 读取设置镜像 JSON 的 `unlock_*` 键（直接读文件 + TTL 缓存，与 EnhanceFlags 同思路；
+ * 这些键自 U7 起进入正式设置管线，控制中心「解锁番剧」页写入）：
  *
  *  - `unlock_enabled`: bool，总开关，**默认 false**（G1/G2 完成前不随版本发布）
- *  - `unlock_servers`: string，JSON 数组 `[{"area":"cn","baseUrl":"http://…","accessKey":"…"}]`
- *  - `unlock_test_epid`: long，**开发专用**——命中该 ep_id 的正常 PGC 请求被强制按受限处理，
- *    用于在没有已知受限样本时验证闭环（U7 评估去留）
- *
- * 服务器与 accessKey 由用户自配（自建或社区），模块不含内置服务器。
+ *  - `unlock_server_url`: string，解析服务器地址（用户自配，自建或社区）
+ *  - `unlock_server_access_key`: string，服务器访问令牌
+ *  - `unlock_cache`: bool，缓存解锁
+ *  - `unlock_upos_host`: string，CDN 替换目标 host
+ *  - `unlock_test_epid`: long，**开发专用**——命中该 ep_id 的正常 PGC 请求被强制按受限
+ *    处理，用于在没有已知受限样本时验证闭环（U8 评估去留，不进设置 UI）
  */
 object UnlockConfig {
 
@@ -28,9 +29,13 @@ object UnlockConfig {
         val cacheUnlock: Boolean,
         /** CDN upos 替换目标 host（空 = 不替换，U5）。 */
         val uposHost: String,
-    )
+    ) {
+        companion object {
+            val DEFAULT = Config(false, emptyList(), 0, false, "")
+        }
+    }
 
-    private val cache = AtomicReference(Pair(0L, Config(false, emptyList(), 0, false, "")))
+    private val cache = AtomicReference(Pair(0L, Config.DEFAULT))
     private val lastAreaRef = AtomicReference<String?>(null)
 
     private const val TTL_MS = 60_000L
@@ -53,31 +58,28 @@ object UnlockConfig {
     private fun readFromMirror(module: XposedModule): Config {
         return runCatching {
             val file = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "sponsorblock_settings.json")
-            if (!file.isFile) return@runCatching Config(false, emptyList(), 0, false, "")
+            if (!file.isFile) return@runCatching Config.DEFAULT
             val json = org.json.JSONObject(file.readText())
             val enabled = json.optBoolean("unlock_enabled", false)
             val testEpId = json.optLong("unlock_test_epid", 0L)
             val cacheUnlock = json.optBoolean("unlock_cache", false)
             val uposHost = json.optString("unlock_upos_host", "")
-            val servers = mutableListOf<RoamingClient.RoamingServer>()
-            val arr = runCatching {
-                org.json.JSONArray(json.optString("unlock_servers", "[]"))
-            }.getOrNull()
-            if (arr != null) {
-                for (i in 0 until arr.length()) {
-                    val s = arr.optJSONObject(i) ?: continue
-                    val baseUrl = s.optString("baseUrl").trim()
-                    if (baseUrl.isEmpty()) continue
-                    servers += RoamingClient.RoamingServer(
-                        area = s.optString("area", "cn"),
-                        baseUrl = baseUrl,
-                        accessKey = s.optString("accessKey", ""),
-                    )
-                }
+            // 单服务器模型（area 固定 cn——社区/自建漫游服务器多区通吃）
+            val serverUrl = json.optString("unlock_server_url", "").trim()
+            val servers = if (serverUrl.isEmpty()) {
+                emptyList()
+            } else {
+                listOf(
+                    RoamingClient.RoamingServer(
+                        area = "cn",
+                        baseUrl = serverUrl,
+                        accessKey = json.optString("unlock_server_access_key", ""),
+                    ),
+                )
             }
             Config(enabled, servers, testEpId, cacheUnlock, uposHost)
         }.onFailure { t ->
             module.warn("unlock: config read failed: ${t.message}")
-        }.getOrDefault(Config(false, emptyList(), 0, false, ""))
+        }.getOrDefault(Config.DEFAULT)
     }
 }
