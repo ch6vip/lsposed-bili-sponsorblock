@@ -7,6 +7,7 @@ import org.junit.Test
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -179,6 +180,80 @@ class ProgressPollerRegistryTest {
         keys.forEach { key ->
             assertTrue("key=$key 重新起表后应处于运行中", registry.isRunning(key))
         }
+        registry.stopAll()
+    }
+
+    // ------------------------------------------------------------------
+    // deferred bind 与轮询的协作契约（progressPollerTick 的判定形状，纯 JVM 复刻）。
+    // 背景：6.6.0 上补绑的两个宿主触发器在正常播放期间都是死的，挂起的 pending 若被
+    // 「无 handle ⇒ 自停」误杀，就是整个会话静默零跳过（2026-09-30 真机 4.7 分钟）。
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `无 handle 但有 pending 时轮询必须活着 不能被第一条 tick 误杀`() {
+        val registry = ProgressPollerRegistry(intervalMs = 10)
+        val hasHandle = AtomicBoolean(false)
+        val pending = AtomicBoolean(true)
+        val ticks = AtomicInteger(0)
+
+        registry.start(11) {
+            ticks.incrementAndGet()
+            // 复刻 progressPollerTick 的返回值（true=自停）：停止 ⟺ 无 handle 且无 pending
+            !hasHandle.get() && !pending.get()
+        }
+
+        // 给足多条 tick 的窗口：若自停判定有误（无 handle 即停），这里只会跑到 1
+        assertTrue(
+            "pending 存续期间 tick 应持续发生（实际 ${ticks.get()} 次）",
+            awaitCondition { ticks.get() >= 5 },
+        )
+        assertTrue(registry.isRunning(11))
+        registry.stopAll()
+    }
+
+    @Test
+    fun `pending 清除后 无 handle 的轮询按原语义自停`() {
+        val registry = ProgressPollerRegistry(intervalMs = 10)
+        val hasHandle = AtomicBoolean(false)
+        val pending = AtomicBoolean(true)
+        val ticks = AtomicInteger(0)
+
+        registry.start(12) {
+            ticks.incrementAndGet()
+            !hasHandle.get() && !pending.get()
+        }
+        assertTrue(awaitCondition { ticks.get() >= 2 })
+
+        pending.set(false) // 放弃等待（过期/teardown 清掉）
+        assertTrue(
+            "pending 没了之后任务应自停",
+            awaitCondition { !registry.isRunning(12) },
+        )
+        assertEquals(0, registry.size())
+    }
+
+    @Test
+    fun `tick 内完成补绑后 同一条任务继续承担喂入 不需要重起表`() {
+        val registry = ProgressPollerRegistry(intervalMs = 10)
+        val hasHandle = AtomicBoolean(false)
+        val pending = AtomicBoolean(true)
+        val fed = AtomicInteger(0)
+
+        registry.start(13) {
+            // 复刻 tryCompletePendingBindFromTick 的效果：补绑成功 ⇒ handle 就位 ⇒ 本 tick 落到喂入分支
+            if (!hasHandle.get() && pending.get()) hasHandle.set(true)
+            if (hasHandle.get()) {
+                pending.set(false)
+                fed.incrementAndGet()
+            }
+            false // completeBind 里的 startProgressPoller 对活任务幂等，这里也不能停
+        }
+
+        assertTrue(
+            "补绑完成后应持续喂入（实际喂了 ${fed.get()} 次）",
+            awaitCondition { fed.get() >= 5 },
+        )
+        assertTrue("同一任务应继续运行", registry.isRunning(13))
         registry.stopAll()
     }
 }

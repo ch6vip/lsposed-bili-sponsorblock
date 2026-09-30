@@ -278,7 +278,11 @@ object BiliSponsorBlockHooks {
 
     /** 真正的清理：只应由 [scheduleDeferredTeardown] 的延迟任务调用。 */
     private fun performTeardown(module: XposedModule, host: Any, contextHash: Int) {
-        pendingBindRef.set(null)
+        // 只清「本 widget」的 pending（=== 身份）：延迟清理的 3s 窗口里新页可能已经挂起了
+        // 自己的 pending（host 是新 widget 实例），无条件清空会把新页的补绑抹掉——
+        // 此后连 seekDraw 都救不回来，只剩挂死（2026-09-30 真机那次是 teardown done
+        // 恰好先于 deferral 才没触发这个形态）。
+        pendingBindSlot.clearIfHost(host)
         VideoDirectorListener.unregister(module, host)
         // 必须走按 hash 的清理:此间宿主 widget 多半已 detach,反射取 Context 会失败,
         // onPlayerDestroyed(host) 会把 Int 当 host 用(hash=0 → 状态不清理/静音不解除)。
@@ -329,12 +333,16 @@ object BiliSponsorBlockHooks {
 
     /**
      * 待补绑的播放器：`bindPlayerContainer` 触发时 core 往往还没注入，
-     * 这时先记下来，等第一次进度回调（那时 widget 已经有 core）再补绑。
+     * 这时先记下来，等 core 就绪再补绑。
+     *
+     * 完成信号的历史是个教训：曾经只等「第一次进度回调」（6.5.0 每帧都来），
+     * 6.6.0 把进度链路整体搬走后，两个宿主触发器（文本控件回调、seek draw）在正常播放
+     * 期间都是死的，pending 挂死整个会话（2026-09-30 真机实测 4.7 分钟静默零跳过）。
+     * 现在补绑由自持轮询驱动（挂起时同步 startProgressPoller，tick 先试补绑），
+     * 这里只负责状态本身——CAS 语义收在 [com.ctf.bilisb.player.PendingBindSlot]，有单测。
      */
-    private data class PendingBind(val contextHash: Int, val container: Any, val host: Any)
-
-    /** 补绑用的挂起绑定。AtomicReference 抢占式清空,避免多线程重复 completeBind。 */
-    private val pendingBindRef = java.util.concurrent.atomic.AtomicReference<PendingBind?>()
+    private val pendingBindSlot =
+        com.ctf.bilisb.player.PendingBindSlot { android.os.SystemClock.uptimeMillis() }
 
     /** 最近一次绑定的 contextHash，供日志与状态组装使用。 */
     @Volatile
@@ -384,8 +392,12 @@ object BiliSponsorBlockHooks {
             ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService())
 
         if (core == null) {
-            pendingBindRef.set(PendingBind(contextHash, container ?: host, host))
+            pendingBindSlot.set(contextHash, container ?: host, host)
             module.info("core not ready at bind time, defer binding context=$contextHash host=${host.javaClass.name}")
+            // 「有 pending ⇒ 有 poller」：补绑不能等宿主信号——6.6.0 上文本控件回调与 seek draw
+            // 在正常播放期间都是死的，等下去就是挂死整个会话。轮询是自持定时器，挂起即拉起，
+            // 由 progressPollerTick 先尝试补绑（completeBind 里的 startProgressPoller 对活任务幂等）。
+            startProgressPoller(contextHash)
             return
         }
 
@@ -431,27 +443,50 @@ object BiliSponsorBlockHooks {
         module.info("player handle rebound after teardown context=$contextHash")
     }
 
-    /** 首次进度回调时补绑（那时 widget 已完成服务注入）。
-     *  用 AtomicReference 抢占式清空，避免多条回调并发时对同一 pending 重复 completeBind。 */
+    /** 宿主信号路径的补绑（进度回调/seek draw 触发时 widget 已完成服务注入）。
+     *  槽的抢占式消费保证多条回调并发时只有一个 completeBind；
+     *  6.6.0 上这条路径在正常播放期间基本不触发，主补绑动力在 [progressPollerTick]。 */
     private fun ensureDeferredBind(module: XposedModule, progressWidget: Any) {
-        val pending = pendingBindRef.getAndSet(null) ?: return
+        val pending = pendingBindSlot.consumeAny() ?: return
         // 必须校验「补绑用的 widget」就是当初发起绑定的那个播放器：
         // 否则会用 A 的 contextHash/container 配 B 的 core（小窗/快速切集时串台）。
         if (pending.host !== progressWidget &&
             PlayerBridge.contextHash(progressWidget) != pending.contextHash
         ) {
             // 校验失败:把 pending 放回去,等待真正匹配的 widget
-            pendingBindRef.compareAndSet(null, pending)
+            pendingBindSlot.restore(pending)
             return
         }
         val core = PlayerBridge.coreService(progressWidget)
             ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService())
             ?: run {
-                // core 还没就绪:放回 pending,等下一次回调
-                pendingBindRef.compareAndSet(null, pending)
+                // core 还没就绪:放回 pending,等下一次（回调或轮询 tick）
+                pendingBindSlot.restore(pending)
                 return
             }
         completeBind(module, pending.contextHash, pending.container, pending.host, core)
+    }
+
+    /** 轮询 tick 驱动的补绑：不依赖任何宿主信号，core 一就绪、最迟下个 tick 就完成绑定。 */
+    private fun tryCompletePendingBindFromTick(
+        controller: com.ctf.bilisb.sponsor.SponsorBlockController,
+        contextHash: Int,
+    ) {
+        if (!pendingBindSlot.peekFor(contextHash).let { it != null }) return
+        val module = moduleRef ?: return
+        val pending = pendingBindSlot.consumeMatching(contextHash) ?: return
+        // handle 已在别处完成（例如随后的完整 bind）：pending 已过期，丢弃即可
+        if (controller.hasHandle(contextHash)) return
+        // core 三个来源与 bind 路径同口径：widget -> 容器 -> director 服务
+        val core = PlayerBridge.coreService(pending.host)
+            ?: PlayerBridge.coreService(pending.container)
+            ?: PlayerBridge.coreServiceFromDirector(VideoDirectorListener.lastDirectorService())
+        if (core == null) {
+            // 还没就绪:放回,下个 tick 再试（sinceMs 不重置,挂了多久要累计）
+            pendingBindSlot.restore(pending)
+            return
+        }
+        completeBind(module, contextHash, pending.container, pending.host, core)
     }
 
     /**
@@ -474,6 +509,14 @@ object BiliSponsorBlockHooks {
             }
         }
     }
+
+    /**
+     * deferred bind 的诊断阈值。修复后补绑由自持轮询驱动，core 一就绪最迟下个 tick（500ms）完成；
+     * 超过 [PENDING_BIND_STUCK_MS] 还挂着说明 core 迟迟不出（页面假活？），必须留名；
+     * 超过 [PENDING_BIND_EXPIRY_MS] 直接放弃（host 八成已死），轮询自停——不给死 pending 开永久空转的口子。
+     */
+    private const val PENDING_BIND_STUCK_MS = 10_000L
+    private const val PENDING_BIND_EXPIRY_MS = 60_000L
 
     private fun startProgressPoller(contextHash: Int) {
         progressPollers.start(contextHash) { progressPollerTick(contextHash) }
@@ -504,16 +547,41 @@ object BiliSponsorBlockHooks {
      * null → 当时那条自停路径把轮询摘表，而该 context 之后不一定还有 bind 来重启它 →
      * 本会话剩余时间静默零跳过（现象与「片段拉不到」无法区分）。
      *
+     * **pending 补绑先行**：本 context 挂着 deferred bind 时，每个 tick 先尝试补绑——
+     * 6.6.0 上宿主侧的两个补绑触发器在正常播放期间都是死的，这条自持路径是补绑的唯一动力。
+     * 补绑成功则本 tick 继续走正常喂入（completeBind 已把 handle 登记进 controller）。
+     *
      * 抽成独立函数也是为了能在单测里直接跑（不依赖真实宿主与定时器）。
      */
     private fun progressPollerTick(contextHash: Int): Boolean {
         val controller = sponsorBlockController ?: return false
+        tryCompletePendingBindFromTick(controller, contextHash)
         // 自停**只看 handle 还在不在**，不看 core 读不读得到：controller 重建的瞬间
         // （applySnapshot 先换引用再 close 旧的）coreForContext 可以是 null，而 handle 正随
         // adoptStateFrom 迁到新 controller —— 那种「瞬时 null」曾经直接把轮询摘表，
         // 之后该 context 没有 bind 来重启（ensureRebindAfterTeardown 就走没有 bind 的路径），
         // 本会话剩余时间静默零跳过。
-        if (!controller.hasHandle(contextHash)) return true
+        if (!controller.hasHandle(contextHash)) {
+            // 但本 context 还挂着 deferred bind 时不能自停：补绑还欠着（core 未就绪），
+            // poller 一停就没有人完成它——挂起路径拉起的轮询会被第一条 tick 误杀。
+            val pending = pendingBindSlot.peekFor(contextHash) ?: return true
+            val module = moduleRef ?: return false
+            val ageMs = android.os.SystemClock.uptimeMillis() - pending.sinceMs
+            when {
+                ageMs >= PENDING_BIND_EXPIRY_MS -> {
+                    // 放弃：host 八成已死（页面销毁没走 teardown）。下个 bind 会重新走完整链路。
+                    pendingBindSlot.consumeMatching(contextHash)
+                    HookProbe.first(module, "pendingBindExpired", 3) {
+                        "context=$contextHash pending 挂 ${ageMs}ms 未完成，放弃等待"
+                    }
+                    return true
+                }
+                ageMs >= PENDING_BIND_STUCK_MS -> HookProbe.first(module, "pendingBindStuck", 3) {
+                    "context=$contextHash pending 已挂 ${ageMs}ms 未完成（core 始终未就绪？）"
+                }
+            }
+            return false
+        }
         val core = controller.coreForContext(contextHash) ?: return false
         val m = moduleRef ?: return false
         val pos = PlayerActions.currentPositionMs(m, core) ?: return false
@@ -656,6 +724,10 @@ object BiliSponsorBlockHooks {
                 startProgressPoller(hash)
                 probePollerMissingForHandle(module, hash)
             }
+            // 「有 pending ⇒ 有 poller」在 controller 重建后同样要维持：pending 没有 handle，
+            // 不会出现在 activeContextHashes 里，上面那张表不认识它——这里不补起，
+            // 它的看门狗就断在设置变更那一刻，退回挂死形态。
+            pendingBindSlot.peek()?.let { startProgressPoller(it.contextHash) }
             module.info("SponsorBlock controller initialized settingsChanged=${currentController != null} ($source)")
         } else {
             module.info("SponsorBlock controller reused ($source)")
