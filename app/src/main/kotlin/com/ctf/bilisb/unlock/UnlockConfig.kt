@@ -29,9 +29,11 @@ object UnlockConfig {
         val cacheUnlock: Boolean,
         /** CDN upos 替换目标 host（空 = 不替换，U5）。 */
         val uposHost: String,
+        /** U4.6 透传诊断：重构时保留原 vod_info（隔离合成 vodInfo 变量）。 */
+        val passthrough: Boolean,
     ) {
         companion object {
-            val DEFAULT = Config(false, emptyList(), 0, false, "")
+            val DEFAULT = Config(false, emptyList(), 0, false, "", false)
         }
     }
 
@@ -64,6 +66,7 @@ object UnlockConfig {
             val testEpId = json.optLong("unlock_test_epid", 0L)
             val cacheUnlock = json.optBoolean("unlock_cache", false)
             val uposHost = json.optString("unlock_upos_host", "")
+            val passthrough = json.optBoolean("unlock_passthrough", false)
             // 单服务器模型（area 固定 cn——社区/自建漫游服务器多区通吃）
             val serverUrl = json.optString("unlock_server_url", "").trim()
             val servers = if (serverUrl.isEmpty()) {
@@ -77,7 +80,7 @@ object UnlockConfig {
                     ),
                 )
             }
-            Config(enabled, servers, testEpId, cacheUnlock, uposHost)
+            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough)
         }.onFailure { t ->
             module.warn("unlock: config read failed: ${t.message}")
         }.getOrDefault(Config.DEFAULT)

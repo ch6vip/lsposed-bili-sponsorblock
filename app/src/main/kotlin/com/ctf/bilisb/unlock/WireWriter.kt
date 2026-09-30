@@ -89,10 +89,26 @@ object UnlockWire {
         return w.toByteArray()
     }
 
-    /** Stream{stream_info=1, oneof content{dash_video=2}}——不设 stream_info（参考实现同口径）。 */
+    /**
+     * Stream{stream_info=1, oneof content{dash_video=2}}。
+     * U4.6 实测：真实响应每条 Stream 都带 stream_info（quality/format/description/intact），
+     * 缺失会被播放器选流逻辑忽略（表现 = 响应被接受但无限缓冲）——必须携带。
+     */
     private fun buildStreamBytes(v: DashTrack): ByteArray {
         val w = WireWriter()
+        w.messageField(1, buildStreamInfoBytes(v))
         w.messageField(2, buildDashVideoBytes(v))
+        return w.toByteArray()
+    }
+
+    private fun buildStreamInfoBytes(v: DashTrack): ByteArray {
+        val w = WireWriter()
+        val meta = v.meta
+        w.int32Field(1, meta?.quality ?: v.id)
+        w.stringField(2, meta?.format ?: "")
+        w.stringField(3, meta?.description ?: "")
+        w.boolField(8, true)  // intact：流完整可播
+        w.stringField(11, meta?.newDescription ?: "")
         return w.toByteArray()
     }
 

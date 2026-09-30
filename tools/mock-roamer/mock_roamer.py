@@ -25,6 +25,7 @@ MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
 # U4.5 诊断：若存在 real_urls.json（{"video": "...", "audio": "..."}），canned 响应的
 # base_url 用真实 B 站 CDN 地址——解耦「媒体格式」与「重构正确性」两个变量。
 REAL_URLS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "real_urls.json")
+REAL_SHAPE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "real_shape.json")
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -41,7 +42,7 @@ CANNED_PLAYURL = {
     "video_codecid": 12,
     "accept_quality": [80],
     "support_formats": [
-        {"quality": 80, "new_description": "高清 1080P", "display_desc": "1080P", "superscript": "", "codecs": None},
+        {"quality": 80, "format": "FLV", "description": "高清 1080P", "new_description": "高清 1080P", "display_desc": "1080P", "superscript": "", "codecs": None},
     ],
     "dash": {
         "video": [
@@ -73,7 +74,10 @@ CANNED_PLAYURL = {
 
 
 def base_url_for(host: str) -> dict:
-    """U4.5：有 real_urls.json 用真实 CDN 地址；否则 0.0.0.0 换成本机地址。"""
+    """U4.6：有 real_shape.json 直接回放真实形状；否则 canned 逻辑。"""
+    if os.path.isfile(REAL_SHAPE_PATH):
+        with open(REAL_SHAPE_PATH, encoding="utf-8") as f:
+            return json.load(f)
     body = json.loads(json.dumps(CANNED_PLAYURL))
     real = {}
     if os.path.isfile(REAL_URLS_PATH):

@@ -42,6 +42,7 @@ object ResponseReconstructor {
         data: PlayurlData,
         reqCid: Long,
         reqAid: Long,
+        passthrough: Boolean = false,
     ): Any {
         val replyCls = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REPLY_CLASS)
         val builder = if (hostReply != null) {
@@ -50,8 +51,11 @@ object ResponseReconstructor {
             replyCls.getMethod("newBuilder").invoke(null)
         }
 
-        val vodInfo = parseHost(cl, HostTargets.VOD_INFO_CLASS, UnlockWire.buildVodInfoBytes(data))
-        invoke(builder, "setVodInfo", vodInfo)
+        // U4.6 透传诊断：passthrough=true 时完全保留原 vod_info（隔离合成 vodInfo 变量）
+        if (!passthrough) {
+            val vodInfo = parseHost(cl, HostTargets.VOD_INFO_CLASS, UnlockWire.buildVodInfoBytes(data))
+            invoke(builder, "setVodInfo", vodInfo)
+        }
 
         // supplement：解析原值（自备 schema，未知字段保留）→ 清 view_info（去 area_limit
         // 弹窗）→ business.is_preview=false（episode_info 等 UI 数据原样保留）。
