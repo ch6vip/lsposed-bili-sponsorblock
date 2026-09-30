@@ -9,8 +9,8 @@
 一个独立的 **LSPosed** 模块：在哔哩哔哩 Android 客户端里自动跳过**赞助广告、片头、自我推广、互动提醒**等片段，
 并在进度条上把它们标出来。
 
-数据来自社区众包的 [SponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock/wiki/API) 公开接口。模块**只改本机客户端的播放行为**，
-不登录、不接管账号、不改任何服务端请求。
+数据来自社区众包的 [SponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock/wiki/API) 公开接口。
+模块**只改本机客户端行为**：不登录、不接管账号、无遥测上报。
 
 ---
 
@@ -28,6 +28,7 @@
 - 本项目是**个人学习性质的第三方项目**，与哔哩哔哩（上海幻电信息科技有限公司）**没有任何关系**，非官方、未获授权。
 - 本项目**只修改本机客户端的本地播放行为**（跳过 / 静音 / 绘制进度条标记）。
   它**不会**：破解会员、去除广告投放、绕过任何服务端限制、伪造播放量或修改数据上报。
+  （「B 站增强 · IP 属地」会改写宿主请求中的客户端身份字段，详见[数据与隐私](#数据与隐私)。）
 - 本项目**不提供、不附带、不分发**任何哔哩哔哩客户端安装包，也未提供获取途径。
   你需要自行准备已安装的目标版本客户端。
 - 片段数据由社区众包产生，准确性、时效性由数据源决定，本项目不对片段内容负责。
@@ -36,22 +37,17 @@
 
 ## 功能
 
-- **自动跳过** —— 进入片段时自动跳到片段末尾，可选「N 秒后跳过 + 取消」
-- **手动跳过** —— 改为在片段内显示跳过按钮，点按才跳（覆盖自动跳过）
-- **片段静音** —— 对 `mute` 类片段静音而非跳过
-- **最小片段时长过滤** —— 太短的片段不跳，避免进度条抖动
-- **进度条彩色标记** —— 9 个分类各自着色，颜色可自定义
-- **剩余时长扣减** —— 总时长减去已跳过时长
-- **跳过 Toast 提示** / **跳过次数统计**（累计次数与节省时长，可重置）
-- **片段提交** —— 在播放器面板里标记片段起点/终点并提交到数据源
-- **两处入口**：播放器右上角「⋯」→ 更多面板里的「空降助手」行，以及「我的」页里的 `Bili2233` 入口
-- **设置跨进程同步** —— ContentProvider IPC 权威存储 + JSON 镜像兜底 + 默认值三级 fallback
-- **B 站增强**（移植自 [BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)，MIT，全部默认关闭）：
-  - 评论/主页 **IP 属地** —— 改写请求身份让服务端返回属地字段
+- **自动跳过** —— 进入片段时自动跳到末尾，可选「N 秒后跳过 + 取消」；也可改为**手动跳过**
+  （片段内显示按钮，点按才跳）或**片段静音**（`mute` 类片段静音而非跳过）
+- **进度条彩色标记** —— 9 个分类各自着色，颜色可自定义；**剩余时长扣减**；**跳过 Toast 与次数统计**
+- **片段提交** —— 播放器面板里标记片段起点/终点并提交到数据源
+- **两处入口**：播放器「⋯」→ 更多面板 →「空降助手」；「我的」页 `Bili2233`
+- **B 站增强**（移植自 [BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)，MIT，**全部默认关闭**）：
+  - **IP 属地** —— 改写请求身份让服务端返回属地字段
   - **隐藏互动提示** —— 一键三连提示 / UP 关注气泡 / 互动弹幕投票
   - **首页不自动刷新** —— 切回首页/从后台返回不重置列表（下拉仍可手动刷新）
   - **分享到 QQ** —— 分享面板补回 QQ 入口
-- **B 站风格 UI** —— 控制中心 / SponsorBlock / B 站增强三弹窗与全部子弹窗统一品牌粉 + 圆角卡片
+- **B 站风格 UI** —— 控制中心 / SponsorBlock / B 站增强三弹窗统一品牌粉 + 圆角卡片；界面中英双语（跟随系统）
 
 可识别的分类：赞助/恰饭、自我推广、互动提醒、开场动画、结束画面、回顾/概要、非音乐片段、填充内容、精彩时刻。
 
@@ -64,16 +60,9 @@
 | Android | 6.0+（`minSdk 23`） |
 | 宿主客户端 | **哔哩哔哩国际版 `com.bilibili.app.in` 6.5.0（9110200）/ 6.6.0（9130300）** |
 
-## 兼容性
-
-> **适配 `com.bilibili.app.in` 6.5.0 与 6.6.0 两个版本**（双版本共用一张候选表，
-> 全部新旧候选同时保留，见 `docs/APK_6.6.0_ANALYSIS.md` 的漂移对照）。
-
-宿主每次改版都可能重命名或重新混淆 Hook 目标类（本项目正文里出现的 `f0`、`PlayerSeekWidget3` 之类名字都来自该版本的反汇编）。
-换版本后大概率**静默失效**，需要重新做一次类名对照（方法见 `tools/dexscan/README.md`）。
-
-- 国内版 `tv.danmaku.bili`：**未适配**，仅作为早期行为蓝本保留在文档里。
-- 小窗、切集、番剧/OGV、深色模式、切换账号：**尚未验证**。
+> 适配 6.5.0 / 6.6.0 双版本（共用一张类名候选表，漂移对照见 `docs/APK_6.6.0_ANALYSIS.md`）。
+> 宿主每次改版都可能重命名 Hook 目标类，换版本后大概率**静默失效**，需重做类名对照
+> （方法见 `tools/dexscan/README.md`）。国内版 `tv.danmaku.bili` 未适配。
 
 ## 安装
 
@@ -103,7 +92,7 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 
 ### 启用模块
 
-1. 安装 APK（debug 包用系统 debug 签名，升级时无需卸载）。
+1. 安装 APK。
 2. 打开 **LSPosed** → 模块 → 启用 **Bili2233**。
 3. **作用域只勾 `com.bilibili.app.in`**（`staticScope=true`，不需要勾系统框架）。
 4. **强制停止哔哩哔哩**再重新打开 —— 否则宿主进程里跑的还是旧代码。
@@ -111,10 +100,9 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 ## 使用
 
 - **日常跳过**：装好就生效，不用任何额外操作。
-- **播放器面板**：播放页右上角 **「⋯」→ 更多面板 → 空降助手**。面板里有片段信息、总开关、
-  提交片段、手动跳过、刷新片段、服务信息，以及最短片段时长和用户 ID 的编辑。
-- **设置页（控制中心）**：模块 App 图标（桌面上叫 `Bili2233`），或「我的」页里的 `Bili2233` 入口，
-  两处是同一套 UI。控制中心聚合 **SponsorBlock**（跳过设置）与 **B 站增强**（客户端增强开关）两个入口。
+- **播放器面板**：播放页右上角「⋯」→ 更多面板 → **空降助手**。片段信息、总开关、提交片段、
+  手动跳过、刷新片段、服务信息，以及最短片段时长和用户 ID 的编辑都在这里。
+- **设置页（控制中心）**：模块 App 图标（桌面叫 `Bili2233`），或「我的」页 `Bili2233` 入口，两处同一套 UI。
 
 ## 设置项
 
@@ -143,114 +131,54 @@ export ANDROID_HOME=/path/to/android-sdk    # 或写进 local.properties 的 sdk
 
 ## 数据与隐私
 
-模块只和一个地方通信：**你在设置里填的 SponsorBlock 实例**。
+模块没有遥测、埋点或统计上报。数据往来只有两处：
 
-**播放时（拉取片段）**
+**SponsorBlock 实例**（设置里填的，默认 `https://bsbsb.top`）
 
-- 请求 `GET {服务器}/api/skipSegments/{prefix}`。
-- `{prefix}` 是当前视频 ID 的 **SHA-256 前 4 个十六进制字符**。
-  也就是说服务端只看到一段不完整的前缀，返回该前缀下所有视频的片段，再由客户端**在本地**按完整 videoID 过滤。
-  这是 SponsorBlock 官方的隐私保护设计，本项目沿用了它。
-- 请求会带 `Origin: BiliRoamingX` 和 `X-EXT-VERSION: 1.27.3` 两个头 —— 这是 SponsorBlock 生态里
-  用于识别客户端类型的约定字段，服务端可能据此做白名单。
+- 拉取片段：`GET {服务器}/api/skipSegments/{prefix}`。`{prefix}` 是当前视频 ID 的 **SHA-256 前 4 个十六进制字符**
+  —— 服务端只看到不完整前缀，返回该前缀下所有片段，由客户端**在本地**按完整 videoID 过滤
+  （SponsorBlock 官方的隐私保护设计，本项目沿用）。请求带 `Origin: BiliRoamingX` 等识别客户端类型的约定头。
+- 提交片段：`POST {服务器}/api/skipSegments`（服务端不支持时降级 GET），带 videoID、时间区间、分类与
+  **本机随机生成的用户 ID** —— 与 B 站账号无关，可随时重置。
+- 默认实例是「[小电视空降助手](https://github.com/hanydd/BilibiliSponsorBlock)」的服务端，
+  **不是官方的 `sponsor.ajay.app`**；可用性、数据留存由该项目自行决定，本项目与其无隶属关系。
+  可换成任何兼容实例（包括自建）。
 
-**提交片段时**
+**B 站（仅宿主自身发出的请求）**
 
-- `POST {服务器}/api/skipSegments`，表单里带 videoID、时间区间、分类、以及**本机生成的用户 ID**。
-  服务端不支持 POST（405/501）时降级为 GET。
-- 用户 ID 是本地生成的随机 UUID，与 B 站账号无关，可随时在设置里重置。
+- 模块本身不向 B 站发任何请求。唯一的例外是「B 站增强 · **IP 属地**」：它改写宿主请求中的
+  客户端身份字段（`mobi_app` 等），让服务端返回属地字段；开关关闭时完全不动。
 
-**关于默认服务器**
+**本地存储**
 
-- 默认值是 `https://bsbsb.top`，这是「[小电视空降助手](https://github.com/hanydd/BilibiliSponsorBlock)」的服务端，
-  **不是官方的 `sponsor.ajay.app`**。它的可用性、数据留存策略、运营方立场都由该项目自行决定，
-  本项目不做任何承诺，也与该项目没有隶属关系。
-- 你可以在设置里改成任何兼容 SponsorBlock API 的实例（包括自建）。
-
-**其他**
-
-- 模块不包含任何遥测、埋点或统计上报。
-- 设置只存在本地：模块 App 的 `SharedPreferences` 为权威存储，另外写一份 JSON 镜像文件供宿主进程在
-  Provider 不可用时兜底读取。没有云端同步。
-- 模块声明 `INTERNET` 权限用于上述接口调用；一个 `exported` 的 ContentProvider 用于宿主进程与模块 App
-  之间的设置 IPC（Binder，仅本机）。
+- 设置存在模块 App 的 `SharedPreferences`（权威），另写一份 JSON 镜像供宿主进程兜底读取；跳过统计同理。无云端同步。
+- 声明 `INTERNET` 权限用于上述接口；一个 `exported` ContentProvider 用于本机内的设置 IPC（Binder）。
 
 ## 构建与发布
 
-环境：**JDK 17**、Android SDK（`compileSdk 35`）、Gradle 8.12（用 wrapper，无需自备）。
+环境：**JDK 17**、Android SDK（`compileSdk 35`）、Gradle 8.12（wrapper，无需自备）。
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 
 ./gradlew :app:assembleDebug        # debug APK
 ./gradlew :app:assembleRelease      # release APK（没有签名材料时产出未签名包）
-./gradlew :app:testDebugUnitTest    # 单元测试（175 例）
+./gradlew :app:testDebugUnitTest    # 单元测试（200 例）
 ```
 
 release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接宿主被混淆的类名，
 混淆自己收益极低、踩坑成本很高。
 
-### 发布一个版本（维护者）
+本地出签名包：在仓库根目录放 `keystore.properties`（已 gitignore），四行键值
+`storeFile / storePassword / keyAlias / keyPassword`。⚠️ 密钥一旦丢失就**再也无法**推出可原地升级的
+APK，请多地备份。
 
-推一个 `v*` tag 即可。`.github/workflows/release.yml` 会做两件事：
+### 发布（维护者）
 
-1. 跑单测 → 构建**已签名**的 release APK → 校验签名 → `gh release create` 发到本仓库；
-2. **自动同步到模块镜像仓库** [`Xposed-Modules-Repo/io.github.ch6vip.bilisb`](https://github.com/Xposed-Modules-Repo/io.github.ch6vip.bilisb)。
-
-```bash
-git tag v0.7.1
-git push origin v0.7.1
-```
-
-第 2 步是有原因的：`modules.lsposed.org` 从镜像仓库取数据，而那个仓库**不会**从本仓库
-自动同步，每发一版都必须在那边补一个 release（tag 格式固定 `[versionCode]-[versionName]`，
-如 `6-0.6.0`）。版本号由 **APK 自身**解析得出，而非读 `build.gradle.kts` ——
-补同步旧版本时工作区的 `versionCode` 可能已经前进，读 gradle 会把包标错版本。
-
-同步失败、或要补齐历史上没同步的版本时，手动触发同一个 workflow 并填上目标 tag：
-Actions → Release → Run workflow → `tag`（留空则取本仓库 latest release）。
-同步是**幂等**的 —— 镜像仓库已有同名 release 时改为覆盖资产，可以放心重跑。
-
-签名材料与同步凭据都从仓库 Secrets 读取，密钥本身**不入库**：
-
-| Secret | 内容 |
-| --- | --- |
-| `KEYSTORE_BASE64` | 密钥库文件的 base64（`base64 -w0 release.jks`） |
-| `KEYSTORE_PASSWORD` | 密钥库口令 |
-| `KEY_ALIAS` | 密钥别名 |
-| `KEY_PASSWORD` | 密钥口令 |
-| `MIRROR_TOKEN` | 同步到镜像仓库用的 PAT。**未配置时只跳过同步，不影响发布本身** |
-
-`MIRROR_TOKEN` 用 **classic** PAT，且只勾 `public_repo`：
-
-- 打开 <https://github.com/settings/tokens/new>
-- Note 随意（如 `bilisb-mirror-release`）；Expiration 建议 1 年
-- Scopes **只勾 `public_repo`**（Full control of public repositories）—— **不要**勾整个 `repo`
-
-```bash
-gh secret set MIRROR_TOKEN --repo ch6vip/lsposed-bili-sponsorblock
-```
-
-> 为什么不用看起来更"现代"的细粒度 PAT？镜像仓库属于 `Xposed-Modules-Repo` 组织，
-> 而模块作者只是该仓库的 **outside collaborator**。GitHub 官方文档明确写着：
-> *Outside collaborators can only use personal access tokens (classic) to access
-> organization repositories that they are a collaborator on.* —— 这类仓库
-> **不会出现**在细粒度 PAT 的仓库列表里（搜索只会得到 "No repositories found"）。
->
-> 好在镜像仓库是 **public**，所以 `public_repo` 足够创建 release，
-> 而这个 scope **完全不涉及任何私有仓库**，泄漏面比 `repo` 小得多。
-
-本地想自己出签名包，在仓库根目录放一份 `keystore.properties`（已 gitignore）：
-
-```properties
-storeFile=/absolute/path/to/release.jks
-storePassword=...
-keyAlias=...
-keyPassword=...
-```
-
-> ⚠️ 密钥一旦丢失，**再也无法**给已发布的版本推出可原地升级的 APK ——
-> Android 只认同一把签名密钥，届时只能强制所有用户卸载重装。请多地备份。
+推一个 `v*` tag，CI 自动完成：跑单测 → 构建签名 APK → 发 GitHub Release → 同步到
+[镜像仓库](https://github.com/Xposed-Modules-Repo/io.github.ch6vip.bilisb)（`modules.lsposed.org` 的数据源）。
+**发布说明取自 tag 注释**（`git tag -a vX.Y.Z -m "发布说明…"`）。签名与 PAT 等 Secrets 配置、
+手动补同步见 [`docs/RELEASING.md`](docs/RELEASING.md)。
 
 ## 项目结构
 
@@ -269,7 +197,7 @@ app/src/main/kotlin/com/ctf/bilisb/
 ├── host/                      # 宿主契约
 │   ├── HostTargets.kt         #   类名/方法名候选表（改版先改这里）
 │   └── HookProbe.kt           #   命中率探针，日志 `[probe] hook summary: N/M hit`
-├── player/                    # 播放器绑定、进度回调、aid/cid 采集、静音
+├── player/                    # 播放器绑定、进度轮询、aid/cid 采集、静音
 ├── sponsor/                   # 业务：跳过决策、片段仓库、提交、统计
 ├── ui/                        # Toast / 倒计时浮层 / 进度条标记 / 播放器面板
 ├── settings/                  # 设置存储、跨进程同步、设置界面
@@ -277,8 +205,6 @@ app/src/main/kotlin/com/ctf/bilisb/
 ├── model/                     # 数据模型与分类定义
 └── util/                      # aid↔bvid 转换、哈希、日志
 ```
-
-架构简述：
 
 ```mermaid
 flowchart LR
@@ -303,41 +229,32 @@ flowchart LR
 | [`docs/APK_6.5.0_ANALYSIS.md`](docs/APK_6.5.0_ANALYSIS.md) | 目标 APK 的类名对照与证据、真机踩坑记录 |
 | [`docs/STATUS.md`](docs/STATUS.md) | 当前验证状态、已修复问题清单 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 迁移任务与优先级 |
+| [`docs/RELEASING.md`](docs/RELEASING.md) | 发版与镜像同步流程（维护者） |
 | [`docs/DEVICE_PROBE.md`](docs/DEVICE_PROBE.md) | 真机验证 runbook |
 | [`tools/dexscan/README.md`](tools/dexscan/README.md) | 纯 Python 的 dex 静态分析复现方法（无需 jadx/apktool） |
 
 ## 已知限制
 
-- **宿主版本**：适配 `com.bilibili.app.in` 6.5.0 / 6.6.0，详见「兼容性」。宿主更新后候选表需重新核对。
+- **宿主版本**：适配 `com.bilibili.app.in` 6.5.0 / 6.6.0；宿主更新后候选表需重新核对（见「环境要求」）。
+- **未验证场景**：小窗、切集、番剧/OGV、切换账号（深色模式仅复核了设置弹窗可读性）。
 - **片段数据依赖第三方实例**：默认实例可用性不保证；自建或换实例需在设置里改地址。
-- **未验证场景**：小窗、切集、番剧/OGV、深色模式、切换账号。
-- **界面语言**：设置页与播放器面板/浮层/Toast 已抽到 `res/values*` 并提供 **英文**
-  （`values-en`）；跟随系统语言。日志、调试探针与异常说明仍是中文（面向维护者，属有意保留）。
-- **提交 / 片段静音**：本轮不继续验。旁路见过默认实例 POST body 丢 userID；代码仍按官方 POST 发，405/501 才降级 GET。
-- 「我的」页入口以注入项点击监听为主；URI 路由拦截在 6.5.0 非必需。
-- **B 站增强**：现行四件套（IP 属地 / 隐藏互动提示 / 首页不自动刷新 / 分享 QQ），全部默认关。
-  2026-09-21 安装命中；IP 属地 REST `mobi_app` 改写已触发，评论 loc 文案未截图复核。
-  顶栏消息入口与底栏删 tab **已移除，不再投入**。
-  IP 属地依赖服务端对请求身份的判定，宿主改版后可能静默失效（仅表现为无属地显示）；
-  分享 QQ 依赖官方签名宿主 + 已安装 QQ。
+- **界面语言**：设置页与播放器内文案提供中英双语（`res/values*`，跟随系统）；
+  日志、调试探针与异常说明仍是中文（面向维护者，属有意保留）。
+- **提交 / 片段静音**：旁路见过默认实例 POST body 丢 userID；代码仍按官方 POST 发，405/501 才降级 GET。
+- **B 站增强**：现行四件套（IP 属地 / 隐藏互动提示 / 首页不自动刷新 / 分享 QQ），全部默认关，
+  已在 6.6.0 完成屏幕复核。IP 属地依赖服务端对请求身份的判定，宿主改版后可能静默失效（仅表现为无属地显示）；
+  分享 QQ 依赖官方签名宿主 + 已安装 QQ。顶栏消息入口与底栏删 tab **已移除，不再投入**。
 
 ## 致谢
 
 - [小电视空降助手 · hanydd/BilibiliSponsorBlock](https://github.com/hanydd/BilibiliSponsorBlock) ——
-  本项目默认使用的 `bsbsb.top` 数据源就是该项目的服务端；播放器面板里「空降助手」这个叫法、
-  以及用于标识片段的分类体系，也都沿用了它。这是一款移植自 SponsorBlock 的浏览器插件，
-  本项目相当于把同样的能力搬到了 Android 客户端的 LSPosed 侧。
+  默认数据源 `bsbsb.top` 就是它的服务端；「空降助手」的叫法与片段分类体系也沿用自它。
+  它是把 SponsorBlock 带到 B 站的浏览器插件，本项目相当于把同样能力搬到 Android 客户端的 LSPosed 侧。
 - [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议（上面两个项目的共同上游）
-- [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT，
-  Copyright (c) 2026 mengwuzhuanshou）——「B 站增强」功能组的实现蓝本。
-  下列文件移植自其同名 Java hook（Java → Kotlin，落点/候选表/逆向结论保留，
-  按本项目 6.5.0 目标与设置管线适配，文件头部均保留「移植自 BiliTamer (MIT)」标注）：
-  - `hook/IpLocationHooks.kt` ← `IpLocationHooks.java`（评论/主页 IP 属地：请求身份改写）
-  - `hook/InteractHintHooks.kt` ← `InteractHintHooks.java`（隐藏互动提示）
-  - `hook/HomeNoAutoRefreshHooks.kt` ← `HomeNoAutoRefreshHooks.java`（首页不自动刷新）
-  - `hook/ShareQqHooks.kt` ← `ShareHooks.java`（本项目宿主为官方签名包，保留 6.4.0+ 渠道注入，tauth 兜底照常）（分享面板补回 QQ；与上游的差异：
-    本项目宿主为官方签名包，保留了 6.4.0+ 的渠道注入，tauth 兜底照常）
-  感谢原作者的逆向工作 —— 类名候选表与协议结论是这些功能能落地 6.5.0 的关键。
+- [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT，Copyright (c) 2026 mengwuzhuanshou）
+  ——「B 站增强」功能组的实现蓝本。`hook/` 下 IpLocationHooks / InteractHintHooks / HomeNoAutoRefreshHooks /
+  ShareQqHooks 四个文件移植自其同名 Java hook（Java → Kotlin，逆向结论与落点保留，文件头部均有标注；
+  ShareQqHooks 因本项目宿主为官方签名包而保留 6.4.0+ 渠道注入）。感谢原作者的逆向工作。
 - [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— B 站客户端改动的思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) 与 [libxposed](https://github.com/libxposed) —— 框架与 API
 
