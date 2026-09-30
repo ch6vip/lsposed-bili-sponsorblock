@@ -204,6 +204,25 @@ deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（
 
 **附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
 
+## 增强四件套 6.6.0 屏幕复核（2026-09-30 晚，进行中——设备被占用暂停）
+
+背景：四件套自 0.6.3 起只验证过「安装命中」，屏幕效果从未在 6.6.0 复核；本轮同时核对
+HostTargets 收编重构（6e2737d）的探针基线。开关经 root 直改三处存储（模块 prefs + 双镜像，
+含 chown/chmod/restorecon）后冷启动宿主。
+
+| 项 | 结论 | 证据 |
+| --- | --- | --- |
+| 收编重构探针基线 | ✅ 逐键一致 | 冷启动 `hook summary: 32/37 hit`，延迟 miss（`ip.kmpHeaderValue`/`ip.mossScope` give up）与 0.7.3 基线相同——纯重构无行为差异 |
+| IP 属地（评论区） | ✅ 屏幕+日志双证据 | 评论区「广东」属地标签可见；日志 `reply.v2 scope 武装 → grpc write fired x-bili-device-bin → 改写生效`（21:07:47） |
+| IP 属地（空间页） | ✅ 屏幕+日志双证据 | 空间页「IP属地：广东」可见；`space page open -> identity armed (15s window)` + 本会话 `space rest params rewritten mobi_app android_i -> android` |
+| 隐藏互动提示（三连/UP 气泡/投票） | ⏸ 待续 | 开关已全开；样本视频无投票弹幕，三连/气泡需人工进播放页观察 |
+| 首页不自动刷新 | ⏸ 待续 | 开关已开；需 Home 切后台回前台看列表与 `auto refresh blocked` 日志 |
+| 分享 QQ | ⏸ 待续 | 开关已开；需播放页分享面板截图（渠道注入日志本轮未走到） |
+| 深色模式设置弹窗 | ⏸ 待续 | 一张截图的事，随下轮 |
+
+测试方式备忘：评论区属地老评论（2022-03 属地上线前）无标签属正常；gRPC 改写探针是
+进程内一次性日志，冷启动后第一条评论请求才会打出。
+
 ## 文案国际化（2026-09-30，随下一版发布）
 
 目标宿主是**国际版**，但界面文案长期是硬编码中文字面量。本批抽出「播放器内用户可见」的文案：
