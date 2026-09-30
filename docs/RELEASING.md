@@ -1,6 +1,21 @@
 # 发布流程（维护者）
 
-> 用户向的构建说明在 [README](../README.md#构建与发布)；本文只覆盖发版与镜像同步。
+> 用户向的说明在 [README](../README.md#安装与启用)；本文覆盖本地构建、发版与镜像同步。
+
+## 本地构建
+
+环境：**JDK 17**、Android SDK（`compileSdk 35`）、Gradle 8.12（wrapper，无需自备）。
+
+```bash
+export ANDROID_HOME=/path/to/android-sdk
+
+./gradlew :app:assembleDebug        # debug APK
+./gradlew :app:assembleRelease      # release APK（没有签名材料时产出未签名包）
+./gradlew :app:testDebugUnitTest    # 单元测试
+```
+
+release 构建刻意**不启用 R8** —— 模块靠反射与动态代理对接宿主被混淆的类名，
+混淆自己收益极低、踩坑成本很高。
 
 ## 发一个版本
 
