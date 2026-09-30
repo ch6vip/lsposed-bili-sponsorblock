@@ -84,9 +84,54 @@ message VodInfo {
   string format = 2;
   int64 timelength = 3;
   int32 video_codecid = 4;
-  // stream_list=5 / dash_audio=6 / dolby=7 / volume=8 / loss_less_item=9 /
-  // support_project=10 / ai_audio=11 / qn_panel=12 / cur_language=13 /
-  // solution=14 / cur_production_type=15 未触碰——U4 构建响应时按需补录
+  repeated Stream stream_list = 5;
+  repeated DashItem dash_audio = 6;
+  // dolby=7 / volume=8 / loss_less_item=9 / support_project=10 / ai_audio=11 /
+  // qn_panel=12 / cur_language=13 / solution=14 / cur_production_type=15 未触碰
+}
+
+// ---- Stream 系（playershared 包，字段号实测同源）----
+
+message Stream {
+  oneof content {
+    DashVideo dash_video = 2;
+    SegmentVideo segment_video = 3;
+  }
+  // stream_info=1 未触碰（参考实现的 stream 构造同样不设）
+}
+
+message DashVideo {
+  string base_url = 1;
+  repeated string backup_url = 2;
+  int32 bandwidth = 3;
+  int32 codecid = 4;
+  string md5 = 5;
+  int64 size = 6;
+  int32 audio_id = 7;
+  bool no_rexcode = 8;
+}
+
+message SegmentVideo {
+  repeated ResponseUrl segment = 1;
+}
+
+message ResponseUrl {
+  int32 order = 1;
+  int64 length = 2;
+  int64 size = 3;
+  string url = 4;
+  repeated string backup_url = 5;
+  string md5 = 6;
+}
+
+message DashItem {
+  int32 id = 1;
+  string base_url = 2;
+  repeated string backup_url = 3;
+  int32 bandwidth = 4;
+  int32 codecid = 5;
+  string md5 = 6;
+  int64 size = 7;
 }
 
 // ---- bilibili.pgc.gateway.player.v2（supplement Any 的载荷，受限判定要读它）----

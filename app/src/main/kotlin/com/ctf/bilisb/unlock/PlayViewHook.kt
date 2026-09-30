@@ -37,6 +37,17 @@ object PlayViewHook {
 
     private val attempts = AtomicInteger(0)
 
+    /**
+     * 解锁网络/重构的专用单线程池：playview 的响应回调跑在主线程
+     * （U4 实测 NetworkOnMainThreadException），网络必须挪到工作线程；
+     * 回调线程限时等待（8s），超时放行原响应——不黑屏优先。
+     */
+    private val unlockExecutor by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "BiliSB-UnlockNet").apply { isDaemon = true }
+        }
+    }
+
     /** 延迟重试用的自建后台线程：重试做类加载 + 方法扫描，不压主线程。 */
     private val retryHandler: Handler by lazy {
         val thread = HandlerThread("BiliSB-UnlockRetry")
@@ -166,11 +177,13 @@ object PlayViewHook {
     ) {
         fun apply(via: String, reply: Any?): Any? {
             if (reply == null) return reply
-            val respFacts = extractResponseFacts(module, reply)
+            val respFacts = extractResponseFacts(module, cl, reply)
+            val effectiveEpId = reqFacts.epId.toLongOrNull()?.takeIf { it != 0L }
+                ?: respFacts.supplementEpId
             val facts = PlayViewDecision.Facts(
                 reqVodCid = reqFacts.vodCid,
                 seasonId = reqFacts.seasonId,
-                epId = reqFacts.epId,
+                epId = effectiveEpId.toString(),
                 isDownload = reqFacts.isDownload,
                 respUsable = respFacts.usable,
                 respPlayArcCid = respFacts.respCid,
@@ -179,7 +192,7 @@ object PlayViewHook {
             val verdict = PlayViewDecision.classify(facts)
             HookProbe.first(module, "unlock:verdict:${verdict.name}", 5) {
                 "via=$via cid=${facts.reqVodCid} respCid=${facts.respPlayArcCid} " +
-                    "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
+                    "ep=${facts.epId} typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
             }
             val config = UnlockConfig.load(module)
             // 开发专用强制路径：命中的 ep_id == unlock_test_epid 的正常 PGC 请求
@@ -205,7 +218,7 @@ object PlayViewHook {
             // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
             val cid = reqFacts.vodCid.takeIf { it != 0L } ?: respFacts.respCid
             val playQuery = RoamingClient.PlayQuery(
-                epId = reqFacts.epId.toLongOrNull() ?: 0L,
+                epId = effectiveEpId,
                 cid = cid,
                 qn = reqFacts.qn,
                 fnver = reqFacts.fnver,
@@ -213,35 +226,46 @@ object PlayViewHook {
                 forceHost = reqFacts.forceHost,
                 fourk = reqFacts.fourk,
             )
-            val client = RoamingClient(
-                sign = HostSigner(module, cl),
-                fetch = ::defaultFetch,
-                mobiApp = "android",
-            )
-            val result = client.fetchPlayUrl(config.servers, playQuery, priorityArea = UnlockConfig.lastArea())
-            if (!result.isSuccess) {
-                HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
-                return reply
-            }
-            val data = PlayurlParser.parse(result.content!!)
-            if (data == null || data.videos.isEmpty()) {
-                HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
-                return reply
-            }
             val rebuilt = runCatching {
-                ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
+                // 网络+重构在工作线程执行，回调线程限时等待（主线程阻塞上限 8s）
+                val task = java.util.concurrent.Callable {
+                    val client = RoamingClient(
+                        sign = HostSigner(module, cl),
+                        fetch = ::defaultFetch,
+                        mobiApp = "android",
+                    )
+                    val result = client.fetchPlayUrl(config.servers, playQuery, priorityArea = UnlockConfig.lastArea())
+                    if (!result.isSuccess) {
+                        HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
+                        return@Callable null
+                    }
+                    val data = PlayurlParser.parse(result.content!!)
+                    if (data == null || data.videos.isEmpty()) {
+                        HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
+                        return@Callable null
+                    }
+                    val inner = runCatching {
+                        ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
+                    }.onFailure { t ->
+                        HookProbe.first(module, "unlock:rebuildFailed", 5) {
+                            "${t.javaClass.simpleName}: ${t.message}"
+                        }
+                    }.getOrNull()
+                    if (inner != null) {
+                        HookProbe.first(module, "unlock:proxied", 5) {
+                            "area=${result.areaUsed} quality=${data.quality} streams=${data.videos.size} " +
+                                "audio=${data.audios.size} cid=$cid ep=${playQuery.epId}"
+                        }
+                        UnlockConfig.rememberArea(result.areaUsed)
+                    }
+                    inner
+                }
+                unlockExecutor.submit(task).get(8, java.util.concurrent.TimeUnit.SECONDS)
             }.onFailure { t ->
-                HookProbe.first(module, "unlock:rebuildFailed", 5) {
+                HookProbe.first(module, "unlock:transformTimeout", 5) {
                     "${t.javaClass.simpleName}: ${t.message}"
                 }
             }.getOrNull()
-            if (rebuilt != null) {
-                HookProbe.first(module, "unlock:proxied", 5) {
-                    "area=${result.areaUsed} quality=${data.quality} streams=${data.videos.size} " +
-                        "audio=${data.audios.size} cid=$cid ep=${playQuery.epId}"
-                }
-                UnlockConfig.rememberArea(result.areaUsed)
-            }
             return rebuilt ?: reply
         }
     }
@@ -278,7 +302,13 @@ object PlayViewHook {
         val isDownload: Boolean,
     )
 
-    data class ExtractedResponseFacts(val usable: Boolean, val respCid: Long, val typeUrl: String?)
+    data class ExtractedResponseFacts(
+        val usable: Boolean,
+        val respCid: Long,
+        val typeUrl: String?,
+        /** supplement 内 episodeInfo.epId（番剧请求 ep_id 缺席时的权威来源）。 */
+        val supplementEpId: Long,
+    )
 
     private fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
         if (req == null) return ExtractedRequestFacts(0, 0, 0, 0, 0, false, "0", "0", false)
@@ -317,25 +347,51 @@ object PlayViewHook {
         return ExtractedRequestFacts(vodCid, qn, fnver, fnval, forceHost, fourk, seasonId, epId, isDownload)
     }
 
-    private fun extractResponseFacts(module: XposedModule, result: Any?): ExtractedResponseFacts {
+    private fun extractResponseFacts(module: XposedModule, cl: ClassLoader, result: Any?): ExtractedResponseFacts {
         var usable = result != null
         var respCid = 0L
         var typeUrl: String? = null
+        var supplementEpId = 0L
         runCatching {
             result?.let { res ->
                 val hasVod = res.javaClass.methods.firstOrNull { it.name == "hasVodInfo" }
                     ?.invoke(res) as? Boolean
-                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null)
+                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null, 0L)
                 val playArc = res.javaClass.methods.firstOrNull { it.name == "getPlayArc" }?.invoke(res)
                 playArc?.let {
                     respCid = (it.javaClass.methods.firstOrNull { f -> f.name == "getCid" }?.invoke(it) as? Number)?.toLong() ?: 0L
                 }
                 val supplement = res.javaClass.methods.firstOrNull { it.name == "getSupplement" }?.invoke(res)
                 typeUrl = supplement?.javaClass?.methods?.firstOrNull { f -> f.name == "getTypeUrl" }?.invoke(supplement) as? String
+                // supplement（PGC Any）里的 episodeInfo.epId：番剧请求 ep_id 缺席时的
+                // 权威来源（参考实现 reconstructQueryUnite 同款回退链）
+                if (typeUrl == PlayViewDecision.PGC_ANY_MODEL_TYPE_URL) {
+                    runCatching {
+                        val value = supplement?.javaClass?.methods
+                            ?.firstOrNull { f -> f.name == "getValue" }?.invoke(supplement)
+                        val bytes = value?.javaClass?.getMethod("toByteArray")?.invoke(value) as? ByteArray
+                        if (bytes != null && bytes.isNotEmpty()) {
+                            val pgc = cl.loadClass(HostTargets.PLAY_VIEW_REPLY_CLASS)
+                                .getMethod("parseFrom", ByteArray::class.java)
+                                .invoke(null, bytes)
+                            val epId = pgc.javaClass.methods.firstOrNull { f -> f.name == "getBusiness" }
+                                ?.invoke(pgc)
+                                ?.let { biz ->
+                                    biz.javaClass.methods.firstOrNull { f -> f.name == "getEpisodeInfo" }
+                                        ?.invoke(biz)
+                                }
+                                ?.let { ep ->
+                                    ep.javaClass.methods.firstOrNull { f -> f.name == "getEpId" }
+                                        ?.invoke(ep) as? Number
+                                }?.toLong() ?: 0L
+                            supplementEpId = epId
+                        }
+                    }
+                }
             }
         }.onFailure { t ->
             HookProbe.first(module, "unlock:extractFailed", 3) { "resp: ${t.javaClass.simpleName}: ${t.message}" }
         }
-        return ExtractedResponseFacts(usable, respCid, typeUrl)
+        return ExtractedResponseFacts(usable, respCid, typeUrl, supplementEpId)
     }
 }
