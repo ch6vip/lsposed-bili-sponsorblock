@@ -19,7 +19,7 @@
 | **目标安装包** | `<APK目录>\bilibili_6.5.0.apks`（split：base + arm64_v8a + xxhdpi）；6.6.0 为真机拉取 base.apk + arm64 + xxhdpi |
 | 宿主运行环境 | minSdk 24 / targetSdk 36 / compileSdk 36（6.6.0 为 34 个 dex） |
 | 模块包名 | `io.github.ch6vip.bilisb`（Kotlin 包名仍是 `com.ctf.bilisb`） |
-| 当前版本 | 0.7.3（versionCode 13）——0.7.2 跨包资源解析真机验证通过；0.7.3 deferred bind 挂死修复单测绿、真机复核待做 |
+| 当前版本 | 0.7.3（versionCode 13）——0.7.2 跨包资源解析真机验证通过；0.7.3 deferred bind 挂死修复真机复核通过 |
 | 形态 | LSPosed 模块 + 可单独启动的设置 Activity |
 | Xposed API | io.github.libxposed:api:101.0.1（compileOnly） |
 | 构建 | AGP 8.7.3 / Kotlin 2.0.21 / Gradle 8.12 / compileSdk 35 / minSdk 23 / JDK 17 |

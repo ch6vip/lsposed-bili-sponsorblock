@@ -191,7 +191,12 @@ handle 清理时轮询自停；`seek.v3.g#draw` 钩子保留为 seek/布局时�
    也补上 pending 的轮询重启，「有 pending ⇒ 有 poller」在全路径成立。
 4. **状态机抽纯 JVM 类** `player/PendingBindSlot`（CAS 语义/身份清/sinceMs 不重置，8 例单测），
    另加 3 例 tick-registry 协作契约测试（真实定时器）。单测总数 189 → **192 例 0 失败**。
-   **真机复核待做**：退出重进播放页（今天踩中的场景）确认 tick 内补绑 + `seekTick feed` 恢复。
+   **真机复核通过（2026-09-30 晚，6.6.0 宿主，0.7.3 release）**：进页（直接 bind）→ 退页 → 重进，
+   复现出 `core not ready at bind time, defer binding context=84847536`，**518ms 后**（恰一个轮询周期）
+   tick 内补绑完成 `player bound context=84847536`——期间无任何 seekDraw 爆发，纯自持轮询驱动；
+   随后 `seekTick feed #51→#101` 位置连续推进（617s→642s），`pendingBindStuck/Expired` 零触发。
+   对照修复前同场景挂死 4.7 分钟。进页首跳也正常（position=599245 落在 sponsor 片段内，
+   `showToast: 跳过: 赞助/恰饭 (300.0秒)`，文案继续走 ModuleStrings 链路无误）。
 **次生隐患**：`performTeardown` 会无条件 `pendingBindRef.set(null)`，不分 context——旧页延迟清理若落在新页
 deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（本次是 teardown done 恰好先于 deferral 才未触发）。
 **严重度口径**：触发频率未量化（今日 ~3 次进页命中 1 次；6.5.0 上该状态每 500ms 自愈，是 6.6.0 特有死路）；
