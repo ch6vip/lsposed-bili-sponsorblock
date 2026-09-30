@@ -43,6 +43,11 @@ object SettingsCodec {
             hideVote = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_VOTE, false),
             noAutoRefresh = prefs.getBoolean(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
             shareQq = prefs.getBoolean(SettingsKeys.ENHANCE_SHARE_QQ, false),
+            unlockEnabled = prefs.getBoolean(SettingsKeys.UNLOCK_ENABLED, false),
+            unlockServerUrl = prefs.getString(SettingsKeys.UNLOCK_SERVER_URL, "").orEmpty().trim(),
+            unlockServerAccessKey = prefs.getString(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, "").orEmpty(),
+            unlockCache = prefs.getBoolean(SettingsKeys.UNLOCK_CACHE, false),
+            unlockUposHost = prefs.getString(SettingsKeys.UNLOCK_UPOS_HOST, "").orEmpty().trim(),
         )
     }
 
@@ -77,6 +82,11 @@ object SettingsCodec {
                 put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
             }
             SettingsKeys.ENHANCE_KEYS.forEach { key -> put(key, enhanceFlag(snapshot, key)) }
+            put(SettingsKeys.UNLOCK_ENABLED, snapshot.unlockEnabled)
+            put(SettingsKeys.UNLOCK_SERVER_URL, snapshot.unlockServerUrl)
+            put(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, snapshot.unlockServerAccessKey)
+            put(SettingsKeys.UNLOCK_CACHE, snapshot.unlockCache)
+            put(SettingsKeys.UNLOCK_UPOS_HOST, snapshot.unlockUposHost)
         }
     }
 
@@ -142,6 +152,11 @@ object SettingsCodec {
             hideVote = bool(SettingsKeys.ENHANCE_HIDE_VOTE, false),
             noAutoRefresh = bool(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
             shareQq = bool(SettingsKeys.ENHANCE_SHARE_QQ, false),
+            unlockEnabled = bool(SettingsKeys.UNLOCK_ENABLED, false),
+            unlockServerUrl = str(SettingsKeys.UNLOCK_SERVER_URL, "").trim(),
+            unlockServerAccessKey = str(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, ""),
+            unlockCache = bool(SettingsKeys.UNLOCK_CACHE, false),
+            unlockUposHost = str(SettingsKeys.UNLOCK_UPOS_HOST, "").trim(),
         )
     }
 
@@ -204,6 +219,11 @@ object SettingsCodec {
         hideVote = false,
         noAutoRefresh = false,
         shareQq = false,
+        unlockEnabled = false,
+        unlockServerUrl = "",
+        unlockServerAccessKey = "",
+        unlockCache = false,
+        unlockUposHost = "",
     )
 
     private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {

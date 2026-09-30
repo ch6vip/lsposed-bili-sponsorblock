@@ -173,4 +173,17 @@
 
     <!-- Segment duration text -->
     <string name="segment_duration_seconds">%1$s %2$s-%3$s (%4$s)</string>
+    <string name="entry_unlock_title">Bangumi Unlock</string>
+    <string name="entry_unlock_summary">Access settings for region-locked content (off by default)</string>
+    <string name="unlock_section">Unlock Settings</string>
+    <string name="unlock_note">⚠️ This feature accesses region-locked content and carries account risk, which you accept. Configure your own resolver server (self-hosted or a trusted community service). Off by default.</string>
+    <string name="unlock_enabled_title">Enable unlock</string>
+    <string name="unlock_enabled_summary">Redirect restricted requests to your resolver server</string>
+    <string name="unlock_server_label">Server URL</string>
+    <string name="unlock_server_hint">http://192.168.1.10:8787</string>
+    <string name="unlock_ak_label">access_key</string>
+    <string name="unlock_cache_title">Cache unlock</string>
+    <string name="unlock_cache_summary">Enable the client cache entry (max fnval + download=0)</string>
+    <string name="unlock_upos_label">CDN replace host</string>
+    <string name="unlock_upos_hint">Empty = no replacement; applies to bilivideo/akamaized</string>
 </resources>
