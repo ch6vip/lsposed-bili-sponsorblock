@@ -3,6 +3,8 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // 解锁功能的 protobuf schema 生成（app/src/main/proto/bilisb_unlock.proto）
+    id("com.google.protobuf") version "0.9.4"
 }
 
 // ---------------------------------------------------------------------------
@@ -145,9 +147,28 @@ dependencies {
     compileOnly("io.github.libxposed:api:101.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // 解锁功能：与宿主 bapis 真名类 wire format 兼容的自备 protobuf（见 bilisb_unlock.proto）
+    // 用 javalite 而非 full：体积小，且模块类加载在自身 classloader，不与宿主 protobuf 冲突
+    implementation("com.google.protobuf:protobuf-javalite:3.25.3")
     // Robolectric：让「需要真 android.* 类型」的单测真正执行（此前被 Assume 跳过）：
     //   - Bundle 往返（SettingsCodec 的 snapshotToBundle/FromBundle）
     //   - 面板本体（SponsorBlockPlayerSheet 的 Dialog/View 行为）
     // SDK 版本按 deviceProfile 需要下载对应 android-all jar（首次跑测试走网络）。
     testImplementation("org.robolectric:robolectric:4.14.1")
+}
+
+// protobuf-lite 代码生成（protoc 首次构建时从 maven 拉取二进制）
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.25.3"
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+        }
+    }
 }
