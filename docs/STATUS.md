@@ -204,6 +204,19 @@ deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（
 
 **附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
 
+## 解锁番剧 U4.5：真实 CDN 诊断（2026-10-01 凌晨，缺口已定位）
+
+实验设计：正常播放采集真实 CDN URL（unlock:realUrl 实拍 estgcos/hwo1/coso1
+四条流）→ mock canned 响应改用真实 URL → 强制受限重放。结果：
+重构产物（含真实 B 站 fMP4）播放器接受并拉流，但**仍不渲染**；补充假设
+（PGC supplement 载荷携带 video_info）也未解。
+
+**收口结论**：链路七环节全部实证；缺口 = 6.6.0 播放器对 PGC 内容的流消费
+不读重构实例的 unite.vod_info / supplement.video_info——需要更深的播放器
+消费路径逆向（多日级）。按 Phase 0 预警，这是解锁线从「链路通」到「真能播」
+的最后也是最深的一层。解锁线到此冻结（代码/测试全部落地），复活条件：
+专项逆向排期或真实漫游服务器对照数据。
+
 ## 解锁番剧 U4：真机闭环验证（2026-10-01 凌晨）
 
 按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进至 U4（G1/G2 维持发版前 Gate）。
