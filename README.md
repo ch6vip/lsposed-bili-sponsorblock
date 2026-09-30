@@ -59,8 +59,10 @@ Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区
 ## 安装与启用
 
 1. 从 [Releases](https://github.com/ch6vip/lsposed-bili-sponsorblock/releases/latest) 下载
-   `Bili2233-vX.Y.Z.apk`，像普通应用一样安装。发布包用固定密钥签名，可直接覆盖升级
-   （[指纹](docs/RELEASING.md)与构建方法见开发者文档）。
+   `Bili2233-vX.Y.Z.apk`，像普通应用一样安装。发布包用固定密钥签名，可直接覆盖升级——
+   请认准证书指纹，别装来路不明的二次打包版：
+   `SHA-256 16:9C:2F:C3:A7:E5:C7:93:6B:D8:72:5E:D4:2E:36:AB:DF:68:E7:64:31:C4:DF:5D:25:CC:D6:7A:73:42:E9:DF`
+   （debug 包与构建方法见[开发者文档](docs/RELEASING.md)）。
 2. 打开 **LSPosed** 管理界面，启用 **Bili2233** 模块。
 3. 作用域**只勾**「哔哩哔哩国际版」（`com.bilibili.app.in`），不需要勾系统框架。
 4. **强制停止哔哩哔哩**后重新打开，模块即生效。
