@@ -206,6 +206,10 @@ object SettingsScreenBuilder {
                     addView(biliDivider(activity))
                     addView(entryRow(activity, str(activity, R.string.entry_enhance_title), str(activity, R.string.entry_enhance_summary), onEnhanceClick))
                 }
+                if (onUnlockClick != null) {
+                    addView(biliDivider(activity))
+                    addView(entryRow(activity, str(activity, R.string.entry_unlock_title), str(activity, R.string.entry_unlock_summary), onUnlockClick))
+                }
             }, cardLayoutParams())
 
             // 关于卡片(版本行可点击 → 跳转 GitHub 项目页;发版说明以 GitHub Releases 为单一来源)
