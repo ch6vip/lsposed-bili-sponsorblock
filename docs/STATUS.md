@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 番剧（PGC） | ✅ 优雅降级 | `player bound` → `seekTick feed` 推进 → `segments fetched aid=117056498304631 video=BV1SfuK6bEkQ status=200 count=0`——PGC 的 avid→BV 转换工作正常，BSBSB 无 PGC 数据合法返回空，不崩溃不报错 |
 | 切集（PGC→UGC） | ✅ 全链 | `videoDirector FOUND` 新 id 派发（同 context 状态重置）→ `segments fetched count=8` → **连跳两段**（落点 337s 在 sponsor 段内立即跳段尾，回 0 又跳 intro） |
-| 小窗（自由小窗） | ✅ 轮询存活 | HOME 呼出小窗后 `seekTick feed #151` 继续推进——无过早 teardown，跳过决策在小窗中继续工作（0.7.1 轮询生命周期的直接收益） |
+| 后台播放（HOME 退后台） | ✅ 不误杀 | B 站未启用系统 PiP（manifest 未声明）；HOME 后前台归用户其他小窗应用，但 stopwatch 播放器**未 teardown**、`seekTick` 在后台继续推进（14:29–14:30 #251→#301）——0.7.1 轮询生命周期「离开播放页才清理」语义正确。B 站应用内「自由小窗」设置未开启，该形态未验证（UI 操作留待用户日常确认） |
 
 
 
