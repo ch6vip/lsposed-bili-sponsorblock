@@ -42,8 +42,11 @@ val hasReleaseSigning = releaseStorePath != null &&
 // 0.7.3 = **修 deferred bind 挂死**（6.6.0 上补绑的两个宿主触发器在正常播放期间都是死的，
 // pending 挂起后无人完成 → 无 handle ⇒ 无 poller ⇒ 整会话静默零跳过，真机实测 4.7 分钟）：
 // 挂起即拉起自持轮询、tick 先试补绑、teardown 清 pending 收窄到本 widget、加 stuck/expire 探针。
-val MODULE_VERSION_CODE = 13
-val MODULE_VERSION_NAME = "0.7.3"
+// 0.7.4 = T5 错误可见化（拉取失败迁移 Toast/提交结果反馈/设置来源展示）
+//        + README 重构 + release 工作流改进（发布说明取 tag 注释）。
+//        解锁功能开发在本地分支 unlock-wip，未入主干（见 docs/UNLOCK_FEASIBILITY.md）。
+val MODULE_VERSION_CODE = 14
+val MODULE_VERSION_NAME = "0.7.4"
 
 android {
     namespace = "com.ctf.bilisb"
