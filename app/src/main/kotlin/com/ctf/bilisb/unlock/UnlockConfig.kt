@@ -67,14 +67,15 @@ object UnlockConfig {
             val cacheUnlock = json.optBoolean("unlock_cache", false)
             val uposHost = json.optString("unlock_upos_host", "")
             val passthrough = json.optBoolean("unlock_passthrough", false)
-            // 单服务器模型（area 固定 cn——社区/自建漫游服务器多区通吃）
+            // 单服务器模型：area 可配（cn/hk/tw/th——决定服务器转发到哪个上游；
+            // 国际版 App 的令牌配 th 走国际网关，国内版令牌配 cn 走国内 API）
             val serverUrl = json.optString("unlock_server_url", "").trim()
             val servers = if (serverUrl.isEmpty()) {
                 emptyList()
             } else {
                 listOf(
                     RoamingClient.RoamingServer(
-                        area = "cn",
+                        area = json.optString("unlock_server_area", "cn"),
                         baseUrl = serverUrl,
                         accessKey = json.optString("unlock_server_access_key", ""),
                     ),

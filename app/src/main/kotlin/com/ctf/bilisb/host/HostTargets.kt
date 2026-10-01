@@ -350,4 +350,11 @@ object HostTargets {
     /** 借宿主签名：`LibBili` 的静态 `(Map) -> SignedQuery` 方法（方法名按签名形状解析）。 */
     const val LIB_BILI_CLASS = "com.bilibili.nativelibrary.LibBili"
     const val SIGNED_QUERY_CLASS = "com.bilibili.nativelibrary.SignedQuery"
+
+    /**
+     * gripper 账户门面实现（dex 索引实证：实现 GAccount.getAccessKey）。
+     * 解锁线运行时令牌的捕获点：hook 其 getAccessKey()，App 任何鉴权请求都会经过。
+     */
+    const val GRIPPER_ACCOUNT_CLASS = "com.bilibili.gripper.container.account.d"
+    const val GRIPPER_GET_ACCESS_KEY = "getAccessKey"
 }

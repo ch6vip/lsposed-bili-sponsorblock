@@ -69,6 +69,7 @@ object PlayViewHook {
             return
         }
         try {
+            installAccessKeyCapture(module, cl)
             val moss = Class.forName(HostTargets.PLAYER_MOSS_CLASS, false, cl)
             val hooked = mutableListOf<String>()
             for (name in HostTargets.PLAY_VIEW_UNITE_METHODS) {
@@ -121,6 +122,46 @@ object PlayViewHook {
             }
         }
     }
+
+    /**
+     * U4.7：宿主 access_key 捕获钩——hook gripper 账户门面的 getAccessKey()（after），
+     * 返回值即宿主当前账户的令牌。App 任何鉴权请求都会经过它，播放页前必然已触发。
+     * 与 addCommonParam 被动捕获互补（那条路在播放页路径不经过）。
+     */
+    private fun installAccessKeyCapture(module: XposedModule, cl: ClassLoader) {
+        if (akCaptureInstalled.getAndSet(true)) return
+        try {
+            val cls = Class.forName(HostTargets.GRIPPER_ACCOUNT_CLASS, false, cl)
+            val m = cls.declaredMethods.firstOrNull {
+                it.name == HostTargets.GRIPPER_GET_ACCESS_KEY && it.parameterTypes.isEmpty()
+            } ?: run {
+                HookProbe.miss(module, "unlock:akCapture", "getAccessKey not found")
+                return
+            }
+            runCatching { m.isAccessible = true }
+            runCatching { module.deoptimize(m) }
+            module.hook(m)
+                .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept { chain ->
+                    val result = chain.proceed()
+                    runCatching {
+                        (result as? String)?.takeIf { it.isNotEmpty() }?.let {
+                            com.ctf.bilisb.unlock.HostAccessKey.capture(it)
+                            HookProbe.first(module, "unlock:akCapture", 1) {
+                                "len=${it.length} hex32=${it.length == 32 && it.all { c -> c.isDigit() || c in 'a'..'f' }} head4=${it.take(4)}"
+                            }
+                        }
+                    }
+                    result
+                }
+            HookProbe.ok(module, "unlock:akCapture", "getAccessKey")
+        } catch (t: Throwable) {
+            HookProbe.miss(module, "unlock:akCapture", "install threw: ${t.javaClass.simpleName}: ${t.message}")
+        }
+    }
+
+    private val akCaptureInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private fun retry(module: XposedModule, cl: ClassLoader) {
         runCatching {
@@ -302,6 +343,19 @@ object PlayViewHook {
                 HookProbe.first(module, "unlock:skippedOff", 3) { "受限但解锁未启用/未配置服务器" }
                 return reply
             }
+            // U4.7：access_key 解析——配置覆盖优先，否则用宿主运行时捕获的令牌
+            // （HostAccessKey 经 addCommonParam 被动捕获，等价参考实现读宿主账户管理器）
+            val configAccessKey = config.servers[0].accessKey
+            val accessKey = configAccessKey.ifBlank { HostAccessKey.lastSeen() }
+            if (accessKey.isNullOrBlank()) {
+                HookProbe.first(module, "unlock:noAccessKey", 3) {
+                    "宿主令牌尚未捕获（REST 请求还没发生过）且未配置 access_key"
+                }
+                return reply
+            }
+            HookProbe.first(module, "unlock:ak", 2) {
+                "access_key len=${accessKey.length} hex32=${accessKey.length == 32 && accessKey.all { c -> c.isDigit() || c in 'a'..'f' }} head4=${accessKey.take(4)}"
+            }
 
             // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
             val cid = reqFacts.vodCid.takeIf { it != 0L } ?: respFacts.respCid
@@ -322,7 +376,10 @@ object PlayViewHook {
                         fetch = ::defaultFetch,
                         mobiApp = "android",
                     )
-                    val result = client.fetchPlayUrl(config.servers, playQuery, priorityArea = UnlockConfig.lastArea())
+                    val servers = config.servers.map {
+                        if (it.accessKey == configAccessKey) it.copy(accessKey = accessKey) else it
+                    }
+                    val result = client.fetchPlayUrl(servers, playQuery, priorityArea = UnlockConfig.lastArea())
                     if (!result.isSuccess) {
                         HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
                         return@Callable null
