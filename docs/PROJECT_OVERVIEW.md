@@ -238,7 +238,10 @@ music_offtopic / filler / poi_highlight
 
 ### 中
 
-3. 设置 Prefs / JSON / Bundle 三套 Codec 手写重复（R1），加字段要改多处。
+3. ~~设置 Prefs / JSON / Bundle 三套 Codec 手写重复（R1）~~（2026-10-01 收敛完成：
+   21 个纯字段进 `SettingsCodec` 的 FieldDef 单一来源表，prefs/Map 写/默认值三通道
+   表驱动，加字段 = Snapshot 属性 + 表条目两处；`everyPlainFieldSurvivesMapRoundTrip`
+   全字段非默认往返 + `mapKeySetIsPinned` 39 键集钉死两用例防漏网。）
 4. Provider exported=true，仅靠 isAllowedCaller 校验（R2）。模块进程未启动时 IPC `Unknown authority`，宿主走 JSON 镜像兜底。
 5. 播放中 SponsorBlock 设置需重进播放页生效（已知取舍）；增强开关走 `EnhanceFlags` TTL 10s，可热生效。
 6. 网络/提交失败对用户不可见（R8/T5）：`SponsorBlockClient` 会返回 statusCode=-1，但调用方只写日志。

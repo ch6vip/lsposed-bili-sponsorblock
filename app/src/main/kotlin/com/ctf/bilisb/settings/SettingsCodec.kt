@@ -4,145 +4,171 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import org.json.JSONObject
 
+/**
+ * 设置快照 ↔ 各存储通道的编解码。
+ *
+ * ## 字段映射的单一来源（R1 收敛）
+ *
+ * [FIELDS] 是全部**纯字段**（布尔/时长/TTL/净化字符串）的唯一声明表：
+ * 键名、默认值、读取通道语义、快照取值函数都在条目上。四条通道全部由表派生：
+ *
+ * | 通道 | 实现 | 加字段时 |
+ * | --- | --- | --- |
+ * | SharedPreferences 读 | [snapshotFromPreferences]（表驱动） | 零改动 |
+ * | Map（JSON/Bundle 中转）读 | [snapshotFromMap] = [assemble] | 零改动 |
+ * | Map 写 | [snapshotToMap]（表驱动） | 零改动 |
+ * | 默认值 | [defaultSnapshot] = 空表 assemble | 零改动 |
+ *
+ * 加一个设置项只剩两处：[SettingsSnapshot] 属性 + [FIELDS] 一条目；
+ * 防漏网由 `SettingsCodecFieldParityTest` 的「全字段非默认值往返」用例兜底。
+ *
+ * **复合字段**（enabledCategories ← cat_* 九键、categoryColors ← color_* 九键）
+ * 不进表：它们已是 [SettingsKeys.CATEGORY_MAP] / [SettingsKeys.CATEGORY_COLOR_DEFAULTS]
+ * 单源表的派生，各通道的读取循环保持显式（读取语义不同：prefs 读 Boolean，
+ * Map 读严格 String）。
+ *
+ * ## 通道语义（由各 FieldDef 条目实现，历史行为不变）
+ *
+ * - Map/JSON/Bundle：数值以字符串持久化（与既有镜像/Bundle 形态一致）；布尔严格类型
+ *   匹配（`"enabled": 1` 不做强转，退回默认）；单字段容错（坏字段回默认，不抛不扩散）。
+ * - SharedPreferences：类型化 getter + 各自的 sanitize/clamp。
+ * - 颜色统一 `#RRGGBB`（裁掉 alpha）。
+ */
 object SettingsCodec {
-    fun snapshotFromPreferences(prefs: SharedPreferences): SettingsSnapshot {
-        return SettingsSnapshot(
-            enabled = prefs.getBoolean(SettingsKeys.ENABLED, true),
-            autoSkip = prefs.getBoolean(SettingsKeys.AUTO_SKIP, true),
-            manualSkip = prefs.getBoolean(SettingsKeys.MANUAL_SKIP, false),
-            muteSegments = prefs.getBoolean(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(
-                prefs.getString(SettingsKeys.MIN_SKIP_DURATION, "0"),
-                SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
-            ),
-            skipCountdownSec = parseDuration(
-                prefs.getString(SettingsKeys.SKIP_COUNTDOWN, "0"),
-                SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
-            ),
-            serverAddress = SettingsSanitizer.sanitizeServerAddress(
-                prefs.getString(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
-                SettingsKeys.DEFAULT_SERVER,
-            ),
-            cacheTtlMs = parseCacheTtlMs(prefs.getString(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
-            userId = SettingsSanitizer.sanitizeUserId(prefs.getString(SettingsKeys.USER_ID, ""), ""),
-            defaultSubmitCategory = sanitizeCategory(
-                prefs.getString(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
-            ),
-            enabledCategories = enabledCategoriesFromPrefs(prefs::getBoolean),
-            showToast = prefs.getBoolean(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = prefs.getBoolean(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = prefs.getBoolean(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSkipStats = prefs.getBoolean(SettingsKeys.SHOW_SKIP_STATS, true),
-            showSubmitButton = prefs.getBoolean(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
-                parseColor(prefs.getString(SettingsKeys.colorKey(category), def), def)
-            },
-            ipLocation = prefs.getBoolean(SettingsKeys.ENHANCE_IP_LOCATION, false),
-            hideTriple = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_TRIPLE, false),
-            hideUpPrompt = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, false),
-            hideVote = prefs.getBoolean(SettingsKeys.ENHANCE_HIDE_VOTE, false),
-            noAutoRefresh = prefs.getBoolean(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
-            shareQq = prefs.getBoolean(SettingsKeys.ENHANCE_SHARE_QQ, false),
-        )
+
+    // ---------------------------------------------------------------- 字段定义表
+
+    private abstract class FieldDef<T : Any>(
+        val key: String,
+        val get: (SettingsSnapshot) -> T,
+    ) {
+        abstract val defaultValue: T
+        /** prefs 通道：类型化读取（带默认值与 sanitize/clamp）。 */
+        abstract fun readPrefs(prefs: SharedPreferences): T
+        /** Map 通道（JSON/Bundle 中转）：严格类型 + 容错回默认。 */
+        abstract fun readMap(values: Map<String, Any?>): T
+        /** 写通道：快照 → 持久化值。 */
+        abstract fun mapValue(snapshot: SettingsSnapshot): Any
     }
 
-    /**
-     * 字段映射的唯一实现:Bundle / JSON / SharedPreferences 三条通道都折叠到这里。
-     *
-     * 为什么用 Map 中转:JVM 单测里 `android.os.Bundle` 全是 stub(没有 Robolectric),
-     * 折叠之后「整对象等价」的往返测试可以在无 Android 环境下覆盖全部字段。
-     * 数值统一用字符串(与 Bundle / JSON 的持久化形态一致),颜色统一 `#RRGGBB`(裁掉 alpha)。
-     */
+    private class BoolDef(
+        key: String,
+        get: (SettingsSnapshot) -> Boolean,
+        private val default: Boolean,
+    ) : FieldDef<Boolean>(key, get) {
+        override val defaultValue: Boolean get() = default
+        override fun readPrefs(prefs: SharedPreferences): Boolean = prefs.getBoolean(key, default)
+        override fun readMap(values: Map<String, Any?>): Boolean = (values[key] as? Boolean) ?: default
+        override fun mapValue(snapshot: SettingsSnapshot): Any = get(snapshot)
+    }
+
+    /** 字符串字段：持久化前经 [sanitize]（服务器地址/用户ID/类别各有净化规则）。 */
+    private class StrDef(
+        key: String,
+        get: (SettingsSnapshot) -> String,
+        private val rawDefault: String,
+        private val sanitize: (String?) -> String,
+    ) : FieldDef<String>(key, get) {
+        override val defaultValue: String get() = sanitize(rawDefault)
+        override fun readPrefs(prefs: SharedPreferences): String = sanitize(prefs.getString(key, rawDefault))
+        override fun readMap(values: Map<String, Any?>): String = sanitize((values[key] as? String) ?: rawDefault)
+        override fun mapValue(snapshot: SettingsSnapshot): Any = get(snapshot)
+    }
+
+    /** 秒数字段：字符串持久化，读时 clamp 到 [0, maxSeconds]。 */
+    private class DurationSecDef(
+        key: String,
+        get: (SettingsSnapshot) -> Float,
+        private val maxSeconds: Float,
+    ) : FieldDef<Float>(key, get) {
+        override val defaultValue: Float get() = 0f
+        override fun readPrefs(prefs: SharedPreferences): Float = parseDuration(prefs.getString(key, "0"), maxSeconds)
+        override fun readMap(values: Map<String, Any?>): Float = parseDuration(values[key] as? String ?: "0", maxSeconds)
+        override fun mapValue(snapshot: SettingsSnapshot): Any = get(snapshot).toString()
+    }
+
+    /** 缓存 TTL（分钟字符串 → 毫秒），非法退回 60 分钟。 */
+    private class CacheTtlDef(
+        key: String,
+        get: (SettingsSnapshot) -> Long,
+    ) : FieldDef<Long>(key, get) {
+        override val defaultValue: Long get() = parseCacheTtlMs(SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)
+        override fun readPrefs(prefs: SharedPreferences): Long =
+            parseCacheTtlMs(prefs.getString(key, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES))
+        override fun readMap(values: Map<String, Any?>): Long =
+            parseCacheTtlMs(values[key] as? String ?: SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)
+        override fun mapValue(snapshot: SettingsSnapshot): Any = formatMinutes(get(snapshot))
+    }
+
+    // 条目即单一来源：assemble 的命名参数引用这些单例（类型安全），顺序 = Map 键序。
+    private val ENABLED = BoolDef(SettingsKeys.ENABLED, { it.enabled }, true)
+    private val AUTO_SKIP = BoolDef(SettingsKeys.AUTO_SKIP, { it.autoSkip }, true)
+    private val MANUAL_SKIP = BoolDef(SettingsKeys.MANUAL_SKIP, { it.manualSkip }, false)
+    private val MUTE_SEGMENTS = BoolDef(SettingsKeys.MUTE_SEGMENTS, { it.muteSegments }, false)
+    private val MIN_SKIP_DURATION = DurationSecDef(
+        SettingsKeys.MIN_SKIP_DURATION, { it.minSkipDurationSec }, SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
+    )
+    private val SKIP_COUNTDOWN = DurationSecDef(
+        SettingsKeys.SKIP_COUNTDOWN, { it.skipCountdownSec }, SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
+    )
+    private val SERVER_ADDRESS = StrDef(
+        SettingsKeys.SERVER_ADDRESS,
+        { it.serverAddress },
+        SettingsKeys.DEFAULT_SERVER,
+    ) { raw -> SettingsSanitizer.sanitizeServerAddress(raw, SettingsKeys.DEFAULT_SERVER) }
+    private val CACHE_TTL = CacheTtlDef(SettingsKeys.CACHE_TTL_MINUTES, { it.cacheTtlMs })
+    private val USER_ID = StrDef(
+        SettingsKeys.USER_ID, { it.userId }, "",
+    ) { raw -> SettingsSanitizer.sanitizeUserId(raw, "") }
+    private val DEFAULT_SUBMIT_CATEGORY = StrDef(
+        SettingsKeys.DEFAULT_SUBMIT_CATEGORY, { it.defaultSubmitCategory },
+        SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
+    ) { raw -> sanitizeCategory(raw) }
+    private val SHOW_TOAST = BoolDef(SettingsKeys.SHOW_TOAST, { it.showToast }, true)
+    private val SHOW_SEEKBAR_MARKER = BoolDef(SettingsKeys.SHOW_SEEKBAR_MARKER, { it.showSeekbarMarker }, true)
+    private val SHOW_TIME_DEDUCTION = BoolDef(SettingsKeys.SHOW_TIME_DEDUCTION, { it.showTimeDeduction }, true)
+    private val SHOW_SKIP_STATS = BoolDef(SettingsKeys.SHOW_SKIP_STATS, { it.showSkipStats }, true)
+    private val SHOW_SUBMIT_BUTTON = BoolDef(SettingsKeys.SHOW_SUBMIT_BUTTON, { it.showSubmitButton }, true)
+    private val IP_LOCATION = BoolDef(SettingsKeys.ENHANCE_IP_LOCATION, { it.ipLocation }, false)
+    private val HIDE_TRIPLE = BoolDef(SettingsKeys.ENHANCE_HIDE_TRIPLE, { it.hideTriple }, false)
+    private val HIDE_UP_PROMPT = BoolDef(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, { it.hideUpPrompt }, false)
+    private val HIDE_VOTE = BoolDef(SettingsKeys.ENHANCE_HIDE_VOTE, { it.hideVote }, false)
+    private val NO_AUTO_REFRESH = BoolDef(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, { it.noAutoRefresh }, false)
+    private val SHARE_QQ = BoolDef(SettingsKeys.ENHANCE_SHARE_QQ, { it.shareQq }, false)
+
+    private val FIELDS: List<FieldDef<*>> = listOf(
+        ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
+        MIN_SKIP_DURATION, SKIP_COUNTDOWN, SERVER_ADDRESS, CACHE_TTL,
+        USER_ID, DEFAULT_SUBMIT_CATEGORY,
+        SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
+        IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
+    )
+
+    // ---------------------------------------------------------------- 四条通道
+
+    fun snapshotFromPreferences(prefs: SharedPreferences): SettingsSnapshot {
+        val raw = HashMap<String, Any?>(FIELDS.size + 32)
+        FIELDS.forEach { f -> raw[f.key] = f.readPrefs(prefs) }
+        SettingsKeys.CATEGORY_MAP.keys.forEach { key -> raw[key] = prefs.getBoolean(key, true) }
+        SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
+            raw[SettingsKeys.colorKey(category)] = prefs.getString(SettingsKeys.colorKey(category), def)
+        }
+        return assemble(raw)
+    }
+
+    /** Map 通道：JSON/Bundle 的共用中转（Bundle 是 Map ↔ Bundle 的薄适配）。 */
+    fun snapshotFromMap(values: Map<String, Any?>): SettingsSnapshot = assemble(values)
+
     fun snapshotToMap(snapshot: SettingsSnapshot): Map<String, Any> {
         return linkedMapOf<String, Any>().apply {
-            put(SettingsKeys.ENABLED, snapshot.enabled)
-            put(SettingsKeys.AUTO_SKIP, snapshot.autoSkip)
-            put(SettingsKeys.MANUAL_SKIP, snapshot.manualSkip)
-            put(SettingsKeys.MUTE_SEGMENTS, snapshot.muteSegments)
-            put(SettingsKeys.MIN_SKIP_DURATION, snapshot.minSkipDurationSec.toString())
-            put(SettingsKeys.SKIP_COUNTDOWN, snapshot.skipCountdownSec.toString())
-            put(SettingsKeys.SERVER_ADDRESS, snapshot.serverAddress)
-            put(SettingsKeys.CACHE_TTL_MINUTES, formatMinutes(snapshot.cacheTtlMs))
-            put(SettingsKeys.USER_ID, snapshot.userId)
-            put(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, snapshot.defaultSubmitCategory)
+            FIELDS.forEach { f -> put(f.key, f.mapValue(snapshot)) }
             SettingsKeys.CATEGORY_MAP.forEach { (key, category) ->
                 put(key, snapshot.enabledCategories.contains(category))
             }
-            put(SettingsKeys.SHOW_TOAST, snapshot.showToast)
-            put(SettingsKeys.SHOW_SEEKBAR_MARKER, snapshot.showSeekbarMarker)
-            put(SettingsKeys.SHOW_TIME_DEDUCTION, snapshot.showTimeDeduction)
-            put(SettingsKeys.SHOW_SKIP_STATS, snapshot.showSkipStats)
-            put(SettingsKeys.SHOW_SUBMIT_BUTTON, snapshot.showSubmitButton)
             SettingsKeys.CATEGORY_COLOR_DEFAULTS.forEach { (category, def) ->
                 put(SettingsKeys.colorKey(category), snapshot.categoryColors[category]?.let(::toHex) ?: def)
             }
-            SettingsKeys.ENHANCE_KEYS.forEach { key -> put(key, enhanceFlag(snapshot, key)) }
         }
-    }
-
-    /** 增强开关统一取值(映射快照字段,新增开关只改这里)。 */
-    private fun enhanceFlag(snapshot: SettingsSnapshot, key: String): Boolean = when (key) {
-        SettingsKeys.ENHANCE_IP_LOCATION -> snapshot.ipLocation
-        SettingsKeys.ENHANCE_HIDE_TRIPLE -> snapshot.hideTriple
-        SettingsKeys.ENHANCE_HIDE_UP_PROMPT -> snapshot.hideUpPrompt
-        SettingsKeys.ENHANCE_HIDE_VOTE -> snapshot.hideVote
-        SettingsKeys.ENHANCE_NO_AUTO_REFRESH -> snapshot.noAutoRefresh
-        SettingsKeys.ENHANCE_SHARE_QQ -> snapshot.shareQq
-        else -> false
-    }
-
-    /**
-     * 从 Map 还原快照。
-     *
-     * 字段级容错(JSON 镜像可能是半截内容或被外部改写):单个字段出错只影响该字段,
-     * 退回它的默认值,其余字段照常解析。布尔/字符串都要求类型严格匹配,不做隐式强转
-     * (`"enabled": 1` 这类脏数据不会被当成 true 用)。
-     */
-    fun snapshotFromMap(values: Map<String, Any?>): SettingsSnapshot {
-        fun <T> field(key: String, default: T, cast: (Any) -> T?): T =
-            runCatching { values[key]?.let(cast) }.getOrNull() ?: default
-
-        fun bool(key: String, default: Boolean) = field(key, default) { it as? Boolean }
-        fun str(key: String, default: String) = field(key, default) { it as? String }
-
-        return SettingsSnapshot(
-            enabled = bool(SettingsKeys.ENABLED, true),
-            autoSkip = bool(SettingsKeys.AUTO_SKIP, true),
-            manualSkip = bool(SettingsKeys.MANUAL_SKIP, false),
-            muteSegments = bool(SettingsKeys.MUTE_SEGMENTS, false),
-            minSkipDurationSec = parseDuration(
-                str(SettingsKeys.MIN_SKIP_DURATION, "0"),
-                SettingsKeys.MAX_MIN_SKIP_DURATION_SECONDS,
-            ),
-            skipCountdownSec = parseDuration(
-                str(SettingsKeys.SKIP_COUNTDOWN, "0"),
-                SettingsKeys.MAX_SKIP_COUNTDOWN_SECONDS,
-            ),
-            serverAddress = SettingsSanitizer.sanitizeServerAddress(
-                str(SettingsKeys.SERVER_ADDRESS, SettingsKeys.DEFAULT_SERVER),
-                SettingsKeys.DEFAULT_SERVER,
-            ),
-            cacheTtlMs = parseCacheTtlMs(str(SettingsKeys.CACHE_TTL_MINUTES, SettingsKeys.DEFAULT_CACHE_TTL_MINUTES)),
-            userId = SettingsSanitizer.sanitizeUserId(str(SettingsKeys.USER_ID, ""), ""),
-            defaultSubmitCategory = sanitizeCategory(
-                str(SettingsKeys.DEFAULT_SUBMIT_CATEGORY, SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE),
-            ),
-            enabledCategories = enabledCategoriesFromPrefs(::bool),
-            showToast = bool(SettingsKeys.SHOW_TOAST, true),
-            showSeekbarMarker = bool(SettingsKeys.SHOW_SEEKBAR_MARKER, true),
-            showTimeDeduction = bool(SettingsKeys.SHOW_TIME_DEDUCTION, true),
-            showSkipStats = bool(SettingsKeys.SHOW_SKIP_STATS, true),
-            showSubmitButton = bool(SettingsKeys.SHOW_SUBMIT_BUTTON, true),
-            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
-                parseColor(str(SettingsKeys.colorKey(category), def), def)
-            },
-            ipLocation = bool(SettingsKeys.ENHANCE_IP_LOCATION, false),
-            hideTriple = bool(SettingsKeys.ENHANCE_HIDE_TRIPLE, false),
-            hideUpPrompt = bool(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, false),
-            hideVote = bool(SettingsKeys.ENHANCE_HIDE_VOTE, false),
-            noAutoRefresh = bool(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, false),
-            shareQq = bool(SettingsKeys.ENHANCE_SHARE_QQ, false),
-        )
     }
 
     fun snapshotFromBundle(bundle: Bundle): SettingsSnapshot {
@@ -180,37 +206,50 @@ object SettingsCodec {
         }.apply()
     }
 
-    fun defaultSnapshot(): SettingsSnapshot = SettingsSnapshot(
-        enabled = true,
-        autoSkip = true,
-        manualSkip = false,
-        muteSegments = false,
-        minSkipDurationSec = 0f,
-        skipCountdownSec = 0f,
-        serverAddress = SettingsKeys.DEFAULT_SERVER,
-        cacheTtlMs = 60L * 60_000L,
-        userId = "",
-        defaultSubmitCategory = SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE,
-        enabledCategories = SettingsKeys.CATEGORY_MAP.values.toSet(),
-        showToast = true,
-        showSeekbarMarker = true,
-        showTimeDeduction = true,
-        showSkipStats = true,
-        showSubmitButton = true,
-        categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (_, hex) -> parseColor(hex, "#808080") },
-        ipLocation = false,
-        hideTriple = false,
-        hideUpPrompt = false,
-        hideVote = false,
-        noAutoRefresh = false,
-        shareQq = false,
-    )
+    /** 默认快照 = 空表还原：每个字段各自走默认值（由 emptyJsonObjectYieldsAllDefaults 用例钉死等价）。 */
+    fun defaultSnapshot(): SettingsSnapshot = snapshotFromMap(emptyMap())
 
-    private fun enabledCategoriesFromPrefs(reader: (String, Boolean) -> Boolean): Set<String> {
-        return SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
-            reader(key, true)
-        }.values.toSet()
+    // ---------------------------------------------------------------- 组装
+
+    /** 从原始键值组装快照（复合字段在此读取：严格类型 + 各自默认）。 */
+    private fun assemble(values: Map<String, Any?>): SettingsSnapshot {
+        fun <T : Any> f(def: FieldDef<T>): T = def.readMap(values)
+        return SettingsSnapshot(
+            enabled = f(ENABLED),
+            autoSkip = f(AUTO_SKIP),
+            manualSkip = f(MANUAL_SKIP),
+            muteSegments = f(MUTE_SEGMENTS),
+            minSkipDurationSec = f(MIN_SKIP_DURATION),
+            skipCountdownSec = f(SKIP_COUNTDOWN),
+            serverAddress = f(SERVER_ADDRESS),
+            cacheTtlMs = f(CACHE_TTL),
+            userId = f(USER_ID),
+            defaultSubmitCategory = f(DEFAULT_SUBMIT_CATEGORY),
+            enabledCategories = enabledFromRaw(values),
+            showToast = f(SHOW_TOAST),
+            showSeekbarMarker = f(SHOW_SEEKBAR_MARKER),
+            showTimeDeduction = f(SHOW_TIME_DEDUCTION),
+            showSkipStats = f(SHOW_SKIP_STATS),
+            showSubmitButton = f(SHOW_SUBMIT_BUTTON),
+            categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
+                parseColor(values[SettingsKeys.colorKey(category)] as? String ?: def, def)
+            },
+            ipLocation = f(IP_LOCATION),
+            hideTriple = f(HIDE_TRIPLE),
+            hideUpPrompt = f(HIDE_UP_PROMPT),
+            hideVote = f(HIDE_VOTE),
+            noAutoRefresh = f(NO_AUTO_REFRESH),
+            shareQq = f(SHARE_QQ),
+        )
     }
+
+    /** 分类启用集合：cat_* 键严格布尔读取（默认 true=启用），与既有语义一致。 */
+    private fun enabledFromRaw(values: Map<String, Any?>): Set<String> =
+        SettingsKeys.CATEGORY_MAP.filter { (key, _) ->
+            (values[key] as? Boolean) ?: true
+        }.values.toSet()
+
+    // ---------------------------------------------------------------- 解析辅助（历史语义不变）
 
     private fun parseColor(hex: String?, default: String): Int =
         parseHexColor(hex) ?: parseHexColor(default) ?: 0xFF808080.toInt()

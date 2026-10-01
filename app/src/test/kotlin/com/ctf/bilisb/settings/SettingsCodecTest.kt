@@ -239,6 +239,76 @@ class SettingsCodecTest {
         shareQq = true,
     )
 
+    /**
+     * **全字段非默认值**往返（R1 字段表的防漏网用例）。
+     *
+     * richSnapshot 有几个字段留在默认值（hideTriple 等）——那些字段的表目缺失
+     * 不会被整对象等价抓住。这里把**每一个**纯字段都拨到非默认值：
+     * 任何字段没进 [SettingsCodec] 的字段表，它的值就会在往返中退回默认 → 等价断言失败。
+     * 加新设置项时若忘记在字段表登记，这条会先红。
+     */
+    @Test
+    fun everyPlainFieldSurvivesMapRoundTrip() {
+        val original = SettingsSnapshot.DEFAULT.copy(
+            enabled = false,
+            autoSkip = false,
+            manualSkip = true,
+            muteSegments = true,
+            minSkipDurationSec = 7.5f,
+            skipCountdownSec = 3f,
+            serverAddress = "https://all-fields.example",
+            cacheTtlMs = 45L * 60_000L,
+            userId = "fedcba9876543210fedcba9876543210",
+            defaultSubmitCategory = "outro",
+            enabledCategories = setOf("sponsor", "outro"),
+            showToast = false,
+            showSeekbarMarker = false,
+            showTimeDeduction = false,
+            showSkipStats = false,
+            showSubmitButton = false,
+            categoryColors = SettingsSnapshot.DEFAULT.categoryColors + ("intro" to 0xFF00FF00.toInt()),
+            ipLocation = true,
+            hideTriple = true,
+            hideUpPrompt = true,
+            hideVote = true,
+            noAutoRefresh = true,
+            shareQq = true,
+        )
+
+        val restored = SettingsCodec.snapshotFromMap(SettingsCodec.snapshotToMap(original))
+
+        assertEquals(original, restored)
+    }
+
+    /**
+     * Map 通道键集钉死：镜像 JSON / Bundle / prefs 的键集合是对外契约，
+     * 增删键必须是有意识的行为（改这条用例 = 确认过迁移语义）。
+     */
+    @Test
+    fun mapKeySetIsPinned() {
+        // 集合比较（顺序无关）；键总数也钉死，防止无意增删
+        val keys = SettingsCodec.snapshotToMap(SettingsSnapshot.DEFAULT).keys
+        assertEquals(39, keys.size)
+        assertEquals(
+            setOf(
+                "enabled", "auto_skip", "manual_skip", "mute_segments",
+                "min_skip_duration", "skip_countdown", "server_address",
+                "cache_ttl_minutes", "user_id", "default_submit_category",
+                "cat_sponsor", "cat_selfpromo", "cat_interaction", "cat_intro",
+                "cat_outro", "cat_preview", "cat_music_offtopic", "cat_filler",
+                "cat_poi_highlight",
+                "show_toast", "show_seekbar_marker", "show_time_deduction",
+                "show_skip_stats", "show_submit_button",
+                "color_sponsor", "color_selfpromo", "color_interaction", "color_intro",
+                "color_outro", "color_preview", "color_music_offtopic", "color_filler",
+                "color_poi_highlight",
+                "enhance_ip_location", "enhance_hide_triple", "enhance_hide_up_prompt",
+                "enhance_hide_vote", "enhance_no_auto_refresh", "enhance_share_qq",
+            ),
+            keys,
+        )
+    }
+
     /** Bundle 在纯 JVM 单测里是否真的可用（Robolectric / 完整 android.jar 时才为 true）。 */
     private fun bundleWorks(): Boolean = runCatching {
         val bundle = Bundle().apply { putString("probe", "x") }
