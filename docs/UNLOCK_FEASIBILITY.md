@@ -1,7 +1,7 @@
 # 解锁番剧 / CDN 加速 / 缓存番剧 —— Phase 0 可行性报告
 
 > 2026-09-30。基于 [BiliRoaming](https://github.com/yujincheng08/BiliRoaming)（GPL-3）源码研读 +
-> 本项目 6.6.0 dex 索引（`E:\ctf-aaa\bili\decompiled-660\index.tsv`）验证。
+> 本项目 6.6.0 dex 索引（`E:\ctf-aaa\bili\reverse\decompiled-660\index.tsv`）验证。
 > 结论供决策：**继续实施前须先拍板 §4 的两项决策。**
 
 ## 1. 结论

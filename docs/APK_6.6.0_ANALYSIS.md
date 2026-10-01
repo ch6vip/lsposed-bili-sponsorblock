@@ -9,11 +9,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| 目标文件 | `E:\ctf-aaa\bili\bilibili_6.6.0\`（adb 真机拉取：base.apk 336MB + arm64 + xxhdpi） |
+| 目标文件 | `E:\ctf-aaa\bili\reverse\bilibili_6.6.0\`（adb 真机拉取：base.apk 336MB + arm64 + xxhdpi） |
 | 应用包名 | `com.bilibili.app.in` |
 | versionName / versionCode | `6.6.0` / `9130300` |
 | dex 数量 | 34 个 `classes*.dex`（6.5.0 为 33 个） |
-| 反编译索引 | `E:\ctf-aaa\bili\decompiled-660\index.tsv`（2,700,976 行 / 329MB） |
+| 反编译索引 | `E:\ctf-aaa\bili\reverse\decompiled-660\index.tsv`（2,700,976 行 / 329MB） |
 
 **dex 大迁移**（相对 6.5.0）：播放器族 classes17 → **classes18/28**，「更多」面板 classes21/12 → **classes11**，
 moss/gRPC 族 classes25/26 → **classes25**。按 dex 号找类的老经验全部作废，一律走索引。
