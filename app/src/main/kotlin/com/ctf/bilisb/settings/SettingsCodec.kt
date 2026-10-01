@@ -137,10 +137,10 @@ object SettingsCodec {
     private val SHARE_QQ = BoolDef(SettingsKeys.ENHANCE_SHARE_QQ, { it.shareQq }, false)
     // 解锁番剧（默认关闭；服务器/令牌用户自配——见 docs/UNLOCK_PLAN.md）
     private val UNLOCK_ENABLED = BoolDef(SettingsKeys.UNLOCK_ENABLED, { it.unlockEnabled }, false)
-    private val UNLOCK_SERVER_URL = StrDef(SettingsKeys.UNLOCK_SERVER_URL, { it.unlockServerUrl }, "") { it.trim() }
-    private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { it }
+    private val UNLOCK_SERVER_URL = StrDef(SettingsKeys.UNLOCK_SERVER_URL, { it.unlockServerUrl }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { raw -> raw ?: "" }
     private val UNLOCK_CACHE = BoolDef(SettingsKeys.UNLOCK_CACHE, { it.unlockCache }, false)
-    private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { it.trim() }
+    private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { raw -> raw?.trim() ?: "" }
 
     private val FIELDS: List<FieldDef<*>> = listOf(
         ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,

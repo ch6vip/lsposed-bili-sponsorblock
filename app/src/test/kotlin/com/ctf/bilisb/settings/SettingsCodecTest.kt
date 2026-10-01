@@ -288,7 +288,7 @@ class SettingsCodecTest {
     fun mapKeySetIsPinned() {
         // 集合比较（顺序无关）；键总数也钉死，防止无意增删
         val keys = SettingsCodec.snapshotToMap(SettingsSnapshot.DEFAULT).keys
-        assertEquals(39, keys.size)
+        assertEquals(44, keys.size)
         assertEquals(
             setOf(
                 "enabled", "auto_skip", "manual_skip", "mute_segments",
@@ -304,6 +304,8 @@ class SettingsCodecTest {
                 "color_poi_highlight",
                 "enhance_ip_location", "enhance_hide_triple", "enhance_hide_up_prompt",
                 "enhance_hide_vote", "enhance_no_auto_refresh", "enhance_share_qq",
+                "unlock_enabled", "unlock_server_url", "unlock_server_access_key",
+                "unlock_cache", "unlock_upos_host",
             ),
             keys,
         )
