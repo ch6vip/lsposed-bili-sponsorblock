@@ -167,6 +167,11 @@ class SponsorBlockController(
         scheduleSegmentFetch(query, false, "segments fetched aid=$aid")
     }
 
+    private val fetchFailureNotifier = FetchFailureNotifier()
+
+    /** 最近绑定的播放器容器（错误 Toast 的落点；取不到时静默跳过——日志仍在）。 */
+    private fun anyLiveContainer(): Any? = playerHandles.values.lastOrNull()?.container
+
     private fun scheduleSegmentFetch(query: SponsorBlockQuery, ignoreCache: Boolean, logPrefix: String) {
         val key = query.bvid
         if (!ignoreCache && !inFlight.add(key)) {
@@ -180,6 +185,17 @@ class SponsorBlockController(
                 if (closed.get()) return@execute
                 val result = repository.fetchAndCache(query, ignoreCache)
                 module.info("$logPrefix video=${query.bvid} cid=${query.cid} status=${result.statusCode} count=${result.segments.size}")
+                // T5 错误可见化：成功 → 失败的迁移沿上提示一次（持续失败静默，恢复后重置）
+                val ok = result.statusCode == 200 && !result.parseFailed
+                if (fetchFailureNotifier.shouldNotifyOnFailure(query.bvid, ok)) {
+                    anyLiveContainer()?.let { container ->
+                        PlayerToastBridge.showErrorToast(
+                            module, container,
+                            com.ctf.bilisb.R.string.toast_fetch_failed,
+                            "status=${result.statusCode}",
+                        )
+                    }
+                }
             } finally {
                 fetchGeneration.compute(key) { _, cur ->
                     if (cur == gen) inFlight.remove(key)
@@ -195,6 +211,7 @@ class SponsorBlockController(
         endMs: Long,
         category: String = "sponsor",
         epId: Int = 0,
+        onResult: ((Boolean, Int) -> Unit)? = null,
     ) {
         if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: run {
@@ -219,6 +236,7 @@ class SponsorBlockController(
         contextHash: Int,
         category: String = "sponsor",
         epId: Int = 0,
+        onResult: ((Boolean, Int) -> Unit)? = null,
     ) {
         if (closed.get()) return
         val state = latestStateByContext[contextHash] ?: run {
@@ -239,9 +257,11 @@ class SponsorBlockController(
                 "segment mark start video=${state.bvid} cid=${state.cid} " +
                     "position=$positionMs category=$category",
             )
+            // 标记起点也回给调用方（面板提示"已标记起点"由调用方决定呈现方式）
+            onResult?.invoke(false, 0)
             return
         }
-        submit(submission, state)
+        submit(submission, state, onResult)
     }
 
     /**
@@ -296,7 +316,11 @@ class SponsorBlockController(
         return PlayerActions.currentPositionMs(module, core)
     }
 
-    private fun submit(submission: SponsorBlockSubmission, state: PlayerState) {
+    private fun submit(
+        submission: SponsorBlockSubmission,
+        state: PlayerState,
+        onResult: ((Boolean, Int) -> Unit)? = null,
+    ) {
         if (!submission.isValid) {
             // 不打整个 submission toString:data class 第一个字段就是 userId(32 位提交凭据),
             // 明文进日志会随 LSPosed 日志外泄。只打排障所需的非敏感字段。
@@ -320,6 +344,8 @@ class SponsorBlockController(
             if (result.isSuccess) {
                 repository.clear(SponsorBlockQuery(state.bvid, state.cid))
             }
+            // T5：提交结果回调给调用方（面板 Toast），在回调线程执行
+            onResult?.invoke(result.isSuccess, result.statusCode)
         }
     }
 

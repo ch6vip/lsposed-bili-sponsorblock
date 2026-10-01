@@ -37,6 +37,18 @@ object PlayerToastBridge {
         showToast(module, host, text)
     }
 
+    /**
+     * 错误提示（T5 错误可见化）：片段拉取/提交失败等需要用户看到的状态。
+     * 文案走资源；与跳过 Toast 共用节流（同文案 1s 去重，错误文案含 status 天然不同）。
+     */
+    fun showErrorToast(module: XposedModule, host: Any, resId: Int, statusText: String) {
+        val context = PlayerBridge.context(host)
+        val text = context?.let {
+            ModuleStrings.get(it, resId, statusText, fallback = statusText)
+        } ?: statusText
+        showToast(module, host, text)
+    }
+
     private fun showToast(module: XposedModule, host: Any, message: String) {
         val context: Context = PlayerBridge.context(host) ?: run {
             module.info("showToast skipped: no context from ${host.javaClass.name}")

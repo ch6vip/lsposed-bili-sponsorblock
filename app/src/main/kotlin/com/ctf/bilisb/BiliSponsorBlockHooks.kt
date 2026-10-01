@@ -788,7 +788,7 @@ object BiliSponsorBlockHooks {
                 ok = true,
                 skippedCount = stats.totalCount.toInt(),
                 savedSeconds = stats.totalDurationMs / 1000,
-            ),
+            ) + " · " + com.ctf.bilisb.settings.ModuleSettings.lastReadSource,
             showToast = settings.showToast,
             showSeekbarMarker = settings.showSeekbarMarker,
             showSkipStats = settings.showSkipStats,
@@ -802,7 +802,26 @@ object BiliSponsorBlockHooks {
                 updateSetting(module, context, SettingsKeys.AUTO_SKIP, enabled)
 
             override fun onSubmitSegment() {
-                sponsorBlockController?.markOrSubmitCurrentPosition(contextHash, settings.defaultSubmitCategory)
+                // T5：提交结果 Toast（成功/失败/标记起点）。回调在提交线程到达，
+                // PlayerToastBridge 内部自行切主线程。
+                sponsorBlockController?.markOrSubmitCurrentPosition(
+                    contextHash,
+                    settings.defaultSubmitCategory,
+                ) { ok, status ->
+                    // host = 面板打开时的播放器容器（外层参数），Toast 落点
+                    val toastHost = com.ctf.bilisb.player.PlayerBridge.context(host) ?: return@markOrSubmitCurrentPosition
+                    when {
+                        ok -> com.ctf.bilisb.ui.PlayerToastBridge.showErrorToast(
+                            module, toastHost, com.ctf.bilisb.R.string.toast_submitted, "200",
+                        )
+                        status > 0 -> com.ctf.bilisb.ui.PlayerToastBridge.showErrorToast(
+                            module, toastHost, com.ctf.bilisb.R.string.toast_submit_failed, "status=$status",
+                        )
+                        else -> com.ctf.bilisb.ui.PlayerToastBridge.showErrorToast(
+                            module, toastHost, com.ctf.bilisb.R.string.toast_marked_start, "",
+                        )
+                    }
+                }
                 module.info("playerSheet: submit toggled context=$contextHash")
             }
 
