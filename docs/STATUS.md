@@ -1,5 +1,18 @@
 # 当前状态（STATUS）
 
+## 0.7.4 场景回归（2026-10-01 下午，真机全通过）
+
+装机 0.7.4/14（master 主线：T5 + README/CI 改进；解锁代码在本地分支 unlock-wip 未入主干）。
+三个长期挂着的「未验证场景」一次收口（6.6.0 宿主）：
+
+| 场景 | 结论 | 证据 |
+| --- | --- | --- |
+| 番剧（PGC） | ✅ 优雅降级 | `player bound` → `seekTick feed` 推进 → `segments fetched aid=117056498304631 video=BV1SfuK6bEkQ status=200 count=0`——PGC 的 avid→BV 转换工作正常，BSBSB 无 PGC 数据合法返回空，不崩溃不报错 |
+| 切集（PGC→UGC） | ✅ 全链 | `videoDirector FOUND` 新 id 派发（同 context 状态重置）→ `segments fetched count=8` → **连跳两段**（落点 337s 在 sponsor 段内立即跳段尾，回 0 又跳 intro） |
+| 小窗（自由小窗） | ✅ 轮询存活 | HOME 呼出小窗后 `seekTick feed #151` 继续推进——无过早 teardown，跳过决策在小窗中继续工作（0.7.1 轮询生命周期的直接收益） |
+
+
+
 > **目标口径（2026-09 起）**：模块以 `bilibili 6.5.0 / 6.6.0` / `com.bilibili.app.in` 为目标
 > （6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；6.6.0 真机拉取，分析见 `docs/APK_6.6.0_ANALYSIS.md`）。
 > 旧目标（`tv.danmaku.bili` stock 8.96.0 适配线、`Bili-v8.98.0-x1.27.3@bb_show.apk` 行为蓝本）降级为历史记录。
