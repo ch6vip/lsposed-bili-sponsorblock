@@ -152,6 +152,7 @@ object SettingsScreenBuilder {
         statusWriter: SettingsWriter? = null,
         onSponsorBlockClick: () -> Unit,
         onEnhanceClick: (() -> Unit)? = null,
+        onUnlockClick: (() -> Unit)? = null,
     ): LinearLayout {
         // 控制中心 = B 站风格:浅灰页面底(#F1F2F3)+ 白色圆角卡片 + 品牌粉头图(#FB7299)。
         // 行内文字用 B 站 App 的固定色板,不跟随宿主主题(与播放器面板的浅色卡片取舍一致)。
@@ -205,6 +206,10 @@ object SettingsScreenBuilder {
                     addView(biliDivider(activity))
                     addView(entryRow(activity, str(activity, R.string.entry_enhance_title), str(activity, R.string.entry_enhance_summary), onEnhanceClick))
                 }
+                if (onUnlockClick != null) {
+                    addView(biliDivider(activity))
+                    addView(entryRow(activity, str(activity, R.string.entry_unlock_title), str(activity, R.string.entry_unlock_summary), onUnlockClick))
+                }
             }, cardLayoutParams())
 
             // 关于卡片(版本行可点击 → 跳转 GitHub 项目页;发版说明以 GitHub Releases 为单一来源)
@@ -254,6 +259,59 @@ object SettingsScreenBuilder {
      * 不传时用进程级缓存单例 —— 之前这里每次 buildMain 都 new 一个 SettingsWriter,
      * 反复进出主页会持续累积「单线程 IO 线程 + prefs 监听器」。
      */
+    /**
+     * 解锁番剧设置页（U7）：总开关 + 解析服务器 + 缓存/CDN。
+     * 风险提示置顶——账号风控由用户自担是本功能的明示前提（G1 定位反转的一部分）。
+     */
+    fun buildUnlock(activity: Activity, prefs: SharedPreferences): LinearLayout {
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            biliSection(this, activity, str(activity, R.string.unlock_section)) {
+                addView(hint(activity, str(activity, R.string.unlock_note)))
+                addView(
+                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_ENABLED, str(activity, R.string.unlock_enabled_title), str(activity, R.string.unlock_enabled_summary), false),
+                )
+                addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_URL, str(activity, R.string.unlock_server_label), str(activity, R.string.unlock_server_hint), InputType.TYPE_TEXT_VARIATION_URI))
+                addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, str(activity, R.string.unlock_ak_label), "", InputType.TYPE_CLASS_TEXT))
+                addView(
+                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_CACHE, str(activity, R.string.unlock_cache_title), str(activity, R.string.unlock_cache_summary), false),
+                )
+                addView(textRow(activity, prefs, SettingsKeys.UNLOCK_UPOS_HOST, str(activity, R.string.unlock_upos_label), str(activity, R.string.unlock_upos_hint), InputType.TYPE_TEXT_VARIATION_URI))
+            }
+        }
+    }
+
+    /** 文本输入行（label + EditText，失焦落盘）。 */
+    private fun textRow(
+        activity: Activity,
+        prefs: SharedPreferences,
+        key: String,
+        label: String,
+        hint: String,
+        inputType: Int,
+    ): LinearLayout {
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(activity, 10), 0, dp(activity, 10))
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(activity).apply {
+                text = label
+                textSize = 14f
+            })
+            addView(EditText(activity).apply {
+                setText(prefs.getString(key, ""))
+                this.hint = hint
+                this.inputType = inputType
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus) {
+                        prefs.edit().putString(key, text.toString().trim()).apply()
+                    }
+                }
+            })
+        }
+    }
+
     private fun statusPanel(activity: Activity, statusWriter: SettingsWriter? = null): View {
         val writer = statusWriter ?: sharedStatusWriter ?: SettingsWriter(activity).also { sharedStatusWriter = it }
         val prefs = writer.sharedPreferences

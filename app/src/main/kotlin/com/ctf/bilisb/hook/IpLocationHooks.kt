@@ -924,8 +924,13 @@ object IpLocationHooks {
                     .intercept { chain ->
                         val result = chain.proceed()
                         runCatching {
-                            if (!enabled(module)) return@runCatching
                             val mapObj = chain.getArg(0)
+                            // 解锁线被动捕获 access_key（U4.7）：放在增强开关判断之前，
+                            // 保证解锁功能独立于增强开关工作
+                            if (mapObj is Map<*, *>) {
+                                com.ctf.bilisb.unlock.HostAccessKey.capture(mapObj)
+                            }
+                            if (!enabled(module)) return@runCatching
                             if (mapObj is Map<*, *>) {
                                 val cur = mapObj["mobi_app"]
                                 if (cur != null && cur.toString().contains("android_i")) {

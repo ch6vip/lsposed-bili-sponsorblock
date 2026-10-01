@@ -1,0 +1,178 @@
+// 解锁功能（docs/UNLOCK_PLAN.md U2）所需的**最小 protobuf schema**。
+//
+// 设计原则：只定义本项目触碰的字段。protobuf 未知字段在 parse→serialize 往返中天然保真，
+// 因此部分 schema 与宿主完整 schema 的 wire format 兼容。
+//
+// 字段号来源：**宿主运行时实测**——U1 观测钩读取 bapis 生成类的 `*_FIELD_NUMBER` 静态常量
+// （2026-10-01，国际版 6.6.0 实机），并用实拍请求字节交叉验证（vod/spmid/extra_content/
+// bvid 位置全部对上）。字段布局比 BiliRoaming (GPL-3) 的旧 schema 多 bvid/ad_extra/
+// fragment/from_scene/play_ctrl 等，**不能照搬参考实现的 proto**。
+// 包名注记：@playershared = com.bapis.bilibili.app.playerunite.playershared，
+// @v1 = ....playerunite.v1，@v2 = com.bapis.bilibili.pgc.gateway.player.v2。
+// 按 docs/UNLOCK_PLAN.md Gate G2，项目发版前整体转 GPL-3，本文件随之以 GPL-3 发布。
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+
+package bilisb.unlock.proto;
+
+option java_package = "com.ctf.bilisb.unlock.proto";
+option java_multiple_files = true;
+option optimize_for = LITE_RUNTIME;
+
+// ---- PlayViewUniteReq@v1（实测：vod/spmid/from_spmid/extra_content/bvid/ad_extra...）----
+
+message PlayViewUniteReq {
+  VideoVod vod = 1;
+  string spmid = 2;
+  string from_spmid = 3;
+  map<string, string> extra_content = 4;
+  string bvid = 5;
+  // ad_extra=6 / fragment=7 / from_scene=8 / play_ctrl=9 未触碰，
+  // 以未知字段往返保真
+}
+
+// ---- VideoVod@playershared（实拍 vod 14B 解码对齐：qn/fnval/force_host/fourk/...）----
+
+message VideoVod {
+  int64 aid = 1;
+  int64 cid = 2;
+  int64 qn = 3;
+  int32 fnver = 4;
+  int32 fnval = 5;
+  int32 download = 6;
+  int32 force_host = 7;
+  bool fourk = 8;
+  int32 prefer_codec_type = 9;
+  // voice_balance=10 / is_need_trial=11 / qn_policy=12 / soft_fnval=13 /
+  // client_attr=14 / cur_language=15 / cur_production_type=16 未触碰
+}
+
+// ---- PlayViewUniteReply@v1（响应重构的目标容器）----
+
+message PlayViewUniteReply {
+  VodInfo vod_info = 1;
+  PlayArcConf play_arc_conf = 2;
+  google.protobuf.Any supplement = 5;
+  PlayArc play_arc = 6;
+  // play_device_conf=3 / event=4 / qn_trial_info=7 / history=8 / view_info=9 /
+  // fragment_video=10 / video_ctrl=11 / language=12 / overseas_ad_info=13 未触碰
+}
+
+message PlayArc {
+  int64 aid = 2;
+  int64 cid = 3;
+  int64 duration = 8;
+  bool is_preview = 9;
+  // video_type=1 / drm_tech_type=4 / arc_type=5 / interaction=6 / dimension=7 /
+  // watch_time_length=10 / duration_ms=11 / cache_expire=12 / asr/ocr/script 未触碰
+}
+
+message PlayArcConf {
+  map<int32, ArcConf> arc_confs = 1;
+}
+
+message ArcConf {
+  bool is_support = 1;  // 字段号待 U4 实测复核（与参考实现同号，运行时未见样本）
+  bool disabled = 2;
+}
+
+// ---- VodInfo@playershared（reply.vod_info 的真实类型，不是参考实现的 VideoInfo）----
+
+message VodInfo {
+  int32 quality = 1;
+  string format = 2;
+  int64 timelength = 3;
+  int32 video_codecid = 4;
+  repeated Stream stream_list = 5;
+  repeated DashItem dash_audio = 6;
+  // dolby=7 / volume=8 / loss_less_item=9 / support_project=10 / ai_audio=11 /
+  // qn_panel=12 / cur_language=13 / solution=14 / cur_production_type=15 未触碰
+}
+
+// ---- Stream 系（playershared 包，字段号实测同源）----
+
+message Stream {
+  oneof content {
+    DashVideo dash_video = 2;
+    SegmentVideo segment_video = 3;
+  }
+  // stream_info=1 未触碰（参考实现的 stream 构造同样不设）
+}
+
+message DashVideo {
+  string base_url = 1;
+  repeated string backup_url = 2;
+  int32 bandwidth = 3;
+  int32 codecid = 4;
+  string md5 = 5;
+  int64 size = 6;
+  int32 audio_id = 7;
+  bool no_rexcode = 8;
+}
+
+message SegmentVideo {
+  repeated ResponseUrl segment = 1;
+}
+
+message ResponseUrl {
+  int32 order = 1;
+  int64 length = 2;
+  int64 size = 3;
+  string url = 4;
+  repeated string backup_url = 5;
+  string md5 = 6;
+}
+
+message DashItem {
+  int32 id = 1;
+  string base_url = 2;
+  repeated string backup_url = 3;
+  int32 bandwidth = 4;
+  int32 codecid = 5;
+  string md5 = 6;
+  int64 size = 7;
+}
+
+// ---- bilibili.pgc.gateway.player.v2（supplement Any 的载荷，受限判定要读它）----
+// 实测：PlayViewReply{video_info=1, play_conf=2, business=3, event=4, view_info=5,
+// play_ext_conf=6, play_ext_info=7, hide_field=8}
+
+message PlayViewReply {
+  VodInfo video_info = 1;
+  BusinessInfo business = 3;
+  ViewInfo view_info = 5;
+  // play_conf=2 / event=4 / play_ext_conf=6 / play_ext_info=7 / hide_field=8 未触碰
+}
+
+message ViewInfo {
+  Dialog dialog = 1;
+  EndPage end_page = 5;
+  // toast=2 / coupon_info=3 / demand_no_pay_epids=4 / exp_config=6 / pop_win=7 /
+  // try_watch_prompt_bar=8 / pay_tip=9 / high_definition_trial_info=10 /
+  // ext_dialog=11 / animation=12 / ext_toast=13 / extra_data=14 未触碰
+}
+
+message Dialog {
+  int64 code = 1;
+  string msg = 2;
+  string type = 3;  // "area_limit" 等——受限判定的主信号
+  // style_type=4 / config=5 / title=6 / subtitle=7 / image=8 / button=9 /
+  // bottom_desc=10 / report=11 / count_down_sec=12 / right_bottom_desc=13 /
+  // bottom_display=14 / play_list=15 / link=16 / half_image=17 /
+  // hide_button_on_half=18 / link_desc=19 未触碰
+}
+
+message EndPage {
+  Dialog dialog = 1;
+  bool hide = 2;
+}
+
+message BusinessInfo {
+  bool is_preview = 1;
+  // bp=2 / marlin_token=3 / playback_speed_color=4 / continue_play_info=5 /
+  // clip_info=6 / inline_type=7 / ep_whole_duration=8 / dimension=9 /
+  // quality_ext_map=10 / exp_map=11 / drm_tech_type=12 / limit_action_type=13 /
+  // is_drm=14 / ... episode_info=18 / user_status=20 / watch_time_length=22 /
+  // brand_report=23 未触碰
+}

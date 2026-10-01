@@ -1,0 +1,105 @@
+{
+ "code": 0,
+ "quality": 80,
+ "format": "flv480",
+ "type": "MP4",
+ "timelength": 1570047,
+ "video_codecid": 12,
+ "accept_quality": [
+  112,
+  80,
+  64,
+  32
+ ],
+ "support_formats": [
+  {
+   "quality": 112,
+   "format": "FLV",
+   "description": "高清 1080P+",
+   "new_description": "1080P 高码率",
+   "display_desc": "1080P",
+   "superscript": "",
+   "codecs": null
+  },
+  {
+   "quality": 80,
+   "format": "FLV",
+   "description": "高清 1080P",
+   "new_description": "1080P 高清",
+   "display_desc": "1080P",
+   "superscript": "",
+   "codecs": null
+  },
+  {
+   "quality": 64,
+   "format": "FLV",
+   "description": "高清 720P",
+   "new_description": "720P 准高清",
+   "display_desc": "720P",
+   "superscript": "",
+   "codecs": null
+  },
+  {
+   "quality": 32,
+   "format": "FLV",
+   "description": "清晰 480P",
+   "new_description": "480P 标清",
+   "display_desc": "480P",
+   "superscript": "",
+   "codecs": null
+  }
+ ],
+ "dash": {
+  "video": [
+   {
+    "id": 80,
+    "base_url": "https://upos-sz-mirrorhwo1.bilivideo.com/upgcxcode/20/57/40700545720/40700545720-1-30066.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEuENvNC8aNEVEtEvE9IMvXBvE2ENvNCImNEVEIj0Y2J_aug859IB_&platform=android_i&mid=549653552&oi=0x24098a6a1a666a407385f8d326a629e5&nbs=1&uipk=5&trid=5610b8863d814c9faf01c60fbfea8c9p&deadline=1790804696&gen=playurlv3&os=hwo1bv&og=hw&upsig=5a8fe5c95b09f2f9d9f6b66f0b4b5e00&uparams=e,platform,mid,oi,nbs,uipk,trid,deadline,gen,os,og&bvc=vod&nettype=1&bw=177537&lrs=-1&f=p_0_0&allo_id=&qn_dyeid=f068573de6524ea50039dcf96abd66b8&agrr=1&buvid=XU1C42E1818420D15C806BA4A174A08E4E69D&build=9130300&dl=0&orderid=0,3",
+    "backup_url": [],
+    "bandwidth": 324951,
+    "codecid": 12,
+    "md5": "c05afd4f093d4a075a40873f4b64f384",
+    "size": 63773180,
+    "frame_rate": "23.974",
+    "width": 1920,
+    "height": 1080
+   }
+  ],
+  "audio": [
+   {
+    "id": 30280,
+    "base_url": "https://upos-sz-mirrorcoso1.bilivideo.com/upgcxcode/20/57/40700545720/40700545720-1-30011.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEuENvNC8aNEVEtEvE9IMvXBvE2ENvNCImNEVEIj0Y2J_aug859IB_&oi=0x24098a6a1a666a407385f8d326a629e5&uipk=5&gen=playurlv3&og=cos&deadline=1790804696&platform=android_i&nbs=1&os=coso1bv&trid=5610b8863d814c9faf01c60fbfea8c9p&mid=549653552&upsig=eea9d2bcdbc0fb4bcf1744ea92e9b570&uparams=e,oi,uipk,gen,og,deadline,platform,nbs,os,trid,mid&bvc=vod&nettype=1&bw=85359&lrs=-1&allo_id=&qn_dyeid=f068573de6524ea50039dcf96abd66b8&agrr=1&buvid=XU1C42E1818420D15C806BA4A174A08E4E69D&build=9130300&dl=0&f=p_0_0&orderid=0,3",
+    "backup_url": [],
+    "bandwidth": 174372,
+    "codecid": 0,
+    "md5": "949d7a444e872c1e8235486713325873",
+    "size": 34225451
+   },
+   {
+    "id": 30232,
+    "base_url": "https://upos-sz-mirrorcoso1.bilivideo.com/upgcxcode/20/57/40700545720/40700545720-1-30011.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEuENvNC8aNEVEtEvE9IMvXBvE2ENvNCImNEVEIj0Y2J_aug859IB_&oi=0x24098a6a1a666a407385f8d326a629e5&uipk=5&gen=playurlv3&og=cos&deadline=1790804696&platform=android_i&nbs=1&os=coso1bv&trid=5610b8863d814c9faf01c60fbfea8c9p&mid=549653552&upsig=eea9d2bcdbc0fb4bcf1744ea92e9b570&uparams=e,oi,uipk,gen,og,deadline,platform,nbs,os,trid,mid&bvc=vod&nettype=1&bw=85359&lrs=-1&allo_id=&qn_dyeid=f068573de6524ea50039dcf96abd66b8&agrr=1&buvid=XU1C42E1818420D15C806BA4A174A08E4E69D&build=9130300&dl=0&f=p_0_0&orderid=0,3",
+    "backup_url": [],
+    "bandwidth": 94480,
+    "codecid": 0,
+    "md5": "61d4ec09a71b964d2968025cd40fa34c",
+    "size": 18546142
+   },
+   {
+    "id": 30216,
+    "base_url": "https://upos-sz-mirrorcoso1.bilivideo.com/upgcxcode/20/57/40700545720/40700545720-1-30011.m4s?e=ig8euxZM2rNcNbdlhoNvNC8BqJIzNbfqXBvEuENvNC8aNEVEtEvE9IMvXBvE2ENvNCImNEVEIj0Y2J_aug859IB_&oi=0x24098a6a1a666a407385f8d326a629e5&uipk=5&gen=playurlv3&og=cos&deadline=1790804696&platform=android_i&nbs=1&os=coso1bv&trid=5610b8863d814c9faf01c60fbfea8c9p&mid=549653552&upsig=eea9d2bcdbc0fb4bcf1744ea92e9b570&uparams=e,oi,uipk,gen,og,deadline,platform,nbs,os,trid,mid&bvc=vod&nettype=1&bw=85359&lrs=-1&allo_id=&qn_dyeid=f068573de6524ea50039dcf96abd66b8&agrr=1&buvid=XU1C42E1818420D15C806BA4A174A08E4E69D&build=9130300&dl=0&f=p_0_0&orderid=0,3",
+    "backup_url": [],
+    "bandwidth": 67179,
+    "codecid": 0,
+    "md5": "0a4823260d88629740dd1657ac043b6c",
+    "size": 13188267
+   }
+  ],
+  "dolby": {
+   "audio": [],
+   "type": 0
+  },
+  "flac": {
+   "audio": null,
+   "display": 0
+  }
+ }
+}

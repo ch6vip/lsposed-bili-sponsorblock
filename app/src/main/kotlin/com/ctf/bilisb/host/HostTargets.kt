@@ -322,4 +322,39 @@ object HostTargets {
      */
     val MOSS_DESCRIPTOR_G_TYPE_HINTS = listOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g")
     val MOSS_DESCRIPTOR_K_TYPE_HINTS = listOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k")
+
+    // ------------------------------------------------------------ 解锁番剧（U1 起，见 docs/UNLOCK_PLAN.md）
+
+    // 播放链路 6.6.0 已全 gRPC 化（moss/protobuf），旧 REST playurl 端点不存在。
+    // 本段全部是 bapis/**真名类**（protobuf 族宿主不混淆），跨版本稳定性远好于混淆短名；
+    // 实证见 docs/UNLOCK_FEASIBILITY.md §2.1（索引逐条验证，2026-09-30）。
+
+    /** 播放器聚合 moss 服务：`playViewUnite(req)` 是播放地址的唯一入口。 */
+    const val PLAYER_MOSS_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayerMoss"
+    val PLAY_VIEW_UNITE_METHODS = listOf("playViewUnite", "executePlayViewUnite")
+    const val PLAY_VIEW_UNITE_REQ_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq"
+    const val PLAY_VIEW_UNITE_REPLY_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply"
+
+    /** 响应重构涉及的内层类（包名以 dex 索引为准：playershared 独立成包，Stream 系在 playurl.v1）。 */
+    const val VOD_INFO_CLASS = "com.bapis.bilibili.playershared.VodInfo"
+    const val PLAY_ARC_CLASS = "com.bapis.bilibili.playershared.PlayArc"
+    const val PLAY_ARC_CONF_CLASS = "com.bapis.bilibili.playershared.PlayArcConf"
+    const val ARC_CONF_CLASS = "com.bapis.bilibili.app.playurl.v1.ArcConf"
+    const val DASH_VIDEO_CLASS = "com.bapis.bilibili.playershared.DashVideo"
+    const val DASH_ITEM_CLASS = "com.bapis.bilibili.playershared.DashItem"
+    const val STREAM_CLASS = "com.bapis.bilibili.playershared.Stream"
+    const val PLAY_VIEW_REPLY_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.PlayViewReply"
+    const val PGC_VIEW_INFO_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.ViewInfo"
+    const val PGC_BUSINESS_INFO_CLASS = "com.bapis.bilibili.pgc.gateway.player.v2.PlayViewBusinessInfo"
+
+    /** 借宿主签名：`LibBili` 的静态 `(Map) -> SignedQuery` 方法（方法名按签名形状解析）。 */
+    const val LIB_BILI_CLASS = "com.bilibili.nativelibrary.LibBili"
+    const val SIGNED_QUERY_CLASS = "com.bilibili.nativelibrary.SignedQuery"
+
+    /**
+     * gripper 账户门面实现（dex 索引实证：实现 GAccount.getAccessKey）。
+     * 解锁线运行时令牌的捕获点：hook 其 getAccessKey()，App 任何鉴权请求都会经过。
+     */
+    const val GRIPPER_ACCOUNT_CLASS = "com.bilibili.gripper.container.account.d"
+    const val GRIPPER_GET_ACCESS_KEY = "getAccessKey"
 }

@@ -217,6 +217,107 @@ deferred bind 之后，pending 被抹掉，此后连 seekDraw 也救不回来（
 
 **附带观察**：`ModuleSettings: IPC failed: Unknown authority` 每 30s 一条——模块进程未启动时的已知兜底路径（镜像文件读取成功），非回归。
 
+## 解锁线事故记录：unlock-wip 误推送与撤下（2026-10-02）
+
+文档路径更新时，命令链误带 `git push origin unlock-wip`——解锁实现代码（含 GPL-3
+参考实现衍生部分）在公开仓库暴露约 1-2 分钟，随后删除远程分支（`git ls-remote`
+确认 0 残留）。
+
+**暴露内容评估**：实现代码 + 真实响应样本（playurl 响应不含任何账号凭据）+
+STATUS 记录。**未暴露**：access_key/登录令牌（只在设备本地文件，从未入库）。
+**被实际查看的风险**：趋近于零（分支存在约 1 分钟、无通知、个人仓库、无 fork）。
+
+**处置**：远程分支已删除；本地 unlock-wip 完好；master 未受影响。
+**不做**：GitHub support 清理孤儿对象（收益趋零）；将 STATUS 记录 cherry-pick
+到 master（再推一次就多一次出错面）。
+
+**流程根因**：连续两轮命令链夹带未预期副作用（python 变量笔误写错文件 + push
+误串联）。规矩固化：**push/删除/部署类不可逆命令必须独立执行，不与任何其他
+步骤串联**；python 批量 replace 必须 assert 命中。
+
+## 解锁番剧 U4.7：真实受限内容端到端（2026-10-02，链路全通至业务层）
+
+**触发条件就位**：用户真实受限场景 =《總之就是非常可愛 第二季（僅限港澳台地區）》
+（国际版 App + 大陆网络，aid=784275927 / ep=744353 / cid=1150222464 / season=44960）。
+
+**关键突破（三个旧假设全部被真实数据推翻）**：
+1. 国际网关的受限响应是「**可用响应 + view_info.dialog(area_limit)**」而非错误形态
+   ——实拍 3456B 样本钉死（dialog.type=area_limit、msg=抱歉您所在地区不可观看！）；
+   判定已补 areaLimited 分支（优先于 UGC 短路），TONIKAWA 自然触发 verdict:RESTRICTED ✓
+2. 宿主 getAccessKey 返回 **220 字符**长令牌（非 32hex）——服务器 valid_access_key
+   曾整体拒绝国际版用户；服务器已补丁放宽并部署上线（th 旁路主站用户验证）
+3. 签名身份必须按区域匹配：宿主 LibBili 只签自己体系 appkey，跨区域上游 -3；
+   改为按区域本地签名（th=BstarA、cn/hk/tw=Android，凭据为公开客户端常量）
+
+**端到端验证结果（自然触发，无 forceTest）**：
+`verdict:RESTRICTED dialog=area_limit` → 运行时令牌 → 真实服务器（154.222.27.148，
+BiliRoaming-Rust-Server）→ 上游 B 站正式业务响应 **`-10403 大会员专享限制`** →
+降级放行原响应。区域路由已通（hk/tw 出口被上游认可为有效区域），唯一剩余门槛 =
+**账号权益**（该内容在港澳台区域为大会员专享，测试账号非大会员）。
+
+**结论**：漫游链路技术层面**全部打通**（判定/令牌/签名/路由/转发/上游业务层），
+剩余为账号权益门槛（用户业务决策：大会员或免费内容的区域互换场景）。
+unlock-wip 分支保留全部成果；access_key 等敏感配置只在设备本地。
+
+## 解锁番剧 U4.6：最终诊断与收口（2026-10-01 凌晨）
+
+**替换机制 100% 证明**：纯重序列化测试（newBuilder(reply).build() 零修改经钩子替换）
+→ 播放器正常播放原始内容（19601B→19601B）。
+**内容保真度缺口完整刻画**：合成 vodInfo 三轮保真度递增（最小 DASH → 补 stream_info
+→ 真实形状 4 档+3 音频+全元数据+真实 CDN URL）全部被宿主接受但不渲染。
+**结论**：6.6.0 播放器对 PGC 流的消费不读任何合成实例——需播放器消费路径的
+多日级专项逆向。**解锁线正式收口**，全套基建/样本/测试保留（f5b4424），
+复活条件 = 专项逆向排期。
+
+## 解锁番剧 U4.5：真实 CDN 诊断（2026-10-01 凌晨，缺口已定位）
+
+实验设计：正常播放采集真实 CDN URL（unlock:realUrl 实拍 estgcos/hwo1/coso1
+四条流）→ mock canned 响应改用真实 URL → 强制受限重放。结果：
+重构产物（含真实 B 站 fMP4）播放器接受并拉流，但**仍不渲染**；补充假设
+（PGC supplement 载荷携带 video_info）也未解。
+
+**收口结论**：链路七环节全部实证；缺口 = 6.6.0 播放器对 PGC 内容的流消费
+不读重构实例的 unite.vod_info / supplement.video_info——需要更深的播放器
+消费路径逆向（多日级）。按 Phase 0 预警，这是解锁线从「链路通」到「真能播」
+的最后也是最深的一层。解锁线到此冻结（代码/测试全部落地），复活条件：
+专项逆向排期或真实漫游服务器对照数据。
+
+## 解锁番剧 U4：真机闭环验证（2026-10-01 凌晨）
+
+按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进至 U4（G1/G2 维持发版前 Gate）。
+U1 观测钩升级为解锁钩；U2 proto 管线；U3 漫游客户端+mock 服务器；U4 全部落地。
+
+**链路验证证据链**（真机 Spy Classroom EP1，unlock_test_epid 强制受限路径）：
+
+| 环节 | 证据 |
+| --- | --- |
+| 强制受限触发 | `unlock:forceTest ep=5189397` |
+| 签名借宿主 | mock 收到含 `ts=`+sign 的完整签名查询（LibBili 形状解析生效） |
+| 响应探活 | JSON code==0 解析（字符串匹配曾被 json.dumps 空格误判） |
+| 响应重构被宿主接受 | `unlock:proxied area=cn quality=80 streams=1 audio=1` |
+| 播放器拉流 | mock 日志 `206 /media/sample.mp4 + sample.m4a`（Range 分段双轨） |
+
+**待收口**：canned 媒体在播放器内核不解码（缓冲不渲染）——mock 媒体格式工程问题
+（fMP4 已用仍不解，疑播放器对 DASH 轨有额外要求），真实漫游服务器返回 B 站原生
+格式时不存在，实播确认归入 U8。
+
+**联调踩坑**（全记录在 commit b5eedd4/60f889b/本节）：主线程网络、宿主类名
+playershared 独立包、Builder API 差异（改 wire bytes + parseFrom 路线）、
+findMethod 重载通配、探活空格、mock 媒体相对路径/僵尸进程/Range。
+
+## 解锁番剧 U1 观测钩（2026-09-30 深夜，装机验证通过）
+
+按 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md) 推进（G1/G2 已决策延后至发版前，U8 落地）。
+U1 = `PlayerMoss.playViewUnite` 只读观测钩，不改任何行为。
+
+- 装机（0.7.3+U1 release，versionCode 不变）后真机验证：延迟重试命中
+  `hook ok: unlock:playViewUnite <- playViewUnite(2 args), executePlayViewUnite(1 args)`
+  ——suspend(2 参含 continuation) 与 1 参两种形态都挂上；hook summary 升至 33/38。
+- 探针工作正常：`unlock:reqFacts`（cid/season/ep/download）与
+  `unlock:verdict:NORMAL_UGC`（UGC 视频请求正确分类，判定链走通）。
+- 待验证：PGC（番剧）内容的 `NORMAL_PGC` 判定与受限场景——随日常使用观察探针积累，
+  或 U2 proto 管线（area_limit 弹窗级判定）落地后一并验。
+
 ## 增强四件套 6.6.0 屏幕复核（2026-09-30 晚，**全部收口**）
 
 背景：四件套自 0.6.3 起只验证过「安装命中」，屏幕效果从未在 6.6.0 复核；本轮同时核对

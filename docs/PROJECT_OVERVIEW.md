@@ -1,7 +1,7 @@
 # 项目整理总览（PROJECT_OVERVIEW）
 
 > **目标口径（2026-09 起）**：目标宿主是 `bilibili 6.5.0 / 6.6.0` / `com.bilibili.app.in` /
-> 安装包 `<APK目录>\bilibili_6.5.0.apks`（6.6.0：`E:\ctf-aaa\bili\bilibili_6.6.0\`，真机拉取）。
+> 安装包 `<APK目录>\bilibili_6.5.0.apks`（6.6.0：`E:\ctf-aaa\bili\reverse\bilibili_6.6.0\`，真机拉取）。
 > 类名、Hook 点、进程名、包名的判定依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md)
 > 与 [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)。
 > 迁移已完成:当前仓库代码(0.7.3 / versionCode 13)按双版本候选表跑通;
