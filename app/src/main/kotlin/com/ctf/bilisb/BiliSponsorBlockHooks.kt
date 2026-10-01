@@ -105,6 +105,10 @@ object BiliSponsorBlockHooks {
         installSafely(module, "enhanceHooks") { com.ctf.bilisb.hook.EnhanceHooks.install(module, cl) }
         installSafely(module, "cleartextPolicy") { com.ctf.bilisb.hook.CleartextPolicyHooks.install(module, cl) }
 
+        // 解锁番剧 U1(只读观测):PlayerMoss.playViewUnite 的受限判定探针,不改任何行为。
+        // G1/G2(定位反转/GPL-3)完成前仅此观测钩,处置逻辑按 docs/UNLOCK_PLAN.md 里程碑推进。
+        installSafely(module, "unlockPlayView") { com.ctf.bilisb.unlock.PlayViewHook.install(module, cl) }
+
         module.info(HookProbe.summary())
     }
 

@@ -135,6 +135,12 @@ object SettingsCodec {
     private val HIDE_VOTE = BoolDef(SettingsKeys.ENHANCE_HIDE_VOTE, { it.hideVote }, false)
     private val NO_AUTO_REFRESH = BoolDef(SettingsKeys.ENHANCE_NO_AUTO_REFRESH, { it.noAutoRefresh }, false)
     private val SHARE_QQ = BoolDef(SettingsKeys.ENHANCE_SHARE_QQ, { it.shareQq }, false)
+    // 解锁番剧（默认关闭；服务器/令牌用户自配——见 docs/UNLOCK_PLAN.md）
+    private val UNLOCK_ENABLED = BoolDef(SettingsKeys.UNLOCK_ENABLED, { it.unlockEnabled }, false)
+    private val UNLOCK_SERVER_URL = StrDef(SettingsKeys.UNLOCK_SERVER_URL, { it.unlockServerUrl }, "") { it.trim() }
+    private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { it }
+    private val UNLOCK_CACHE = BoolDef(SettingsKeys.UNLOCK_CACHE, { it.unlockCache }, false)
+    private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { it.trim() }
 
     private val FIELDS: List<FieldDef<*>> = listOf(
         ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
@@ -142,6 +148,7 @@ object SettingsCodec {
         USER_ID, DEFAULT_SUBMIT_CATEGORY,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
         IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
+        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_UPOS,
     )
 
     // ---------------------------------------------------------------- 四条通道
@@ -240,6 +247,11 @@ object SettingsCodec {
             hideVote = f(HIDE_VOTE),
             noAutoRefresh = f(NO_AUTO_REFRESH),
             shareQq = f(SHARE_QQ),
+            unlockEnabled = f(UNLOCK_ENABLED),
+            unlockServerUrl = f(UNLOCK_SERVER_URL),
+            unlockServerAccessKey = f(UNLOCK_AK),
+            unlockCache = f(UNLOCK_CACHE),
+            unlockUposHost = f(UNLOCK_UPOS),
         )
     }
 

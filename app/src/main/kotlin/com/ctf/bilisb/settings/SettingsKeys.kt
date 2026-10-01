@@ -49,6 +49,13 @@ object SettingsKeys {
     /** 镜像 / 统计 JSON 读取上限,超出视为损坏。 */
     const val MAX_LOCAL_FILE_BYTES = 256 * 1024
 
+    // 解锁番剧（默认关闭；服务器由用户自配，风险说明见 docs/UNLOCK_PLAN.md 与设置页提示）
+    const val UNLOCK_ENABLED = "unlock_enabled"
+    const val UNLOCK_SERVER_URL = "unlock_server_url"
+    const val UNLOCK_SERVER_ACCESS_KEY = "unlock_server_access_key"
+    const val UNLOCK_CACHE = "unlock_cache"
+    const val UNLOCK_UPOS_HOST = "unlock_upos_host"
+
     // 提交配置
     const val USER_ID = "user_id"
     const val DEFAULT_SUBMIT_CATEGORY = "default_submit_category"
