@@ -109,3 +109,29 @@ class RestrictedReplyPatchTest {
         assertTrue("清弹窗后载荷应缩小", patchedPayload.size < origPayload.size)
     }
 }
+
+/**
+ * TONIKAWA S2（僅限港澳台，真实受限内容）响应的字节级回归——2026-10-02 实拍。
+ *
+ * 关键事实：国际网关对受限内容返回的是「可用响应 + view_info.dialog(area_limit)」，
+ * 不是错误形态。判定路径（PlayViewDecision 的 areaLimited 分支）以此样本钉死。
+ */
+class TonikawaRestrictedReplyTest {
+
+    private val sample: ByteArray by lazy {
+        javaClass.classLoader!!.getResourceAsStream("unlock/tonikawa_reply.bin")!!.readBytes()
+    }
+
+    @Test
+    fun `真实受限响应的 dialog 判定路径验证`() {
+        val reply = com.ctf.bilisb.unlock.proto.PlayViewUniteReply.parseFrom(sample)
+
+        assertEquals(PlayViewDecision.PGC_ANY_MODEL_TYPE_URL, reply.supplement.typeUrl)
+        val pgc = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(reply.supplement.value.toByteArray())
+
+        assertEquals("area_limit", pgc.viewInfo.dialog.type)
+        assertEquals("抱歉您所在地区不可观看！", pgc.viewInfo.dialog.msg)
+        // 顶层 vodInfo 存在（国际网关受限形态：响应可用 + 弹窗，与国内 API 的错误形态不同）
+        assertTrue(reply.hasVodInfo())
+    }
+}

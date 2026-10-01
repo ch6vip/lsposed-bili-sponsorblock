@@ -50,19 +50,24 @@ object PlayViewDecision {
         val respUsable: Boolean,
         val respPlayArcCid: Long,
         val supplementTypeUrl: String?,
+        /** supplement.view_info.dialog.type——国际网关的受限信号藏在这里（"area_limit" 等）。 */
+        val supplementDialogType: String = "",
     )
 
     fun classify(f: Facts): Verdict {
         val isThai = isThai(f)
         if (isThai) return Verdict.THAI_REDIRECT
 
-        // UGC 短路（下载请求不短路）+ 非番剧请求放行——与参考实现的两道放行门同序
+        // UGC 短路（下载请求不短路）+ 非番剧请求放行——与参考实现的两道放行门同序。
+        // 例外：PGC 响应携带 area_limit 弹窗时不可放行——国际网关的受限内容返回的是
+        // 「可用响应 + area_limit 弹窗」（2026-10-02 真机实测），不是错误形态。
+        val areaLimited = f.supplementDialogType == "area_limit"
         val ugcShortCircuit = !f.isDownload && f.respUsable &&
             f.supplementTypeUrl != PGC_ANY_MODEL_TYPE_URL
         val notPgcRequest = f.seasonId == "0" && f.epId == "0"
-        if (!f.isDownload && (ugcShortCircuit || notPgcRequest)) return Verdict.NORMAL_UGC
+        if (!areaLimited && !f.isDownload && (ugcShortCircuit || notPgcRequest)) return Verdict.NORMAL_UGC
 
-        return if (f.respUsable && f.supplementTypeUrl == PGC_ANY_MODEL_TYPE_URL) {
+        return if (!areaLimited && f.respUsable && f.supplementTypeUrl == PGC_ANY_MODEL_TYPE_URL) {
             Verdict.NORMAL_PGC
         } else {
             Verdict.RESTRICTED

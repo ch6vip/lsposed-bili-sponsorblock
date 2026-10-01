@@ -243,16 +243,18 @@ object PlayViewHook {
     private val capturedRestricted = AtomicInteger(0)
 
     private fun captureReplyOnce(module: XposedModule, reply: Any, verdictName: String) {
-        if (!capturedRestricted.compareAndSet(0, 1)) return
+        // 诊断：前 4 个 PGC 响应全部落盘（定位受限形态的真实字节位置）
+        val n = capturedRestricted.incrementAndGet()
+        if (n > 4) return
         runCatching {
             val bytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
                 ?.invoke(reply) as? ByteArray ?: return
             val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
             dir.mkdirs()
-            val f = java.io.File(dir, "restricted_reply_$verdictName.bin")
+            val f = java.io.File(dir, "pgc_reply_$n.bin")
             f.outputStream().use { it.write(bytes) }
-            HookProbe.first(module, "unlock:capture:restricted", 1) {
-                "${f.absolutePath} ${bytes.size}B"
+            HookProbe.first(module, "unlock:capture:pgc", 4) {
+                "${f.absolutePath} ${bytes.size}B verdict=$verdictName"
             }
         }
     }
@@ -314,11 +316,13 @@ object PlayViewHook {
                 respUsable = respFacts.usable,
                 respPlayArcCid = respFacts.respCid,
                 supplementTypeUrl = respFacts.typeUrl,
+                supplementDialogType = respFacts.supplementDialogType,
             )
             val verdict = PlayViewDecision.classify(facts)
             HookProbe.first(module, "unlock:verdict:${verdict.name}", 5) {
                 "via=$via cid=${facts.reqVodCid} respCid=${facts.respPlayArcCid} " +
-                    "ep=${facts.epId} typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
+                    "ep=${facts.epId} dialog=${facts.supplementDialogType} " +
+                    "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
             }
             val config = UnlockConfig.load(module)
             // 开发专用强制路径：命中的 ep_id == unlock_test_epid 的正常 PGC 请求
@@ -326,11 +330,15 @@ object PlayViewHook {
             val forcedTest = config.testEpId != 0L &&
                 verdict == PlayViewDecision.Verdict.NORMAL_PGC &&
                 facts.epId.toLongOrNull() == config.testEpId
+            // U4.7 诊断：所有 PGC 响应落盘（定位受限形态的真实字节位置——
+            // 国际网关的受限信号不在 view_info.dialog，需字节级定位）
+            if (verdict == PlayViewDecision.Verdict.NORMAL_PGC) {
+                runCatching { captureRealStreams(module, cl, reply) }
+                captureReplyOnce(module, reply, "NORMAL_PGC")
+            }
             if (verdict != PlayViewDecision.Verdict.RESTRICTED &&
                 verdict != PlayViewDecision.Verdict.THAI_REDIRECT && !forcedTest
             ) {
-                // U4.5 诊断：正常 PGC 响应里的真实 CDN 流地址（对照数据源——
-                // 强制受限路径用它们替换 canned 媒体，可解耦「媒体格式」与「重构正确性」）
                 runCatching { captureRealStreams(module, cl, reply) }
                 return reply
             }
@@ -372,7 +380,7 @@ object PlayViewHook {
                 // 网络+重构在工作线程执行，回调线程限时等待（主线程阻塞上限 8s）
                 val task = java.util.concurrent.Callable {
                     val client = RoamingClient(
-                        sign = HostSigner(module, cl),
+                        sign = { q, extra -> HostSigner.sign("hk", q, extra) },
                         fetch = ::defaultFetch,
                         mobiApp = "android",
                     )
@@ -468,6 +476,8 @@ object PlayViewHook {
         val typeUrl: String?,
         /** supplement 内 episodeInfo.epId（番剧请求 ep_id 缺席时的权威来源）。 */
         val supplementEpId: Long,
+        /** supplement.view_info.dialog.type（"area_limit" = 国际网关受限信号）。 */
+        val supplementDialogType: String,
     )
 
     private fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
@@ -512,11 +522,12 @@ object PlayViewHook {
         var respCid = 0L
         var typeUrl: String? = null
         var supplementEpId = 0L
+        var supplementDialogType = ""
         runCatching {
             result?.let { res ->
                 val hasVod = res.javaClass.methods.firstOrNull { it.name == "hasVodInfo" }
                     ?.invoke(res) as? Boolean
-                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null, 0L)
+                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null, 0L, "")
                 val playArc = res.javaClass.methods.firstOrNull { it.name == "getPlayArc" }?.invoke(res)
                 playArc?.let {
                     respCid = (it.javaClass.methods.firstOrNull { f -> f.name == "getCid" }?.invoke(it) as? Number)?.toLong() ?: 0L
@@ -530,7 +541,17 @@ object PlayViewHook {
                         val value = supplement?.javaClass?.methods
                             ?.firstOrNull { f -> f.name == "getValue" }?.invoke(supplement)
                         val bytes = value?.javaClass?.getMethod("toByteArray")?.invoke(value) as? ByteArray
+                        HookProbe.first(module, "unlock:dlgStep", 2) {
+                            "value=${value?.javaClass?.name ?: "null"} bytes=${bytes?.size ?: -1}"
+                        }
                         if (bytes != null && bytes.isNotEmpty()) {
+                            // dialog.type 走自备 schema（真名类链路对受限响应不可靠——
+                            // 受限时 supplement 内可能缺宿主类字段）
+                            val pgcSelf = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(bytes)
+                            supplementDialogType = pgcSelf.viewInfo.dialog.type
+                            HookProbe.first(module, "unlock:dlgStep", 2) {
+                                "parse ok dialog=$supplementDialogType"
+                            }
                             val pgc = cl.loadClass(HostTargets.PLAY_VIEW_REPLY_CLASS)
                                 .getMethod("parseFrom", ByteArray::class.java)
                                 .invoke(null, bytes)
@@ -546,12 +567,16 @@ object PlayViewHook {
                                 }?.toLong() ?: 0L
                             supplementEpId = epId
                         }
+                    }.onFailure { t ->
+                        HookProbe.first(module, "unlock:dlgFail", 2) {
+                            "${t.javaClass.simpleName}: ${t.message}"
+                        }
                     }
                 }
             }
         }.onFailure { t ->
             HookProbe.first(module, "unlock:extractFailed", 3) { "resp: ${t.javaClass.simpleName}: ${t.message}" }
         }
-        return ExtractedResponseFacts(usable, respCid, typeUrl, supplementEpId)
+        return ExtractedResponseFacts(usable, respCid, typeUrl, supplementEpId, supplementDialogType)
     }
 }
