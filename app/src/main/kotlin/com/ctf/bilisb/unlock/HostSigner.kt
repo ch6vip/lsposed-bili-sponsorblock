@@ -1,55 +1,44 @@
 package com.ctf.bilisb.unlock
 
-import com.ctf.bilisb.host.HookProbe
-import com.ctf.bilisb.host.HostTargets
-import io.github.libxposed.api.XposedModule
+import java.security.MessageDigest
 
 /**
- * 借宿主的请求签名（docs/UNLOCK_FEASIBILITY.md §2.3）：
+ * 漫游请求签名（U4.7 最终形态）：**按区域本地签名**——各端 appkey/secret 是公开常量
+ * （B 站客户端密钥，服务器源码 ClientType 表同源），无需借宿主。
  *
- * `com.bilibili.nativelibrary.LibBili` 的静态方法 `(Map<String,String>) -> SignedQuery`
- * （方法名按签名形状解析，混淆漂移时形状匹配兜底），`SignedQuery.toString()` 即
- * 已签名的查询串。调用失败退化为恒等签名——mock 服务器不验签不受影响；
- * 真实服务器会对未签名请求拒绝（探针留名，不会静默）。
+ * 区域 → 身份映射（与 BiliRoaming 参考实现一致）：
+ *  - th（东南亚）→ BstarA：7d089525d3611b1c / acd495b248ec528c2eed1e862d393126
+ *    （国际令牌的正确归宿——intl 网关认国际令牌）
+ *  - cn/hk/tw → Android：1d8b6e7d45233436 / 560c52ccd288fed045859ed18bffd973
+ *    （国内令牌的归宿——主站 API 认国内令牌）
+ *
+ * 签名算法：参数按 key 排序拼接 + secret，md5 十六进制（B 站 appsign 标准算法）。
+ * 早期版本借宿主 LibBili 签名——但宿主只认自己体系的 appkey，跨区域请求会得到
+ * 上游 -3"API校验密匙错误"（2026-10-02 真机实测）。
  */
-class HostSigner(private val module: XposedModule, private val cl: ClassLoader) :
-    (String, Map<String, String>) -> String {
+object HostSigner {
 
-    private val signMethod by lazy {
-        runCatching {
-            val libBili = cl.loadClass(HostTargets.LIB_BILI_CLASS)
-            val signedQueryCls = cl.loadClass(HostTargets.SIGNED_QUERY_CLASS)
-            libBili.declaredMethods.firstOrNull {
-                java.lang.reflect.Modifier.isStatic(it.modifiers) &&
-                    it.parameterTypes.size == 1 &&
-                    it.parameterTypes[0] == Map::class.java &&
-                    it.returnType == signedQueryCls
-            }?.apply { isAccessible = true }
-        }.getOrNull()
-    }
+    private const val ANDROID_KEY = "1d8b6e7d45233436"
+    private const val ANDROID_SEC = "560c52ccd288fed045859ed18bffd973"
+    private const val BSTARA_KEY = "7d089525d3611b1c"
+    private const val BSTARA_SEC = "acd495b248ec528c2eed1e862d393126"
 
-    override fun invoke(query: String, extra: Map<String, String>): String {
-        val method = signMethod ?: run {
-            HookProbe.first(module, "unlock:signFallback", 3) { "宿主签名方法不可用，恒等签名（mock 可用，真实服务器将拒绝）" }
-            return merge(query, extra)
+    fun sign(area: String, query: String, extra: Map<String, String>): String {
+        val map = LinkedHashMap<String, String>()
+        for (pair in query.split('&')) {
+            val idx = pair.indexOf('=')
+            if (idx > 0) map[pair.take(idx)] = pair.substring(idx + 1)
         }
-        return runCatching {
-            val map = buildMap {
-                for (pair in query.split('&')) {
-                    val idx = pair.indexOf('=')
-                    if (idx > 0) put(pair.take(idx), pair.substring(idx + 1))
-                }
-                putAll(extra)
-            }
-            val signed = method.invoke(null, map)
-            signed.toString()
-        }.onFailure { t ->
-            HookProbe.first(module, "unlock:signFallback", 3) {
-                "签名调用失败: ${t.javaClass.simpleName}: ${t.message}"
-            }
-        }.getOrDefault(merge(query, extra))
+        map.putAll(extra)
+        val (appkey, secret) = when (area) {
+            "th" -> BSTARA_KEY to BSTARA_SEC
+            else -> ANDROID_KEY to ANDROID_SEC
+        }
+        map["appkey"] = appkey
+        val sorted = map.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+        val sign = MessageDigest.getInstance("MD5")
+            .digest((sorted + secret).toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return "$sorted&sign=$sign"
     }
-
-    private fun merge(query: String, extra: Map<String, String>): String =
-        query + extra.entries.joinToString("") { "&${it.key}=${it.value}" }
 }
