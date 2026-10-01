@@ -3,7 +3,9 @@
 > 前置材料：Phase 0 可行性报告 [`docs/UNLOCK_FEASIBILITY.md`](UNLOCK_FEASIBILITY.md)（链路实证与本报告的技术依据）。
 > 参考实现：[BiliRoaming](https://github.com/yujincheng08/BiliRoaming)（**GPL-3**）。
 
-## 0. 两个 Gate（2026-09-30 决策：**延后至发布前**，开发先行）
+## 0. 两个 Gate（✅ 2026-10-02 已落地，随 v0.8.0 发布）
+
+> 决策轨迹：2026-09-30 定义 → 延后至发布前 → 2026-10-02 G1/G2 已执行（下方），解锁实现随 v0.8.0 合并入主干发布。
 
 | Gate | 内容 | 产出物 | 时机 |
 | --- | --- | --- | --- |

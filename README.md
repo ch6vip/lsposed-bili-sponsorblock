@@ -2,10 +2,11 @@
 
 [![Android CI](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml/badge.svg)](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml)
 [![Release](https://img.shields.io/github/v/release/ch6vip/lsposed-bili-sponsorblock)](https://github.com/ch6vip/lsposed-bili-sponsorblock/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区片段数据，在哔哩哔哩**国际版**播放视频时
 自动跳过或标记赞助内容、片头、自我推广、互动提醒等片段。只改本机播放行为：不登录、不接管账号、无遥测。
+另含可自配服务器的**番剧区域解锁**功能（默认关闭，详见下方功能与免责声明）。
 
 > 本项目主要由 AI 编写：代码、文档与宿主逆向分析由 AI 生成，作者负责需求、真机验证与发版，
 > 因此不保证稳定性与持续维护。欢迎提 Issue / PR 一起贡献——尤其是「适配新版宿主」这件最费人力的事。
@@ -13,10 +14,13 @@ Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区
 ## ⚠️ 免责声明
 
 - 个人学习性质的第三方项目，与哔哩哔哩**没有任何关系**，非官方、未获授权。
-- 只修改本机播放行为；不破解会员、不去除广告投放、不绕过服务端限制、不伪造播放量或修改数据上报
+- 跳过/标记等核心功能只修改本机播放行为；不破解会员、不去除广告投放、不伪造播放量或修改数据上报
   （「B 站增强 · IP 属地」仅改写请求中的客户端身份字段，见[数据与隐私](#数据与隐私)）。
+- **番剧区域解锁功能（默认关闭）**：将受限播放请求转向使用者**自配**的解析服务器。该功能涉及绕过
+  版权方的区域限制，存在**账号风控风险**，是否使用及后果由使用者自行判断和承担；解析服务器的
+  合规性与安全性由其运营方负责。模块不内置任何服务器。
 - 不提供、不分发哔哩哔哩客户端安装包，需自备目标版本；片段数据由社区众包，准确性由数据源决定。
-- 使用产生的一切后果由使用者自行承担，请遵守当地法规与哔哩哔哩用户协议。
+- 使用产生的一切后果（包括账号风控）由使用者自行承担，请遵守当地法规与哔哩哔哩用户协议。
 
 ## 适用范围
 
@@ -40,6 +44,9 @@ Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区
 - **B 站增强**（默认关闭，移植自 [BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)）：
   评论/主页 **IP 属地**、**隐藏互动提示**（一键三连 / UP 关注气泡 / 投票）、
   **首页不自动刷新**、分享面板补回 **分享到 QQ**。
+- **番剧区域解锁**（默认关闭，GPL-3 附加功能）：将区域受限的播放请求转向**使用者自配**的
+  解析服务器（自建或社区服务），支持 hk/tw/cn/th 区域路由与缓存解锁。上游按账号权益返回；
+  区域受限的付费内容需对应区域大会员。详见[数据与隐私](#数据与隐私)与已知限制。
 
 支持的类别：赞助/恰饭、自我推广、互动提醒、开场动画、结束画面、回顾/概要、非音乐片段、填充内容、精彩时刻。
 
@@ -116,9 +123,12 @@ SponsorBlock 设置需重进播放页；「B 站增强」开关约 10 秒内热�
 ## 已知限制
 
 - 仅适配国际版 6.5.0 / 6.6.0；宿主更新后可能**静默失效**（日志 `hook summary` 可快速判断）。
-- 未验证场景：小窗、切集、番剧/OGV、切换账号（深色模式仅复核了设置弹窗）。
+- 未验证场景：切换账号（小窗后台播放、切集、番剧已验证）。
 - 片段数据依赖第三方实例，可用性与数据质量由数据源决定。
 - IP 属地依赖服务端对请求身份的判定，宿主改版后可能失效（仅表现为无属地显示）；分享 QQ 需已安装 QQ。
+- **区域解锁**：实测可完成「受限识别 → 解析服务器 → 区域路由」全链；上游按**账号属地与权益**
+  判定（实测僅限港澳台内容对大陆账号返回大会员专享限制）——能否实际观看取决于账号权益，
+  非模块可控；最后一公里（解析服务器响应 → 播放器实播）未在有权益账号下验证。
 
 ## 致谢
 
@@ -126,11 +136,17 @@ SponsorBlock 设置需重进播放页；「B 站增强」开关约 10 秒内热�
   默认数据源与「空降助手」叫法、片段分类体系的来源
 - [SponsorBlock](https://sponsor.ajay.app/) —— 片段数据与 API 协议
 - [mengwuzhuanshou/BiliTamer](https://github.com/mengwuzhuanshou/BiliTamer)（MIT）——「B 站增强」的实现蓝本
-- [BiliRoaming](https://github.com/yujincheng08/BiliRoaming) / [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— 思路参考
+- [BiliRoaming](https://github.com/yujincheng08/BiliRoaming)（GPL-3）—— 番剧区域解锁功能的实现蓝本；
+  本项目的解锁代码据此重写，因此本项目整体以 GPL-3 发布
+- [BiliRoamingX](https://github.com/BiliRoamingX/BiliRoamingX) —— 思路参考
 - [LSPosed](https://github.com/LSPosed/LSPosed) / [libxposed](https://github.com/libxposed) —— 框架与 API
 
 开发者文档（架构、Hook 点对照、真机验证、构建与发布流程）见 [`docs/`](docs/) 与 [`docs/RELEASING.md`](docs/RELEASING.md)。
 
 ## 许可
 
-[MIT](LICENSE) © 2026 ch6vip
+[GPL-3.0](LICENSE) © 2026 ch6vip
+
+> 本项目自 v0.8.0 起由 MIT 转为 **GPL-3.0**：番剧区域解锁功能重写自 GPL-3 项目
+> [BiliRoaming](https://github.com/yujincheng08/BiliRoaming)。此前的 MIT 版本（≤v0.7.4）
+> 可按 MIT 许可继续使用；v0.8.0 起的代码按 GPL-3 提供。
