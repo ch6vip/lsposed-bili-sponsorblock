@@ -18,6 +18,11 @@ import io.github.libxposed.api.XposedModule
  * 底层走 Binder,不需要特殊权限。
  */
 object ModuleSettings {
+
+    /** 最近一次设置读取来源（T5 错误可见化：面板服务信息行展示）。IPC / file / default。 */
+    @Volatile
+    var lastReadSource: String = "default"
+        private set
     /**
      * 进程内缓存。命中后不再进行任何 IPC / 文件读取;设置变化由调用方显式调用 [reload] 清缓存,
      * 因此 [load] 的返回值在同一进程里是稳定的 —— 调用方可以放心长期持有。
@@ -43,6 +48,7 @@ object ModuleSettings {
         val fromIpc = tryIpc(module, hostContext)
         if (fromIpc != null) {
             cached = fromIpc
+            lastReadSource = "IPC"
             module.info("ModuleSettings: read from IPC")
             return fromIpc
         }
@@ -58,6 +64,7 @@ object ModuleSettings {
         module.info("ModuleSettings: all sources failed, using defaults")
         val defaults = SettingsSnapshot.DEFAULT
         cached = defaults
+        lastReadSource = "default"
         return defaults
     }
 
@@ -125,12 +132,14 @@ object ModuleSettings {
                 null
             }
             if (snapshot != null) {
+                lastReadSource = "file"
                 module.info("ModuleSettings: read from file ${file.absolutePath}")
                 return snapshot
             }
         }
 
         module.info("ModuleSettings: no mirror file readable")
+        lastReadSource = "default"
         return null
     }
 }
