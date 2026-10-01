@@ -151,6 +151,13 @@ object PlayViewHook {
                             HookProbe.first(module, "unlock:akCapture", 1) {
                                 "len=${it.length} hex32=${it.length == 32 && it.all { c -> c.isDigit() || c in 'a'..'f' }} head4=${it.take(4)}"
                             }
+                            // 诊断：令牌落盘（root-only 目录，供真实链路验证）
+                            runCatching {
+                                val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
+                                dir.mkdirs()
+                                java.io.File(dir, "access_key_runtime.txt")
+                                    .writeText(it)
+                            }
                         }
                     }
                     result
