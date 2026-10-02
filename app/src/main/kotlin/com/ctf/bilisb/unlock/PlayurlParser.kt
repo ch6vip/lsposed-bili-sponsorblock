@@ -75,8 +75,9 @@ object PlayurlParser {
             }
         }
 
-        // support_formats: quality → 描述元数据（stream_info 用）
-        val formatMap = HashMap<Int, JSONObject>()
+        // support_formats: quality → 描述元数据（stream_info / qn_panel 用）。
+        // LinkedHashMap 保序:面板条目按服务器下发的顺序展示（通常高→低）。
+        val formatMap = LinkedHashMap<Int, JSONObject>()
         val fmtArr = json.optJSONArray("support_formats")
         if (fmtArr != null) {
             for (i in 0 until fmtArr.length()) {

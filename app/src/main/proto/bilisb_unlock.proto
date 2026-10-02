@@ -86,8 +86,36 @@ message VodInfo {
   int32 video_codecid = 4;
   repeated Stream stream_list = 5;
   repeated DashItem dash_audio = 6;
+  QnPanel qn_panel = 12;
   // dolby=7 / volume=8 / loss_less_item=9 / support_project=10 / ai_audio=11 /
-  // qn_panel=12 / cur_language=13 / solution=14 / cur_production_type=15 未触碰
+  // cur_language=13 / solution=14 / cur_production_type=15 未触碰
+}
+
+// ---- 清晰度选择面板（2026-10-02 jadx 源码级实证：宿主 classes9.dex
+// playershared.{VodInfo,QnPanel,QnItem,StreamInfo}——嵌套结构
+// qn_panel(12)=QnPanel{qn_items(1)=QnItem{stream_info(1)=StreamInfo,
+// qn_group(2)=QnGroup}}。StreamInfo 字段号来自其 static_values 静态实证，
+// 与 VodInfo.QN_PANEL=12 运行时探针真值互证。拍平写会因 wire type 不匹配
+// 在宿主 parseFrom 抛 "invalid tag (zero)"。构建映射照 BiliRoaming G0.q。----
+
+message QnPanel {
+  repeated QnItem qn_items = 1;
+}
+
+message QnItem {
+  QnPanelStreamInfo stream_info = 1;
+  // qn_group=2 (QnGroup) 未触碰
+}
+
+message QnPanelStreamInfo {
+  int32 quality = 1;
+  string format = 2;
+  string description = 3;
+  bool need_vip = 6;
+  bool need_login = 7;
+  string new_description = 11;
+  string display_desc = 12;
+  string superscript = 13;
 }
 
 // ---- Stream 系（playershared 包，字段号实测同源）----
