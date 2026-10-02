@@ -30,11 +30,19 @@ object HostSigner {
             if (idx > 0) map[pair.take(idx)] = pair.substring(idx + 1)
         }
         map.putAll(extra)
-        val (appkey, secret) = when (area) {
-            "th" -> BSTARA_KEY to BSTARA_SEC
-            else -> ANDROID_KEY to ANDROID_SEC
+        val creds = when (area) {
+            "th" -> listOf(BSTARA_KEY, BSTARA_SEC, "bstar_a", "1001310")
+            else -> listOf(ANDROID_KEY, ANDROID_SEC, "android", "9070300")
         }
+        val appkey = creds[0]
+        val secret = creds[1]
+        val mobi = creds[2]
+        val build = creds[3]
         map["appkey"] = appkey
+        map["mobi_app"] = mobi
+        map["build"] = build
+        map["platform"] = "android"
+        map["ts"] = (System.currentTimeMillis() / 1000).toString()
         val sorted = map.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
         val sign = MessageDigest.getInstance("MD5")
             .digest((sorted + secret).toByteArray())

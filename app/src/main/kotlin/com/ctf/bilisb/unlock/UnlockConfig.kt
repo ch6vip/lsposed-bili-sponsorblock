@@ -75,13 +75,20 @@ object UnlockConfig {
             } else {
                 listOf(
                     RoamingClient.RoamingServer(
-                        area = json.optString("unlock_server_area", "cn"),
+                        area = json.optString("unlock_server_area", "cn").ifBlank { "cn" },
                         baseUrl = serverUrl,
                         accessKey = json.optString("unlock_server_access_key", ""),
                     ),
                 )
             }
-            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough)
+            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough).also {
+                module.warn(
+                    "unlock:cfgLoaded file=${file.path} len=${file.length()} " +
+                        "enabled=$it.enabled url=${it.servers.firstOrNull()?.baseUrl} " +
+                        "area=${it.servers.firstOrNull()?.area} testEpId=${it.testEpId} " +
+                        "rawTestEpId=${json.opt("unlock_test_epid")}",
+                )
+            }
         }.onFailure { t ->
             module.warn("unlock: config read failed: ${t.message}")
         }.getOrDefault(Config.DEFAULT)

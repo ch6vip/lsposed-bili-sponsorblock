@@ -1,5 +1,43 @@
 # 当前状态（STATUS）
 
+
+## 0.8.0 解锁链路真机修复（2026-10-02，真机验证通过）
+
+装机 0.8.0/15 + 本地 BiliRoaming-Rust-Server（127.0.0.1:2662 经 adb reverse，
+area=tw，台湾出口 sing-box 独立实例）。自然受限场景（《總之就是非常可愛 第二季》
+EP1，ep=744345）端到端打穿：`area_limit 判定 → 220 字符真实令牌 → 服务端 →
+台湾出口 → code=0 → 响应重构 → 播放器渲染播放，无弹窗`。
+
+**推翻 U4.6 收口结论**：「播放器不消费重构实例」的真凶不是合成 proto 的保真度，
+而是**顶层 `PlayViewUniteReply.view_info`（field 9）承载的区域限制弹窗**——
+受限响应字节级实拍（3461B）：顶层 field 9 = 781B，dialogMap 键 "start_playing"
+的弹窗载荷带上报 id `united.player-video-detail.player.region-limit.show`；
+supplement 里的弹窗清了它还在。清掉即正常渲染，真实 DASH 无兼容问题。
+
+本轮修复（模块）：
+
+| # | 改动 | 说明 |
+| --- | --- | --- |
+| 1 | SettingsCodec 补 `unlock_server_area` / `unlock_test_epid` 键（44→46） | 此前不进 Codec 通道的键会被设置同步抹掉——镜像里 url/area/test_epid 全部丢失，运行时回落空配置（skippedOff 假象） |
+| 2 | 镜像真路径确认 | 运行时读的是宿主**数据目录根** `sponsorblock_settings.json`，非 `files/` 子目录（老版本遗留文件，排查时误导） |
+| 3 | 判定三源（BiliRoaming G0.g 对齐） | `dialog.type=area_limit` 之外补 `end_page.dialog.type` 非空与 `business.is_preview` |
+| 4 | 顶层 view_info 外科清理 | 清 dialogMap + toasts，保留 expSwitch（intl 6.6.0 schema 无国服的 endPage/popWin 单数字段）；反射缺失回退整字段 clear |
+| 5 | SponsorBlock 失败重拉 30s 冷却 | 过期缓存重拉分支原无冷却，断网期间 3s 一次锤网 + Toast 跟着刷 |
+| 6 | RoamingClient 调试日志回退 | `android.util.Log.e` 会崩 JVM 单测；PlayViewHook 的 fetch lambda 已有等价日志 |
+
+配套（BiliRoaming-Rust-Server 仓库，同日另提交）：`valid_access_key` 放行
+base64url 长令牌（国际版 220 字符含 `-`/`_`）；非大会员响应**剥离 need_vip
+画质只发免费档**（原逻辑见任何 need_vip 轨整体 -10403——限免番剧同时下发
+免费+会员画质时免费档也被拒，且 EP_INFO 上游死亡导致刷新失败、-10403 死循环）。
+
+已证伪的中间结论：「B 站封路」——python 直连测试的 -10403 是 **TLS 指纹风控**
+（服务端 rustls 同参数同出口实时 code=0），服务端 09:34 的拒绝实为陈旧缓存
+（deadline 至 11:34）+ 会员画质标记触发，非 IP 封锁。
+
+遗留：番剧评论区空态（页面状态层 OgvCurrentEpisodeRepository 链路，播放解锁
+管不到，开手机代理可绕）；`unlock_test_epid` 已清零；tonikawa EP1 免费档上限
+1080P（4K/1080P高码率为会员画质，服务端已剥离不下发）。
+
 ## 0.7.4 场景回归（2026-10-01 下午，真机全通过）
 
 装机 0.7.4/14（master 主线：T5 + README/CI 改进；解锁代码在本地分支 unlock-wip 未入主干）。

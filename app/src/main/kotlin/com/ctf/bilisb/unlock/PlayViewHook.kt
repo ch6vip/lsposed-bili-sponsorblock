@@ -324,11 +324,14 @@ object PlayViewHook {
                 respPlayArcCid = respFacts.respCid,
                 supplementTypeUrl = respFacts.typeUrl,
                 supplementDialogType = respFacts.supplementDialogType,
+                supplementEndPageDialogType = respFacts.supplementEndPageDialogType,
+                isPreview = respFacts.isPreview,
             )
             val verdict = PlayViewDecision.classify(facts)
             HookProbe.first(module, "unlock:verdict:${verdict.name}", 5) {
                 "via=$via cid=${facts.reqVodCid} respCid=${facts.respPlayArcCid} " +
                     "ep=${facts.epId} dialog=${facts.supplementDialogType} " +
+                    "endDlg=${facts.supplementEndPageDialogType} prev=${facts.isPreview} " +
                     "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
             }
             val config = UnlockConfig.load(module)
@@ -388,7 +391,10 @@ object PlayViewHook {
                 val task = java.util.concurrent.Callable {
                     val client = RoamingClient(
                         sign = { q, extra -> HostSigner.sign("hk", q, extra) },
-                        fetch = ::defaultFetch,
+                        fetch = { url, mA ->
+                            android.util.Log.w("Bili2233URL", "GET $url")
+                            defaultFetch(url, mA)
+                        },
                         mobiApp = "android",
                     )
                     val servers = config.servers.map {
@@ -485,6 +491,10 @@ object PlayViewHook {
         val supplementEpId: Long,
         /** supplement.view_info.dialog.type（"area_limit" = 国际网关受限信号）。 */
         val supplementDialogType: String,
+        /** supplement.view_info.end_page.dialog.type（片尾页形态受限信号，BiliRoaming G0.g 同款）。 */
+        val supplementEndPageDialogType: String,
+        /** supplement.business.is_preview（预览形态，BiliRoaming 同款触发漫游）。 */
+        val isPreview: Boolean,
     )
 
     private fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
@@ -530,11 +540,13 @@ object PlayViewHook {
         var typeUrl: String? = null
         var supplementEpId = 0L
         var supplementDialogType = ""
+        var supplementEndPageDialogType = ""
+        var isPreview = false
         runCatching {
             result?.let { res ->
                 val hasVod = res.javaClass.methods.firstOrNull { it.name == "hasVodInfo" }
                     ?.invoke(res) as? Boolean
-                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null, 0L, "")
+                if (hasVod == false) return ExtractedResponseFacts(false, 0L, null, 0L, "", "", false)
                 val playArc = res.javaClass.methods.firstOrNull { it.name == "getPlayArc" }?.invoke(res)
                 playArc?.let {
                     respCid = (it.javaClass.methods.firstOrNull { f -> f.name == "getCid" }?.invoke(it) as? Number)?.toLong() ?: 0L
@@ -552,12 +564,14 @@ object PlayViewHook {
                             "value=${value?.javaClass?.name ?: "null"} bytes=${bytes?.size ?: -1}"
                         }
                         if (bytes != null && bytes.isNotEmpty()) {
-                            // dialog.type 走自备 schema（真名类链路对受限响应不可靠——
+                            // dialog/end_page 走自备 schema（真名类链路对受限响应不可靠——
                             // 受限时 supplement 内可能缺宿主类字段）
                             val pgcSelf = com.ctf.bilisb.unlock.proto.PlayViewReply.parseFrom(bytes)
                             supplementDialogType = pgcSelf.viewInfo.dialog.type
+                            supplementEndPageDialogType = pgcSelf.viewInfo.endPage.dialog.type
+                            isPreview = pgcSelf.business.isPreview
                             HookProbe.first(module, "unlock:dlgStep", 2) {
-                                "parse ok dialog=$supplementDialogType"
+                                "parse ok dialog=$supplementDialogType endDlg=$supplementEndPageDialogType prev=$isPreview"
                             }
                             val pgc = cl.loadClass(HostTargets.PLAY_VIEW_REPLY_CLASS)
                                 .getMethod("parseFrom", ByteArray::class.java)
@@ -584,6 +598,6 @@ object PlayViewHook {
         }.onFailure { t ->
             HookProbe.first(module, "unlock:extractFailed", 3) { "resp: ${t.javaClass.simpleName}: ${t.message}" }
         }
-        return ExtractedResponseFacts(usable, respCid, typeUrl, supplementEpId, supplementDialogType)
+        return ExtractedResponseFacts(usable, respCid, typeUrl, supplementEpId, supplementDialogType, supplementEndPageDialogType, isPreview)
     }
 }

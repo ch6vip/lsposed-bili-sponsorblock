@@ -721,9 +721,10 @@ class SponsorBlockController(
      */
     private val sanitizedCache = ConcurrentHashMap<String, Pair<List<SponsorSegment>, List<SponsorSegment>>>()
 
-    /** 空结果重拉的冷却（毫秒）与上次尝试时刻表（键 bvid）。 */
+    /** 空结果/过期缓存重拉共用的冷却（毫秒）与各自的上次尝试时刻表（键 bvid）。 */
     private val EMPTY_REFETCH_COOLDOWN_MS = 30_000L
     private val emptyRefetchAtByBvid = ConcurrentHashMap<String, Long>()
+    private val staleRefetchAtByBvid = ConcurrentHashMap<String, Long>()
 
     /** 已打过「dropped N invalid」日志的视频,避免该日志按 tick/帧频率刷屏。 */
     private val droppedSegmentsLogged = ConcurrentHashMap.newKeySet<String>()
@@ -734,8 +735,15 @@ class SponsorBlockController(
         val fresh = repository.getCached(query)
         val last = repository.getLastKnown(query)
         // TTL>0 且新鲜缓存过期时后台重拉;TTL=0 只在进页/手动刷新拉,避免每 tick 打网。
+        // 冷却与空结果分支同款:否则断网/服务器不可达期间该分支在 inFlight 释放后的
+        // 每个 tick 都会重试(2026-10-02 真机实测 3s 一次锤网 + Toast 跟着刷)。
         if (fresh == null && last != null && settings.cacheTtlMs > 0 && !inFlight.contains(query.bvid)) {
-            scheduleSegmentFetch(query, false, "segments refetch")
+            val now = android.os.SystemClock.elapsedRealtime()
+            val lastTry = staleRefetchAtByBvid[query.bvid] ?: 0L
+            if (now - lastTry > EMPTY_REFETCH_COOLDOWN_MS) {
+                staleRefetchAtByBvid[query.bvid] = now
+                scheduleSegmentFetch(query, false, "segments refetch")
+            }
         }
         // 冷启动首次拉取失败(status=-1 等,无任何缓存)时按冷却重试:
         // 否则一次网络抖动 = 整个播放会话零片段且不再重拉(2026-09-29 真机实测)。

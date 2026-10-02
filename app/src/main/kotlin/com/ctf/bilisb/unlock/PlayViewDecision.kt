@@ -52,6 +52,10 @@ object PlayViewDecision {
         val supplementTypeUrl: String?,
         /** supplement.view_info.dialog.type——国际网关的受限信号藏在这里（"area_limit" 等）。 */
         val supplementDialogType: String = "",
+        /** supplement.view_info.end_page.dialog.type——片尾页形态的受限信号（BiliRoaming G0.g 同款）。 */
+        val supplementEndPageDialogType: String = "",
+        /** supplement.business.is_preview——预览形态（BiliRoaming 同款：预览也走漫游换全量流）。 */
+        val isPreview: Boolean = false,
     )
 
     fun classify(f: Facts): Verdict {
@@ -59,9 +63,13 @@ object PlayViewDecision {
         if (isThai) return Verdict.THAI_REDIRECT
 
         // UGC 短路（下载请求不短路）+ 非番剧请求放行——与参考实现的两道放行门同序。
-        // 例外：PGC 响应携带 area_limit 弹窗时不可放行——国际网关的受限内容返回的是
-        // 「可用响应 + area_limit 弹窗」（2026-10-02 真机实测），不是错误形态。
-        val areaLimited = f.supplementDialogType == "area_limit"
+        // 例外：PGC 响应携带受限弹窗时不可放行——国际网关的受限内容返回的是
+        // 「可用响应 + 受限弹窗」（2026-10-02 真机实测），不是错误形态。
+        // 受限信号三源（BiliRoaming G0.g 还原）：dialog.type=area_limit、
+        // end_page.dialog.type 非空、business.is_preview=true。
+        val areaLimited = f.supplementDialogType == "area_limit" ||
+            f.supplementEndPageDialogType.isNotEmpty() ||
+            f.isPreview
         val ugcShortCircuit = !f.isDownload && f.respUsable &&
             f.supplementTypeUrl != PGC_ANY_MODEL_TYPE_URL
         val notPgcRequest = f.seasonId == "0" && f.epId == "0"
