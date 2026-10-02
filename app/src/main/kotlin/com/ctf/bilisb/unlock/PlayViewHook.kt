@@ -429,7 +429,12 @@ object PlayViewHook {
                         ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
                     }.onFailure { t ->
                         HookProbe.first(module, "unlock:rebuildFailed", 5) {
-                            "${t.javaClass.simpleName}: ${t.message}"
+                            // 反射包装类(InvocationTargetException 等)展开到根因
+                            var root = t
+                            while (root.cause != null) root = root.cause!!
+                            "${t.javaClass.simpleName}: ${t.message} <- " +
+                                "${root.javaClass.simpleName}: ${root.message} " +
+                                "at ${root.stackTrace.firstOrNull()?.let { "${it.className}#${it.methodName}" }}"
                         }
                     }.getOrNull()
                     if (inner != null) {

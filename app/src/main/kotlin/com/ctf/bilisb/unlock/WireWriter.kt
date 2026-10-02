@@ -86,6 +86,50 @@ object UnlockWire {
         w.int32Field(4, data.videoCodecid)
         for (v in data.videos) w.messageField(5, buildStreamBytes(v))
         for (a in data.audios) w.messageField(6, buildDashItemBytes(a))
+        val panel = buildQnPanelBytes(data)
+        if (panel.isNotEmpty()) w.messageField(12, panel)
+        return w.toByteArray()
+    }
+
+    /**
+     * 清晰度选择面板（VodInfo.qn_panel=12 → QnPanel{qn_items=1, repeated StreamInfo}）。
+     *
+     * 字段号来源：宿主 classes9.dex `playershared.StreamInfo` 的 static_values 常量
+     * （2026-10-02 静态解析，VodInfo.QN_PANEL=12 与运行时探针真值互证）。条目映射与
+     * BiliRoaming G0.q 一致——support_formats 每项一个 StreamInfo：
+     * quality=1 / format=2 / description=3 / need_vip=6 / need_login=7 /
+     * new_description=11 / display_desc=12 / superscript=13。
+     * 面板不写会导致选级 UI 空白不可切换（默认流不受影响）。
+     */
+    /**
+     * 清晰度选择面板（VodInfo.qn_panel=12 → QnPanel{qn_items=1}）。
+     *
+     * 字段号与结构来源：宿主 classes9.dex 的 jadx 反编译源码（2026-10-02）——
+     * 嵌套结构是 **QnItem{ stream_info=1, qn_group=2 }**，quality/display_desc/
+     * superscript 等全在 stream_info(=playershared.StreamInfo) 层：
+     * quality=1 / format=2 / description=3 / need_vip=6 / need_login=7 /
+     * new_description=11 / display_desc=12 / superscript=13（static_values 静态实证，
+     * 与 VodInfo.QN_PANEL=12 探针真值互证）。拍平写会在宿主 parseFrom 抛
+     * "invalid tag (zero)"（QnItem 字段全是消息类型，wire type 不匹配）。
+     * qn_group 缺省可空。面板不写会导致选级 UI 空白不可切换。
+     */
+    private fun buildQnPanelBytes(data: PlayurlData): ByteArray {
+        if (data.formats.isEmpty()) return ByteArray(0)
+        val w = WireWriter()
+        for ((qid, f) in data.formats) {
+            val streamInfo = WireWriter()
+            streamInfo.int32Field(1, qid)
+            streamInfo.stringField(2, f.optString("format"))
+            streamInfo.stringField(3, f.optString("description"))
+            streamInfo.boolField(6, f.optBoolean("need_vip", false))
+            streamInfo.boolField(7, f.optBoolean("need_login", false))
+            streamInfo.stringField(11, f.optString("new_description"))
+            streamInfo.stringField(12, f.optString("display_desc", f.optString("new_description")))
+            streamInfo.stringField(13, f.optString("superscript"))
+            val qnItem = WireWriter()
+            qnItem.messageField(1, streamInfo.toByteArray())
+            w.messageField(1, qnItem.toByteArray())
+        }
         return w.toByteArray()
     }
 

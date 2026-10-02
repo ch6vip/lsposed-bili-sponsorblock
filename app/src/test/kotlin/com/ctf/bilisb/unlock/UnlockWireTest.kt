@@ -61,6 +61,45 @@ class UnlockWireTest {
         assertEquals(PlayViewDecision.PGC_ANY_MODEL_TYPE_URL, any.typeUrl)
         assertTrue(payload.contentEquals(any.value.toByteArray()))
     }
+
+    @Test
+    fun `qn_panel 三层嵌套与宿主 StreamInfo 字段号一致`() {
+        val withPanel = data.copy(
+            formats = mapOf(
+                80 to org.json.JSONObject(
+                    """{"quality":80,"display_desc":"高清 1080P","new_description":"1080P 高清",
+                        "superscript":"","need_vip":false,"need_login":false,"format":"HD"}""",
+                ),
+                112 to org.json.JSONObject(
+                    """{"quality":112,"display_desc":"1080P 高码率","new_description":"高码率",
+                        "superscript":"会员","need_vip":true,"need_login":false,"format":"HD"}""",
+                ),
+            ),
+        )
+        val vodInfo = VodInfo.parseFrom(UnlockWire.buildVodInfoBytes(withPanel))
+
+        // qn_panel(12) → QnPanel{qn_items(1) → QnItem{stream_info(1)}}
+        assertEquals(2, vodInfo.qnPanel.qnItemsCount)
+        val streamInfo = vodInfo.qnPanel.getQnItems(0).streamInfo
+        assertEquals(80, streamInfo.quality)
+        assertEquals("高清 1080P", streamInfo.displayDesc)
+        assertEquals("1080P 高清", streamInfo.newDescription)
+        assertEquals("HD", streamInfo.format)
+        assertFalse(streamInfo.needVip)
+        // 会员画质条目保留元数据(角标/need_vip)——展示层语义与 BiliRoaming G0.q 一致
+        val vip = vodInfo.qnPanel.getQnItems(1).streamInfo
+        assertEquals(112, vip.quality)
+        assertEquals("1080P 高码率", vip.displayDesc)
+        assertEquals("会员", vip.superscript)
+        assertTrue(vip.needVip)
+    }
+
+    @Test
+    fun `无 support_formats 时不写 qn_panel 字段`() {
+        val vodInfo = VodInfo.parseFrom(UnlockWire.buildVodInfoBytes(data))
+        assertEquals(0, vodInfo.qnPanel.qnItemsCount)
+        assertFalse(vodInfo.hasQnPanel())
+    }
 }
 
 class RestrictedReplyPatchTest {

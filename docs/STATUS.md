@@ -1,5 +1,21 @@
 # 当前状态（STATUS）
 
+## 0.8.1 清晰度选级面板修复（2026-10-02，真机验证通过）
+
+qn_panel 重建落地：解锁后选级 UI 不再空白。结构为**三层嵌套**
+`VodInfo.qn_panel(12) → QnPanel{qn_items(1) → QnItem{stream_info(1)=StreamInfo}}`——
+qnx 字段号来自 classes9.dex static_values 静态实证（quality=1/format=2/description=3/
+need_vip=6/need_login=7/new_description=11/display_desc=12/superscript=13），
+**层级**来自 jadx 源码级反编译 QnItem.java（stream_info=1/qn_group=2 均为消息类型）。
+
+教训：static_values 字段号解析只解决「号」不解决「层」——首版拍平写法
+（面板项直接带字段）wire type 与宿主消息类型不匹配，宿主 parseFrom 抛
+"invalid tag (zero)"（QnItem 字段全为消息，无标量位）。wire 结构层级必须以
+反编译源码为准。BiliRoaming G0.q 的七字段映射（description/format/need_vip/
+need_login/new_description/superscript/display_desc）在 stream_info 层照抄落地。
+
+另:rebuildFailed 探针展开反射包装到根因（InvocationTargetException → 原始异常+帧）。
+
 
 ## 0.8.0 解锁链路真机修复（2026-10-02，真机验证通过）
 
