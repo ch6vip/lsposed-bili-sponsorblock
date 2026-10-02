@@ -273,6 +273,13 @@ class SettingsCodecTest {
             hideVote = true,
             noAutoRefresh = true,
             shareQq = true,
+            unlockEnabled = true,
+            unlockServerUrl = "http://127.0.0.1:2662",
+            unlockServerAccessKey = "ak",
+            unlockCache = true,
+            unlockUposHost = "upos.example.com",
+            unlockServerArea = "tw",
+            unlockTestEpId = 5189397L,
         )
 
         val restored = SettingsCodec.snapshotFromMap(SettingsCodec.snapshotToMap(original))
@@ -288,7 +295,7 @@ class SettingsCodecTest {
     fun mapKeySetIsPinned() {
         // 集合比较（顺序无关）；键总数也钉死，防止无意增删
         val keys = SettingsCodec.snapshotToMap(SettingsSnapshot.DEFAULT).keys
-        assertEquals(44, keys.size)
+        assertEquals(46, keys.size)
         assertEquals(
             setOf(
                 "enabled", "auto_skip", "manual_skip", "mute_segments",
@@ -305,7 +312,7 @@ class SettingsCodecTest {
                 "enhance_ip_location", "enhance_hide_triple", "enhance_hide_up_prompt",
                 "enhance_hide_vote", "enhance_no_auto_refresh", "enhance_share_qq",
                 "unlock_enabled", "unlock_server_url", "unlock_server_access_key",
-                "unlock_cache", "unlock_upos_host",
+                "unlock_cache", "unlock_upos_host", "unlock_server_area", "unlock_test_epid",
             ),
             keys,
         )

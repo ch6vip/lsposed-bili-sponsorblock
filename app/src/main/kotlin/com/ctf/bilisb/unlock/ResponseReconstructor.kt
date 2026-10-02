@@ -92,6 +92,33 @@ object ResponseReconstructor {
         )
         invoke(builder, "setSupplement", supplement)
 
+        // 顶层 view_info 清理（BiliRoaming G0.p 同语义：清弹窗载荷、留容器与其余字段）。
+        // intl 6.6.0 的 playershared.ViewInfo 与 BiliRoaming 面向的国服 schema 不同——
+        // 没有 endPage/popWin/toast 单数字段，区域限制弹窗经实拍藏在 dialogMap
+        // （"start_playing" 键，report=…region-limit.show，2026-10-02 受限响应字节级对照：
+        // 正常响应 dialogMap 也有 start_playing+qn_112 两键，受限仅 start_playing 但载荷
+        // 即弹窗配置）。因此清 dialogMap + toasts，保留 expSwitch 等实验开关；
+        // 整字段 clearViewInfo 只作反射缺失时的回退。
+        val surgical = runCatching {
+            val has = builder.javaClass.getMethod("hasViewInfo").invoke(builder) as Boolean
+            if (has) {
+                val vi = builder.javaClass.getMethod("getViewInfo").invoke(builder)
+                val viCls = vi.javaClass
+                val vib = viCls.getMethod("newBuilder", viCls).invoke(null, vi)
+                for (m in listOf("clearDialogMap", "clearToasts")) {
+                    runCatching { vib.javaClass.getMethod(m).invoke(vib) }
+                }
+                val merged = vib.javaClass.getMethod("build").invoke(vib)
+                builder.javaClass.getMethod("setViewInfo", viCls).invoke(builder, merged)
+            } else {
+                builder.javaClass.getMethod("clearViewInfo").invoke(builder)
+            }
+            true
+        }.getOrDefault(false)
+        if (!surgical) {
+            runCatching { builder.javaClass.getMethod("clearViewInfo").invoke(builder) }
+        }
+
         return builder.javaClass.getMethod("build").invoke(builder)
     }
 }

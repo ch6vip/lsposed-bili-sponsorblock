@@ -180,6 +180,10 @@ data class SettingsSnapshot(
     val unlockServerAccessKey: String = "",
     val unlockCache: Boolean = false,
     val unlockUposHost: String = "",
+    /** 漫游区域 cn/hk/tw/th（空 = 消费端按 cn 处理）。 */
+    val unlockServerArea: String = "",
+    /** 开发专用强制受限 ep_id（0 = 关闭）。 */
+    val unlockTestEpId: Long = 0,
 ) {
     companion object {
         val DEFAULT = SettingsCodec.defaultSnapshot()

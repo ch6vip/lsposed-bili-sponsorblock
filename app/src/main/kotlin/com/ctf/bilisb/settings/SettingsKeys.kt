@@ -55,6 +55,12 @@ object SettingsKeys {
     const val UNLOCK_SERVER_ACCESS_KEY = "unlock_server_access_key"
     const val UNLOCK_CACHE = "unlock_cache"
     const val UNLOCK_UPOS_HOST = "unlock_upos_host"
+    // 漫游区域（cn/hk/tw/th）：决定服务器转发到哪个上游。必须进 Codec 通道，
+    // 否则设置同步会用不含此键的快照重写 JSON 镜像，UnlockConfig 只好回落 "cn"。
+    const val UNLOCK_SERVER_AREA = "unlock_server_area"
+    // 开发专用：命中该 ep_id 的正常 PGC 请求被强制按受限处理（不进设置 UI）。
+    // 同理必须在 Codec 通道里，否则镜像同步会把它抹掉，真机 forceTest 失效。
+    const val UNLOCK_TEST_EPID = "unlock_test_epid"
 
     // 提交配置
     const val USER_ID = "user_id"

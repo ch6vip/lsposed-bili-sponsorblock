@@ -100,6 +100,22 @@ object SettingsCodec {
         override fun mapValue(snapshot: SettingsSnapshot): Any = formatMinutes(get(snapshot))
     }
 
+    /** 原生 Long 字段：prefs 读 Long（兼容历史 String 形态），Map/JSON 读 Number。 */
+    private class LongDef(
+        key: String,
+        get: (SettingsSnapshot) -> Long,
+    ) : FieldDef<Long>(key, get) {
+        override val defaultValue: Long get() = 0L
+        override fun readPrefs(prefs: SharedPreferences): Long = runCatching {
+            prefs.getLong(key, 0L)
+        }.recoverCatching {
+            prefs.getString(key, null)?.toLongOrNull() ?: 0L
+        }.getOrDefault(0L)
+        override fun readMap(values: Map<String, Any?>): Long =
+            (values[key] as? Number)?.toLong() ?: values[key].toString().toLongOrNull() ?: 0L
+        override fun mapValue(snapshot: SettingsSnapshot): Any = get(snapshot)
+    }
+
     // 条目即单一来源：assemble 的命名参数引用这些单例（类型安全），顺序 = Map 键序。
     private val ENABLED = BoolDef(SettingsKeys.ENABLED, { it.enabled }, true)
     private val AUTO_SKIP = BoolDef(SettingsKeys.AUTO_SKIP, { it.autoSkip }, true)
@@ -141,6 +157,8 @@ object SettingsCodec {
     private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { raw -> raw ?: "" }
     private val UNLOCK_CACHE = BoolDef(SettingsKeys.UNLOCK_CACHE, { it.unlockCache }, false)
     private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_AREA = StrDef(SettingsKeys.UNLOCK_SERVER_AREA, { it.unlockServerArea }, "") { raw -> sanitizeRoamArea(raw) }
+    private val UNLOCK_TEST_EP = LongDef(SettingsKeys.UNLOCK_TEST_EPID, { it.unlockTestEpId })
 
     private val FIELDS: List<FieldDef<*>> = listOf(
         ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
@@ -148,7 +166,7 @@ object SettingsCodec {
         USER_ID, DEFAULT_SUBMIT_CATEGORY,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
         IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
-        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_UPOS,
+        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
     )
 
     // ---------------------------------------------------------------- 四条通道
@@ -208,7 +226,11 @@ object SettingsCodec {
     fun writeSnapshotToPreferences(prefs: SharedPreferences, snapshot: SettingsSnapshot) {
         prefs.edit().apply {
             snapshotToMap(snapshot).forEach { (key, value) ->
-                if (value is Boolean) putBoolean(key, value) else putString(key, value.toString())
+                when (value) {
+                    is Boolean -> putBoolean(key, value)
+                    is Long -> putLong(key, value)
+                    else -> putString(key, value.toString())
+                }
             }
         }.apply()
     }
@@ -252,6 +274,8 @@ object SettingsCodec {
             unlockServerAccessKey = f(UNLOCK_AK),
             unlockCache = f(UNLOCK_CACHE),
             unlockUposHost = f(UNLOCK_UPOS),
+            unlockServerArea = f(UNLOCK_AREA),
+            unlockTestEpId = f(UNLOCK_TEST_EP),
         )
     }
 
@@ -305,6 +329,21 @@ object SettingsCodec {
             SettingsKeys.DEFAULT_SUBMIT_CATEGORY_VALUE
         }
     }
+
+    /**
+     * 漫游区域白名单：cn/hk/tw/th 之外的非空值一律回落 "cn"；**空串原样保留**
+     * （= 未设置，语义上由消费端回落默认）——否则快照往返不再是恒等映射。
+     */
+    private fun sanitizeRoamArea(raw: String?): String {
+        val area = raw?.trim()?.lowercase().orEmpty()
+        return when {
+            area.isEmpty() -> ""
+            area in ROAM_AREAS -> area
+            else -> "cn"
+        }
+    }
+
+    private val ROAM_AREAS = setOf("cn", "hk", "tw", "th")
 
     private fun toHex(color: Int): String = String.format("#%06X", 0xFFFFFF and color)
 

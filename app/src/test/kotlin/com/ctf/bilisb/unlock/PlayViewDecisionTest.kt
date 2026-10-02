@@ -144,4 +144,56 @@ class PlayViewDecisionTest {
             PlayViewDecision.UGC_ANY_MODEL_TYPE_URL,
         )
     }
+
+    // ---- 受限信号三源（BiliRoaming G0.g 还原后的同口径回归）----
+
+    @Test
+    fun `end_page 弹窗类型非空判为受限`() {
+        val v = PlayViewDecision.classify(
+            facts(
+                epId = "285145",
+                seasonId = "12345",
+                respPlayArcCid = 168885122,
+                supplementTypeUrl = PlayViewDecision.PGC_ANY_MODEL_TYPE_URL,
+            ).copy(supplementEndPageDialogType = "area_limit"),
+        )
+        assertEquals(Verdict.RESTRICTED, v)
+    }
+
+    @Test
+    fun `is_preview 判为受限（预览走漫游换全量流）`() {
+        val v = PlayViewDecision.classify(
+            facts(
+                epId = "285145",
+                seasonId = "12345",
+                respPlayArcCid = 168885122,
+                supplementTypeUrl = PlayViewDecision.PGC_ANY_MODEL_TYPE_URL,
+            ).copy(isPreview = true),
+        )
+        assertEquals(Verdict.RESTRICTED, v)
+    }
+
+    @Test
+    fun `end_page 与 is_preview 均为默认值时不受影响`() {
+        val v = PlayViewDecision.classify(
+            facts(
+                reqVodCid = 168885122,
+                epId = "285145",
+                seasonId = "12345",
+                respPlayArcCid = 168885122,
+                supplementTypeUrl = PlayViewDecision.PGC_ANY_MODEL_TYPE_URL,
+            ),
+        )
+        assertEquals(Verdict.NORMAL_PGC, v)
+    }
+
+    @Test
+    fun `受限信号优先于 UGC 短路`() {
+        // UGC supplement 但带受限信号——不可放行（与 area_limit 同一门槛位置）
+        val v = PlayViewDecision.classify(
+            facts(supplementTypeUrl = PlayViewDecision.UGC_ANY_MODEL_TYPE_URL)
+                .copy(supplementEndPageDialogType = "area_limit"),
+        )
+        assertEquals(Verdict.RESTRICTED, v)
+    }
 }
