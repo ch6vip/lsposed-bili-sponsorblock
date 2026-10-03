@@ -390,7 +390,10 @@ object PlayViewHook {
                 // 网络+重构在工作线程执行，回调线程限时等待（主线程阻塞上限 8s）
                 val task = java.util.concurrent.Callable {
                     val client = RoamingClient(
-                        sign = { q, extra -> HostSigner.sign("hk", q, extra) },
+                        // 签名身份必须跟随服务器区域（th=BstarA，其余=Android）；
+                        // RoamingClient 的 extra 两个分支都恒写 area，硬编码区域会把
+                        // th 的 bstar 身份覆盖成 Android（上游 -3）
+                        sign = { q, extra -> HostSigner.sign(extra["area"] ?: "cn", q, extra) },
                         fetch = { url, mA ->
                             android.util.Log.w("Bili2233URL", "GET $url")
                             defaultFetch(url, mA)
