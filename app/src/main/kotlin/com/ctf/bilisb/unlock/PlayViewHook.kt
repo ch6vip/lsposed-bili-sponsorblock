@@ -459,8 +459,8 @@ object PlayViewHook {
         }
     }
 
-    /** 生产 HTTP 传输：GET + gzip + 超时。 */
-    private fun defaultFetch(url: String, mobiApp: String): String {
+    /** 生产 HTTP 传输：GET + gzip + 超时（unlock 线各网络路径共用）。 */
+    internal fun defaultFetch(url: String, mobiApp: String): String {
         val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         conn.connectTimeout = 8000
         conn.readTimeout = 8000

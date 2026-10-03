@@ -126,7 +126,17 @@ data class SeasonEpisode(
     val longTitle: String,
     val cid: Long,
     val epIndex: Int,
-)
+) {
+    /**
+     * 宿主卡片主标题（实拍模板：title 为数字序号时 = `第N话 <long_title>`；
+     * PV/特别篇等非数字序号直接用 long_title，再退 title）。
+     */
+    fun showTitle(): String = when {
+        title.toIntOrNull() != null && longTitle.isNotEmpty() -> "第${title}话 $longTitle"
+        longTitle.isNotEmpty() -> longTitle
+        else -> title
+    }
+}
 
 /** 选集分区（viewunite.common.SectionData 的字段语义）。 */
 data class SeasonSection(
@@ -180,6 +190,23 @@ object SeasonParser {
                 type = i, // 首个分区（当前季）由调用方排序保证在前
                 episodes = parseEpisodes(s.optJSONArray("episodes")),
             )
+        }
+    }.getOrDefault(emptyList())
+
+    /**
+     * 解析 `pgc/view/web/season` 顶层 `result.episodes[]`（正季剧集平铺形态；
+     * 服务端 `/pgc/view/web/season` 代理路线的返回）。顶层为空时回退首个 season 的
+     * episodes（部分标题的正季挂在 seasons[0] 下）。
+     */
+    fun parseFlatEpisodes(content: String): List<SeasonEpisode> = runCatching {
+        var json = org.json.JSONObject(content)
+        json.opt("result")?.let { result ->
+            if (result !is String) json = json.getJSONObject("result")
+        }
+        if (json.optInt("code", 0) != 0) return emptyList()
+        parseEpisodes(json.optJSONArray("episodes")).ifEmpty {
+            json.optJSONArray("seasons")?.optJSONObject(0)
+                ?.let { parseEpisodes(it.optJSONArray("episodes")) } ?: emptyList()
         }
     }.getOrDefault(emptyList())
 }
