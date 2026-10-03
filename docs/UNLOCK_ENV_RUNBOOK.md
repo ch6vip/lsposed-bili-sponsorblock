@@ -12,7 +12,7 @@
 | **Redis**（**必开**） | `cd E:\ctf-aaa\bili-rust\redis-portable && redis-server.exe --port 6379` | `python -c "import socket;s=socket.create_connection(('127.0.0.1',6379));s.sendall(b'PING\r\n');print(s.recv(64))"` → PONG |
 | 漫游服务端（2662） | `cd E:\ctf-aaa\bili-rust\BiliRoaming-Rust-Server && ./target/release/biliroaming_rust_server.exe` | `netstat -ano | grep 2662` LISTENING |
 | 台湾出口（sing-box，7899） | `cd E:\ctf-aaa\bili-rust\tw-exit && "C:\Users\ch6vip\AppData\Roaming\com.satelite.proxy\bin\sing-box.exe" run -c config.json` | `curl -s -x http://127.0.0.1:7899 https://api.bilibili.com/x/web-interface/zone` → `country":"台湾"` |
-| **DNS 重relay（53）** | `cd E:\ctf-aaaili-rust	w-exit && python dns_relay.py`（把 *.biliintl.com 应答为本机） | `nslookup grpc.biliintl.com 192.168.6.179` → 192.168.6.179 |
+| **DNS 重定向（53）** | `cd E:\ctf-aaaili-rust	w-exit && python dns_relay.py`（把 *.biliintl.com 应答为本机） | `nslookup grpc.biliintl.com 192.168.6.179` → 192.168.6.179 |
 | 透明中继（443，方案 A 用） | `cd E:\ctf-aaa\bili-rust\tw-exit && python relay.py` | `python -c "import socket,ssl;s=ssl.create_default_context().wrap_socket(socket.create_connection(('192.168.6.179',443)),server_hostname='app.biliintl.com');print(s.version())"` → TLSv1.3 |
 
 服务端仓库另有未提交本地件（`config.local.json`、`biliroaming_rust_server_patched`），勿提交。
