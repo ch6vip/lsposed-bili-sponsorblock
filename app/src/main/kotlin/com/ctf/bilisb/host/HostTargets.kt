@@ -335,6 +335,18 @@ object HostTargets {
     const val PLAY_VIEW_UNITE_REQ_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReq"
     const val PLAY_VIEW_UNITE_REPLY_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayViewUniteReply"
 
+    /** 选集面板 moss 服务（2026-10-02 jadx 实证：pgc.gateway.view.v1.ViewMoss）。 */
+    const val VIEW_MOSS_CLASS = "com.bapis.bilibili.pgc.gateway.view.v1.ViewMoss"
+    val SEASON_MOSS_METHODS = listOf(
+        "seasonSections", "executeSeasonSections",
+        "pageSectionEpisodes", "executePageSectionEpisodes",
+        "seasonSectionsForCache", "executeSeasonSectionsForCache",
+    )
+    const val SEASON_SECTIONS_REPLY_CLASS =
+        "com.bapis.bilibili.pgc.gateway.view.v1.SeasonSectionsReply"
+    const val PAGE_SECTION_EPISODES_REPLY_CLASS =
+        "com.bapis.bilibili.pgc.gateway.view.v1.PageSectionEpisodesReply"
+
     /** 响应重构涉及的内层类（包名以 dex 索引为准：playershared 独立成包，Stream 系在 playurl.v1）。 */
     const val VOD_INFO_CLASS = "com.bapis.bilibili.playershared.VodInfo"
     const val PLAY_ARC_CLASS = "com.bapis.bilibili.playershared.PlayArc"
