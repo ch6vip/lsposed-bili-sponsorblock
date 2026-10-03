@@ -134,6 +134,54 @@ object UnlockWire {
     }
 
     /**
+     * 选集面板响应（SeasonSectionsReply：sections=1, 每区 SectionData{id=1,
+     * section_id=2, title=3, episode_ids=6, episodes=7, type=13}）。字段号
+     * 静态实证（2026-10-02, classes9/classes6 static_values）。
+     */
+    fun buildSeasonSectionsReplyBytes(sections: List<SeasonSection>): ByteArray {
+        val w = WireWriter()
+        for (sec in sections) {
+            val s = WireWriter()
+            s.int32Field(1, sec.id)
+            s.int32Field(2, sec.sectionId)
+            s.stringField(3, sec.title)
+            s.int32Field(13, sec.type)
+            for (ep in sec.episodes) {
+                s.int64Field(6, ep.epId)
+            }
+            for (ep in sec.episodes) {
+                s.messageField(7, buildSeasonEpisodeBytes(ep))
+            }
+            w.messageField(1, s.toByteArray())
+        }
+        return w.toByteArray()
+    }
+
+    /** 分区内剧集响应（PageSectionEpisodesReply：episodes=1, section_id=3）。 */
+    fun buildPageSectionEpisodesReplyBytes(sectionId: Int, episodes: List<SeasonEpisode>): ByteArray {
+        val w = WireWriter()
+        for (ep in episodes) w.messageField(1, buildSeasonEpisodeBytes(ep))
+        w.int32Field(3, sectionId)
+        return w.toByteArray()
+    }
+
+    private fun buildSeasonEpisodeBytes(ep: SeasonEpisode): ByteArray {
+        val w = WireWriter()
+        w.int64Field(1, ep.epId)
+        w.stringField(2, ep.badge)
+        w.int32Field(3, ep.badgeType)
+        w.int64Field(5, ep.duration)
+        w.int32Field(6, ep.status)
+        w.stringField(7, ep.cover)
+        w.int64Field(8, ep.aid)
+        w.stringField(9, ep.title)
+        w.stringField(12, ep.longTitle)
+        w.int64Field(14, ep.cid)
+        w.int32Field(31, ep.epIndex)
+        return w.toByteArray()
+    }
+
+    /**
      * Stream{stream_info=1, oneof content{dash_video=2}}。
      * U4.6 实测：真实响应每条 Stream 都带 stream_info（quality/format/description/intact），
      * 缺失会被播放器选流逻辑忽略（表现 = 响应被接受但无限缓冲）——必须携带。

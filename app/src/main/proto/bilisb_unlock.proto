@@ -107,6 +107,46 @@ message QnItem {
   // qn_group=2 (QnGroup) 未触碰
 }
 
+// ---- 选集面板（2026-10-02 字段号静态实证：pgc.gateway.view.v1.* 与
+// viewunite.common.* 的 static_values，classes9/classes6 dex。数据链：
+// ViewMoss.seasonSections → 选集分区；pageSectionEpisodes → 区块内剧集。
+// 无代理时两调用被区域拒收，页面隐藏选集。解锁 = 模块拉
+// api.bilibili.com/pgc/view/web/season（CN 直连免签）重建两响应注入）。----
+
+message SeasonSectionsReply {
+  repeated SeasonSection sections = 1;
+}
+
+message SeasonSection {
+  int32 id = 1;
+  int32 section_id = 2;
+  string title = 3;
+  repeated int64 episode_ids = 6;
+  repeated SeasonViewEpisode episodes = 7;
+  int32 type = 13;
+}
+
+message SeasonViewEpisode {
+  int64 ep_id = 1;
+  string badge = 2;
+  int32 badge_type = 3;
+  int64 duration = 5;
+  int32 status = 6;
+  string cover = 7;
+  int64 aid = 8;
+  string title = 9;
+  string long_title = 12;
+  int64 cid = 14;
+  int32 ep_index = 31;
+  int32 section_index = 32;
+  string show_title = 44;
+}
+
+message PageSectionEpisodesReply {
+  repeated SeasonViewEpisode episodes = 1;
+  int32 section_id = 3;
+}
+
 message QnPanelStreamInfo {
   int32 quality = 1;
   string format = 2;

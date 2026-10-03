@@ -112,3 +112,74 @@ object PlayurlParser {
         )
     }.getOrNull()
 }
+
+/** 选集面板的剧集条目（view.v1.ViewEpisode / viewunite.common.ViewEpisode 的字段语义）。 */
+data class SeasonEpisode(
+    val epId: Long,
+    val badge: String,
+    val badgeType: Int,
+    val duration: Long,
+    val status: Int,
+    val cover: String,
+    val aid: Long,
+    val title: String,
+    val longTitle: String,
+    val cid: Long,
+    val epIndex: Int,
+)
+
+/** 选集分区（viewunite.common.SectionData 的字段语义）。 */
+data class SeasonSection(
+    val id: Int,
+    val sectionId: Int,
+    val title: String,
+    val type: Int,
+    val episodes: List<SeasonEpisode>,
+)
+
+/**
+ * CN season JSON（api.bilibili.com/pgc/view/web/season 匿名可取，CN 直连）
+ * → 选集面板中间模型。字段名与 CN 接口对齐：result.seasons[] 每季含 episodes[]。
+ */
+object SeasonParser {
+
+    fun parseEpisodes(arr: org.json.JSONArray?): List<SeasonEpisode> {
+        arr ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val e = arr.optJSONObject(i) ?: return@mapNotNull null
+            SeasonEpisode(
+                epId = e.optLong("id"),
+                badge = e.optString("badge"),
+                badgeType = e.optInt("badge_type"),
+                duration = e.optLong("duration"),
+                status = e.optInt("status"),
+                cover = e.optString("cover"),
+                aid = e.optLong("aid"),
+                title = e.optString("title"),
+                longTitle = e.optString("long_title"),
+                cid = e.optLong("cid"),
+                epIndex = e.optInt("index", i + 1),
+            )
+        }
+    }
+
+    /** 解析 seasons[] → 分区列表（每季一个分区，episodes 内联）。 */
+    fun parseSections(content: String): List<SeasonSection> = runCatching {
+        var json = org.json.JSONObject(content)
+        json.opt("result")?.let { result ->
+            if (result !is String) json = json.getJSONObject("result")
+        }
+        val seasons = json.optJSONArray("seasons") ?: return emptyList()
+        (0 until seasons.length()).mapNotNull { i ->
+            val s = seasons.optJSONObject(i) ?: return@mapNotNull null
+            val sid = s.optInt("season_id")
+            SeasonSection(
+                id = sid,
+                sectionId = sid,
+                title = s.optString("title"),
+                type = i, // 首个分区（当前季）由调用方排序保证在前
+                episodes = parseEpisodes(s.optJSONArray("episodes")),
+            )
+        }
+    }.getOrDefault(emptyList())
+}
