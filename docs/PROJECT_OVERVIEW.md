@@ -286,5 +286,6 @@ python tools\dexscan\q.py '^M\t\S+\tLcom/bilibili/playerbizcommonv2/widget/base/
 - `docs/APK_6.5.0_ANALYSIS.md` — **目标 APK 事实、类名保留情况、Hook 映射与证据**
 - `docs/ROADMAP.md` — 迁移任务（M0–M9）与优先级
 - `docs/STATUS.md` — 当前验证状态（真机结论回写处）
-- `docs/DEVICE_PROBE.md` — 真机验证 runbook（安装/抓日志/证据清单）
+- `docs/DEVICE_RUNBOOK.md` — 真机与模块运维 runbook（构建/安装/抓日志/LSPosed 恢复）
+- `docs/UNLOCK_PLAN.md` / `docs/UNLOCK_ASSESSMENT_2026-10-04.md` / `docs/UNLOCK_ENV_RUNBOOK.md` — 解锁线规划、复刻评估与测试环境
 - `tools/dexscan/README.md` — 静态分析复现方法

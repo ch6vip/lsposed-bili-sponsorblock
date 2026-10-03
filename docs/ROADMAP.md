@@ -4,7 +4,7 @@
 > 共用一张候选表（`host/HostTargets.kt`），全部旧候选保留。6.5.0 安装包 `<APK目录>\bilibili_6.5.0.apks`；
 > 6.6.0 为真机 adb 拉取。旧目标（`tv.danmaku.bili` 8.96 / 8.98 patch）只作行为蓝本。
 > 类名与 Hook 依据见 [`docs/APK_6.5.0_ANALYSIS.md`](./APK_6.5.0_ANALYSIS.md) /
-> [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)；真机验证步骤见 [`docs/DEVICE_PROBE.md`](./DEVICE_PROBE.md)。
+> [`docs/APK_6.6.0_ANALYSIS.md`](./APK_6.6.0_ANALYSIS.md)；真机验证步骤见 [`docs/DEVICE_RUNBOOK.md`](./DEVICE_RUNBOOK.md)。
 >
 > 状态标记：`[x]` 已完成，`[~]` 代码已实现/待真机确认，`[ ]` 待做，`[~]`（单列于「明确不做」节）明确不做，`[!]` 阻塞中。
 > 编号：`M*` = 宿主迁移任务（M0-M9 为 6.5.0，M10-M12 为 6.6.0），`T*` = 功能任务（历史沿用），`R*` = 架构稳定性任务（历史沿用）。

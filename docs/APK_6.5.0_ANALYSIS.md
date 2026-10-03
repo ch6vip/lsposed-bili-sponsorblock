@@ -182,7 +182,7 @@ const-string ", extension="                + l:Object
 ## 5. 对代码的影响清单
 
 > 状态（2026-09）：**已全部落地**，实现落点是 `app/src/main/kotlin/com/ctf/bilisb/host/HostTargets.kt`
-> 的候选表 + 各 Hook 文件；真机验证步骤见 `docs/DEVICE_PROBE.md`。
+> 的候选表 + 各 Hook 文件；真机验证步骤见 `docs/DEVICE_RUNBOOK.md`。
 
 | 文件 | 改了什么 |
 | --- | --- |
@@ -212,7 +212,7 @@ const-string ", extension="                + l:Object
 | 5 | 没有播放器销毁入口 | 退出播放页后：静音不解除、倒计时到点仍 seek 并记统计、按钮/浮层残留、按 contextHash 的容器引用永不释放 | 6.5.0 用 `PlayerSeekWidget3#onDetachedFromWindow` 作为"播放器离开"信号（旧目标 `be1.j#onDestroy` 在 6.5.0 不存在） |
 | 6 | 提交接口协议 | `GET /api/skipSegments?userID=...` 与服务端/官方协议都不符 | 改为 `POST /api/skipSegments`（官方协议，`userAgent` 必填），仅 405/501 才降级 GET |
 
-复现/验证方式见 `docs/DEVICE_PROBE.md`（真机 runbook）。
+复现/验证方式见 `docs/DEVICE_RUNBOOK.md`（真机 runbook）。
 
 ## 7. 播放器「更多」面板注入（6.5.0 实测，已实现）
 
