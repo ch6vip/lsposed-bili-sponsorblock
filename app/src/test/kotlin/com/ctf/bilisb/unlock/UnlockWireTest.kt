@@ -174,3 +174,109 @@ class TonikawaRestrictedReplyTest {
         assertTrue(reply.hasVodInfo())
     }
 }
+
+/**
+ * 选集面板两个 reply 构建器的 wire 回归。宿主侧曾在这里翻过车：字段层级拍平
+ * （把 StreamInfo 字段号写进 QnItem 层）会让宿主 parseFrom 抛 "invalid tag (zero)"。
+ * 剧集条目（episodes=7）与 episode_ids（=6）同理是消息/标量分立的两条 repeated——
+ * 这里用同字段号自备 schema 钉死层级（宿主类不可离线实例化）。
+ */
+class SeasonWireBuildersTest {
+
+    private val episodes = listOf(
+        SeasonEpisode(
+            epId = 744345L, badge = "会员", badgeType = 1, duration = 1420000L, status = 13,
+            cover = "http://mock/cover.jpg", aid = 90000001L, title = "1",
+            longTitle = "第一话", cid = 40700545720L, epIndex = 1,
+        ),
+        SeasonEpisode(
+            epId = 744346L, badge = "", badgeType = 0, duration = 1400000L, status = 2,
+            cover = "http://mock/cover2.jpg", aid = 90000002L, title = "2",
+            longTitle = "第二话", cid = 40700545721L, epIndex = 2,
+        ),
+    )
+
+    private val sections = listOf(
+        SeasonSection(id = 1, sectionId = 328806, title = "第二季", type = 1, episodes = episodes),
+    )
+
+    @Test
+    fun `seasonSections 字节按同号 schema 解析且层级正确`() {
+        val reply = com.ctf.bilisb.unlock.proto.SeasonSectionsReply.parseFrom(
+            UnlockWire.buildSeasonSectionsReplyBytes(sections),
+        )
+
+        assertEquals(1, reply.sectionsCount)
+        val section = reply.getSections(0)
+        assertEquals(328806, section.sectionId)
+        assertEquals("第二季", section.title)
+        assertEquals(listOf(744345L, 744346L), section.episodeIdsList)
+        // 剧集条目是消息类型（wire type 2）——拍平写会在此解析失败
+        assertEquals(2, section.episodesCount)
+        val ep = section.getEpisodes(0)
+        assertEquals(744345L, ep.epId)
+        assertEquals("会员", ep.badge)
+        assertEquals(40700545720L, ep.cid)
+        assertEquals(90000001L, ep.aid)
+        assertEquals("第一话", ep.longTitle)
+        assertEquals(1, ep.epIndex)
+    }
+
+    @Test
+    fun `pageSectionEpisodes 字节携带剧集与 section_id`() {
+        val reply = com.ctf.bilisb.unlock.proto.PageSectionEpisodesReply.parseFrom(
+            UnlockWire.buildPageSectionEpisodesReplyBytes(328806, episodes),
+        )
+
+        assertEquals(328806, reply.sectionId)
+        assertEquals(2, reply.episodesCount)
+        assertEquals(744346L, reply.getEpisodes(1).epId)
+        assertEquals(40700545721L, reply.getEpisodes(1).cid)
+    }
+
+    @Test
+    fun `空 episodes 的 section 仍写分区骨架`() {
+        val reply = com.ctf.bilisb.unlock.proto.SeasonSectionsReply.parseFrom(
+            UnlockWire.buildSeasonSectionsReplyBytes(
+                listOf(SeasonSection(id = 2, sectionId = 9, title = "OVA", type = 3, episodes = emptyList())),
+            ),
+        )
+
+        assertEquals(1, reply.sectionsCount)
+        assertEquals("OVA", reply.getSections(0).title)
+        assertEquals(0, reply.getSections(0).episodesCount)
+    }
+}
+
+/** SeasonParser：CN season JSON（pgc/view/web/season）→ 选集中间模型的映射回归。 */
+class SeasonParserTest {
+
+    @Test
+    fun `CN season JSON 解析为分区与剧集`() {
+        val json = """
+            {"code":0,"result":{"seasons":[
+                {"season_id":328806,"title":"第二季","episodes":[
+                    {"id":744345,"badge":"会员","badge_type":1,"duration":1420000,"status":13,
+                     "cover":"http://mock/c.jpg","aid":90000001,"title":"1","long_title":"第一话",
+                     "cid":40700545720,"index":1}]},
+                {"season_id":328805,"title":"第一季","episodes":[]}
+            ]}}
+        """.trimIndent()
+
+        val sections = SeasonParser.parseSections(json)
+
+        assertEquals(2, sections.size)
+        assertEquals(328806, sections[0].sectionId)
+        assertEquals("第二季", sections[0].title)
+        assertEquals(1, sections[0].episodes.size)
+        assertEquals(744345L, sections[0].episodes[0].epId)
+        assertEquals(40700545720L, sections[0].episodes[0].cid)
+        assertEquals(1, sections[0].episodes[0].epIndex)
+        assertEquals(0, sections[1].episodes.size)
+    }
+
+    @Test
+    fun `缺 seasons 字段返回空列表不抛`() {
+        assertTrue(SeasonParser.parseSections("""{"code":-404,"message":"啥都木有"}""").isEmpty())
+    }
+}
