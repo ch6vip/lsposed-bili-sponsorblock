@@ -1,5 +1,35 @@
 # 当前状态（STATUS）
 
+## 0.8.3 选集面板打通——数据链定位修正 + ViewTab 注入器 + 服务端季代理（2026-10-04 深夜）
+
+**用户可见结果：輝夜姬（僅限台灣地區）详情页选集面板渲染、正片播放、无区域横幅。**
+
+调查结论（推翻 2026-10-02 交接文档 §3 的数据链假设）：
+
+1. **选集卡片不住在 `pgc.gateway.view.v1.ViewMoss.seasonSections/pageSectionEpisodes`**
+   （六方法两轮真机 0 调用的根因——OGV 详情页根本不调用它们，全 dex 引用仅 cheese 课程目录）。
+   真实位置：`viewunite.v1.ViewReply.tab(5) → tab_module(1){tab_type=1} → introduction(2)
+   → modules(2) → Module{type=1=13, section_data(12)=SectionData{episodes(7)}}`，
+   剧集卡片 = `viewunite.common.ViewEpisode`（字段号与既有 UnlockWire 构建器完全对齐）。
+2. **受限形态 = 服务端只扣正季卡片**：輝夜姬实拍（01:08，16333B）ogvData 完整
+   （seasonId/totalEp/title 都在）但 tab 仅 4 张 PV/特别篇卡；迷宫饭对照（34887B）36 张全量。
+3. **数据源修正**：CN season API 对受限标题同样有 IP 地区门（大陆直连 -404，輝夜姬 ss33088
+   连 ep 反查都不给）。解法=服务端新路由 `/pgc/view/web/season`（socks5h 经台湾出口，
+   CN/intl 共库编号，实测全季 13 集）。服务端仓库 commit `452da1d`。
+
+模块落地（`79cdca9`）：`ViewTabHook`（view/executeView 双形态挂钩，tab 缺选集区块时经
+服务端拉季数据、WireSplice wire 级定点拼接注入，未知字段零损）+ `WireSpliceTest`/
+`ViewTabHookSpliceTest`（实拍字节 fixture：27KB 响应 round-trip 零损、受限实拍→注入→结构验证）。
+
+**真机通道归因（重要）**：本轮面板/播放打通的功劳属于**纯网络层通道**——PC `dns_relay.py`
+（昨日 20:38 已建，53 端口）把 `*.biliintl.com` 应答为本机 → `relay.py`(443, SNI) →
+sing-box 台湾出口 → 国际版服务器按 TW IP 服务**全量 view/playview**（playview 本轮连
+area_limit 弹窗都没有，verdict=NORMAL_PGC）。模块 DNS 双层 hook 本轮零参与（手机 DNS
+解析发生在 hook 之下），`ViewTabHook` 也未触发（tab 本就全量，skipHasPanel 正确跳过）。
+三者定位：**网络层 DNS 通道=主路径；模块 ViewTabHook=DNS 通道失效时的兜底（JVM 已验证，
+真机受限场景待复验）；playview 漫游=播放兜底**。待办：手机侧断 DNS 通道复验注入路径；
+D1（漫游失败 Toast + 缩短 8s 阻塞等待）。
+
 ## 0.8.2 解锁线复刻评估 + 真机复验 + DNS 双层劫持（2026-10-04）
 
 完整评估见 [`UNLOCK_ASSESSMENT_2026-10-04.md`](UNLOCK_ASSESSMENT_2026-10-04.md)（对照

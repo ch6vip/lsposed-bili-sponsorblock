@@ -96,3 +96,14 @@
   （HTTPDNS + JNI `native_resolve`），Java 层入口 `resolve/resolveSync(String): Record`，
   `Record(provider, host, clientIp, clientISP, ips[], ttl, originTtl)` 全 public——
   Java InetAddress 层 hook 对宿主数据通道**天然无效**，已加第二层挂钩。
+
+## 8. 2026-10-04 深夜续：D2 调查完成，选集链路定稿
+
+- **D2 答案（详情页 view 主体解锁）**：不需要照搬 BiliRoaming R0.i/j 的 ViewPgcAny 重建——
+  intl 的选集数据在 `ViewReply.tab` 里（§7 根因），缺什么补什么即可（ViewTabHook）。
+- 数据源调查链：CN season API（受限标题也有 IP 地区门）→ intl ogv season 端点（th 目录
+  无台限番）→ **服务端 `/pgc/view/web/season` 路由 + socks5h 台湾出口**（定稿，实测可用）。
+- 真机通道归因：面板/播放打通由 PC dns_relay.py（53，昨日已建）+ relay.py（443）网络层
+  通道达成，模块 DNS hook 与 ViewTabHook 本轮均为兜底未触发；手机侧断 DNS 通道后复验
+  注入路径 = 剩余验证项。
+- D1（失败反馈 + 8s 等待）仍未做。
