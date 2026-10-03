@@ -1,5 +1,26 @@
 # 当前状态（STATUS）
 
+## 0.8.2 解锁线复刻评估 + 真机复验 + DNS 双层劫持（2026-10-04）
+
+完整评估见 [`UNLOCK_ASSESSMENT_2026-10-04.md`](UNLOCK_ASSESSMENT_2026-10-04.md)（对照
+BiliRoaming 7c792dc8fe/1442 全量反编译逐项核实）。要点：
+
+- **播放解锁真机复验通过**（輝夜姬 僅限台灣，season_id=33088）：
+  `verdict:RESTRICTED → 漫游 GET 1.2s → proxied area=tw quality=80 streams=12 audio=3`
+  → 正片播放无横幅。
+- **播放解锁回归根因=本机 Redis 未启动**：Rust 服务端碰缓存**挂死**（无响应，非报错），
+  模块 8s 超时放行。Redis 拉起后同请求 3ms。服务端排障第一步永远是查 Redis。
+- **修复签名区域硬编码**：`PlayViewHook` 原写死 `sign("hk",…)`，th 配置下 bstar 身份会被
+  Android appkey 覆盖；改为 `extra["area"]` 跟随服务器区域（`HostSigner` 的 th 分支自此可达）。
+- **补选集线回归单测 5 例**：`SeasonWireBuildersTest`（两 reply 构建器 wire 层级——
+  防再犯「拍平→invalid tag」坑）+ `SeasonParserTest`（CN season JSON 映射）。全量单测绿。
+- **DNS 双层劫持（WIP，目标未达）**：真机实证 6.6.0 宿主数据通道走自有 DNS 栈
+  `com.bilibili.ignetdns.IgHttpDns`（HTTPDNS+JNI），`java.net.InetAddress` 层 hook 零命中；
+  已加 `IgHttpDns.resolve/resolveSync` 返回值改写层（Record 重建）。两层 hook 安装成功且
+  观测到真实解析，但**详情页全程未解析 `*.biliintl.com`**、`seasonMoss` 六方法 0 调用——
+  方案 A 的端点模型（HANDOVER §4）需修正：选集数据通道疑似走 CN 回退端点。
+  中继链路本身已验证（TLSv1.3 端到端）。下一步=抓定详情页实际选集请求路径（决策 D2）。
+
 ## 0.8.1 清晰度选级面板修复（2026-10-02，真机验证通过）
 
 qn_panel 重建落地：解锁后选级 UI 不再空白。结构为**三层嵌套**

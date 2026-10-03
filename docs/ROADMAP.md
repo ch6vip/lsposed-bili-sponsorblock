@@ -197,11 +197,12 @@
 - [ ] T8 提交体验增强：分类选择、手动时间编辑、预览后确认、投票/反馈按需拆分。
 - [ ] T2 设置入口稳定性观察：记录首页/我的页刷新、切账号、深色模式下入口是否稳定出现。
 
-## P3 - 解锁番剧 / CDN 加速 / 缓存番剧（规划完成，待 Gate 确认）
+## P3 - 解锁番剧 / CDN 加速 / 缓存番剧（U1-U7 已落地，G1/G2 已随 v0.8.0 执行）
 
-> 完整规划见 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md)；链路实证见 [`docs/UNLOCK_FEASIBILITY.md`](UNLOCK_FEASIBILITY.md)。
-> 两个前置 Gate 未确认前不写实现代码：**G1 定位反转**（免责声明改写、账号风险自担声明）、
-> **G2 许可证转 GPL-3**（参考实现为 GPL-3，研读后已不构成 clean-room）。里程碑 U0-U8，约 10-13 个工作日。
+> 完整规划见 [`docs/UNLOCK_PLAN.md`](UNLOCK_PLAN.md)；链路实证见 [`docs/UNLOCK_FEASIBILITY.md`](UNLOCK_FEASIBILITY.md)；
+> **复刻完成度评估与待决策项见 [`docs/UNLOCK_ASSESSMENT_2026-10-04.md`](UNLOCK_ASSESSMENT_2026-10-04.md)**。
+> G1/G2 已于 2026-10-02 随 v0.8.0 落地（LICENSE=GPL-3，解锁默认关闭）。剩余：U8 收口、
+> 选集面板数据通道调查（方案 A 前提已修正）、D1 失败反馈、D2 view 主体解锁决策。
 
 ## 功能任务（历史 T 列表）
 

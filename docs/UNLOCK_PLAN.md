@@ -2,6 +2,8 @@
 
 > 前置材料：Phase 0 可行性报告 [`docs/UNLOCK_FEASIBILITY.md`](UNLOCK_FEASIBILITY.md)（链路实证与本报告的技术依据）。
 > 参考实现：[BiliRoaming](https://github.com/yujincheng08/BiliRoaming)（**GPL-3**）。
+> **复刻完成度评估（2026-10-04，对照 7c792dc8fe/1442 反编译逐项核实）：
+> [`docs/UNLOCK_ASSESSMENT_2026-10-04.md`](UNLOCK_ASSESSMENT_2026-10-04.md)**。
 
 ## 0. 两个 Gate（✅ 2026-10-02 已落地，随 v0.8.0 发布）
 
@@ -22,7 +24,7 @@
 
 | 功能 | 定义 | 不做什么 |
 | --- | --- | --- |
-| 解锁番剧 | Hook `PlayerMoss.playViewUnite`，受限请求转漫游服务器，重构响应 | 不做服务器端；不做区域自动探测之外的选路优化 |
+| 解锁番剧 | Hook `PlayerMoss.playViewUnite`，受限请求转漫游服务器，重构响应 | 不做服务器端**于本仓库**（实际由配套仓库 `ch6vip/BiliRoaming-Rust-Server` 承担：valid_access_key/strip_need_vip 等）；不做区域自动探测之外的选路优化 |
 | CDN 加速 | 解锁响应 `Stream` 的 upos 域名替换（ali/cos/hw/ov/hk 按地理择优） | 不做测速 UI（后置可选） |
 | 缓存番剧 | 解锁后放开客户端自带缓存（`setDownload(0)` + fnval 拉满） | 不做自研下载管理器 |
 
@@ -35,7 +37,8 @@ PlayerMoss.playViewUnite(req, handler?)          ← HostTargets 新增「解锁
   │     （req.vod.cid≠resp.playArc.cid / supplement typeUrl 非 PGC / extraContent 有 ep_id）
   │     ├─ 未受限 → 放行
   │     └─ 受限且开关开 → RoamingClient.getPlayUrl(四区择优)
-  │           ├─ 签名：借宿主 libBili 签名静态方法（HostTargets 候选）
+  │           ├─ 签名：**按区域本地 appsign**（U4.7 定稿——借宿主签名跨区得 -3：
+  │           │   th=BstarA 密钥，cn/hk/tw=Android 密钥，见 unlock/HostSigner.kt）
   │           └─ 响应（经典 playurl JSON）→ VideoInfo → 重建 PlayViewUniteReply → param.result
   └─ 后处理：upos 域名替换（CDN 加速开关）
 探针：unlock: proxy/failed/skip 沿用 HookProbe 限频，失败必须留名
