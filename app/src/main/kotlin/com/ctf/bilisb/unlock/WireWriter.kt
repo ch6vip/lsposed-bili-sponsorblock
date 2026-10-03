@@ -182,6 +182,30 @@ object UnlockWire {
     }
 
     /**
+     * viewunite.common.ViewEpisode 卡片（选集面板 tab 注入用；字段号 2026-10-04 jadx
+     * 实证，与选集面板 ViewEpisode 同源——ep_id=1/badge=2/badge_type=3/duration=5/
+     * status=6/cover=7/aid=8/title=9/long_title=12/cid=14/ep_index=31/section_index=32/
+     * show_title=44）。status 照实拍正季卡取 2。
+     */
+    fun buildViewEpisodeBytes(ep: SeasonEpisode): ByteArray {
+        val w = WireWriter()
+        w.int64Field(1, ep.epId)
+        w.stringField(2, ep.badge)
+        w.int32Field(3, ep.badgeType)
+        w.int64Field(5, ep.duration)
+        w.int32Field(6, ep.status)
+        w.stringField(7, ep.cover)
+        w.int64Field(8, ep.aid)
+        w.stringField(9, ep.title)
+        w.stringField(12, ep.longTitle)
+        w.int64Field(14, ep.cid)
+        w.int32Field(31, ep.epIndex)
+        w.int32Field(32, 1)
+        w.stringField(44, ep.showTitle())
+        return w.toByteArray()
+    }
+
+    /**
      * Stream{stream_info=1, oneof content{dash_video=2}}。
      * U4.6 实测：真实响应每条 Stream 都带 stream_info（quality/format/description/intact），
      * 缺失会被播放器选流逻辑忽略（表现 = 响应被接受但无限缓冲）——必须携带。

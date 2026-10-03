@@ -109,6 +109,7 @@ object BiliSponsorBlockHooks {
         // G1/G2(定位反转/GPL-3)完成前仅此观测钩,处置逻辑按 docs/UNLOCK_PLAN.md 里程碑推进。
         installSafely(module, "unlockPlayView") { com.ctf.bilisb.unlock.PlayViewHook.install(module, cl) }
         installSafely(module, "seasonMoss") { com.ctf.bilisb.unlock.SeasonMossHook.install(module, cl) }
+        installSafely(module, "viewTab") { com.ctf.bilisb.unlock.ViewTabHook.install(module, cl) }
         installSafely(module, "biliIntlDns") { com.ctf.bilisb.unlock.BiliIntlDnsHook.install(module, cl) }
 
         module.info(HookProbe.summary())
