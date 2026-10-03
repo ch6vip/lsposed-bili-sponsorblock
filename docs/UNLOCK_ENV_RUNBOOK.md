@@ -60,7 +60,7 @@ ep=318304；TONIKAWA S2 = intl ep 744345，CN season API 查不到）。
 8. **/proc/net/tcp6 解析**：v4-mapped 地址最后 4 字节 hex 直读即 IPv4（`1B280D6F`→27.40.13.111）。
 9. **服务端 th 通道**：`ReqType::ThSeason` 复用 `th_proxy_playurl_*` 配置（types.rs:576）；
    th playurl 从大陆直连返回 `-404 非东南亚区番剧` 是业务错（说明出口通了）。
-| **DNS 重定向（53）** | `cd E:\ctf-aaa\bili-rust\tw-exit && python dns_relay.py`（把 *.biliintl.com 应答为本机） | `nslookup grpc.biliintl.com 192.168.6.179` → 192.168.6.179 |
+10. **主路径=网络层 DNS 通道，其余全是兜底**：手机 DNS 链路把 *.biliintl.com 解析到 PC 的`dns_relay.py`（53，\tw-exit）→ relay.py（443，SNI）→ 台湾出口；国际版服务器按出口 IP 服务全量数据（2026-10-04 真机实证：面板/播放全通，模块 hook 零参与）。通道失效时才轮到 ViewTabHook 注入（服务端 /pgc/view/web/season 取数）与 playview 漫游。
 11. **宿主 DNS 栈**：6.6.0 走 `com.bilibili.ignetdns.IgHttpDns`（HTTPDNS+JNI），
     `java.net.InetAddress` hook 对宿主数据通道无效——DNS 类劫持必须两层
     （见 `unlock/BiliIntlDnsHook.kt`）。
