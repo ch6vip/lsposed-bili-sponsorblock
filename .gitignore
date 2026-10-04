@@ -25,3 +25,6 @@ __pycache__/
 
 # 真机验证的临时产物（截图/UI dump/日志切片），STATUS.md 以本地路径引用
 .tmp-test/
+
+# 开发文档只留在本机，不上传 GitHub
+docs/
