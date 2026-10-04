@@ -5,7 +5,8 @@ package com.ctf.bilisb.unlock
  *
  * 漫游服务器返回的流地址指向 B 站 CDN（upos 系：bilivideo.com / akamaized.net），
  * 部分运营商对其中一些 CDN 慢；替换 host 为镜像/加速节点是参考实现
- * UposReplaceHelper 的核心行为。PCDN 形态（mcdn./IP:port）无法简单替换 host，跳过。
+ * UposReplaceHelper 的核心行为。PCDN/gotcha 网关形态（mcdn./IP:port/xy--x-gotchaNNN）
+ * host 不是「域名→源站」的简单映射，替换即失效，跳过。
  */
 object UposReplacer {
 
@@ -15,14 +16,21 @@ object UposReplacer {
         return host.contains("bilivideo.com") || host.contains("akamaized.net")
     }
 
-    /** PCDN 形态（mcdn / IP:port / gotcha 直连）：host 不可简单替换。 */
+    /**
+     * PCDN 形态（mcdn / IP:port / szbdyd / gotcha 网关）：host 不可简单替换。
+     * gotcha 正则与参考实现 Fj.java:45 同款（`\w*--\w*-gotcha\d*\.bilivideo`）——
+     * `--` 是网关特征；cn-gotcha01 这类普通命名 CDN 节点不含 `--`，不受影响。
+     */
     fun isPcdnUrl(url: String): Boolean {
         val host = hostOf(url)
         return host.startsWith("mcdn.") ||
             host.contains(".mcdn.bilivideo") ||
             host.contains("szbdyd.com") ||
+            GOTCHA_HOST.containsMatchIn(host) ||
             Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$").matches(host)
     }
+
+    private val GOTCHA_HOST = Regex("""\w*--\w*-gotcha\d*\.bilivideo""")
 
     /** 把 URL 的 host 替换为 [newHost]，路径与参数原样保留。 */
     fun replaceHost(url: String, newHost: String): String {

@@ -28,6 +28,28 @@ class UposReplacerTest {
     }
 
     @Test
+    fun `gotcha 网关形态跳过 普通命名 CDN 不受影响`() {
+        // 参考实现 Fj.java:45 同款正则（-- 是网关特征）：host 换了路由即失效
+        assertTrue(UposReplacer.isPcdnUrl("https://xy--x-gotcha108.bilivideo.com/v.m4s"))
+        assertTrue(UposReplacer.isPcdnUrl("https://xy--x-gotcha12.bilivideo.com:4483/v.m4s"))
+        // cn-gotcha01 这类普通命名 CDN 节点不含 --，仍按 upos 正常替换
+        assertFalse(UposReplacer.isPcdnUrl("https://cn-gotcha01.bilivideo.com/v.m4s"))
+    }
+
+    @Test
+    fun `applyTo 保留 gotcha 网关轨`() {
+        val data = PlayurlData(
+            quality = 80, format = "dash", timelength = 1L, videoCodecid = 12,
+            videos = listOf(
+                DashTrack(80, "https://xy--x-gotcha108.bilivideo.com/v.m4s", emptyList(), 1, 12, "", 0),
+            ),
+            audios = emptyList(),
+        )
+        val out = UposReplacer.applyTo(data, "mirror.example.com")
+        assertEquals("https://xy--x-gotcha108.bilivideo.com/v.m4s", out.videos[0].baseUrl)
+    }
+
+    @Test
     fun `replaceHost 只换 host 保留路径与参数`() {
         assertEquals(
             "https://mirror.example.com/upos/xx.m4s?xyz=1",

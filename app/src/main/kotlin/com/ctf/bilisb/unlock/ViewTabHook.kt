@@ -36,6 +36,11 @@ object ViewTabHook {
     private const val MAX_RETRY = 8
     private const val RETRY_DELAY_MS = 4000L
 
+    /** 季拉取单次 HTTP 超时；两次拉取+1s 间隔要落在下方 executor.get 总超时内。 */
+    private const val SEASON_FETCH_TIMEOUT_MS = 3000
+    private const val SEASON_RETRY_DELAY_MS = 1000L
+    private const val SEASON_FAIL_COOLDOWN_MS = 15_000L
+
     /** viewunite 的 PGC 载荷 typeUrl（classes18.dex 字符串池实证）。 */
     const val VIEW_PGC_ANY_TYPE_URL =
         "type.googleapis.com/bilibili.app.viewunite.pgcanymodel.ViewPgcAny"
@@ -46,8 +51,11 @@ object ViewTabHook {
     private val attempts = AtomicInteger(0)
     private val captured = AtomicInteger(0)
 
-    /** season_id → 剧集（进程内缓存，避免每次进详情页都打服务端）。 */
+    /** season_id → 剧集（进程内缓存，避免每次进详情页都打服务端）。只存成功结果。 */
     private val episodesBySeasonId = ConcurrentHashMap<Int, List<SeasonEpisode>>()
+
+    /** sid → 最近一次季拉取失败时刻：冷却期内不再打服务端，防失败重试风暴放大上游 -429。 */
+    private val seasonFailAt = ConcurrentHashMap<Int, Long>()
 
     private val executor by lazy {
         Executors.newSingleThreadExecutor { r ->
@@ -155,16 +163,8 @@ object ViewTabHook {
 
             val serverBase = config.servers.first().baseUrl.trimEnd('/')
             val accessKey = config.servers.first().accessKey.ifBlank { HostAccessKey.lastSeen() } ?: ""
-            val episodes = episodesBySeasonId.getOrPut(seasonId) {
-                val task = java.util.concurrent.Callable {
-                    val url = "$serverBase/pgc/view/web/season?season_id=$seasonId" +
-                        (if (accessKey.isNotEmpty()) "&access_key=$accessKey" else "") +
-                        "&build=9070300&mobi_app=android&platform=android"
-                    val body = PlayViewHook.defaultFetch(url, "android")
-                    SeasonParser.parseFlatEpisodes(body)
-                }
-                executor.submit(task).get(5, TimeUnit.SECONDS)
-            }
+            val episodes = episodesBySeasonId[seasonId]
+                ?: fetchEpisodes(module, seasonId, serverBase, accessKey)
             if (episodes.isEmpty()) {
                 HookProbe.first(module, "viewTab:seasonFail", 3) { "sid=$seasonId 服务端季数据为空" }
                 return@runCatching reply
@@ -204,6 +204,61 @@ object ViewTabHook {
             }
         }.getOrNull() ?: reply
     }
+
+    /**
+     * 服务端拉季数据：成功才进缓存（getOrPut 把空结果也缓存进去的旧实现，会让一次
+     * seasonFail 后该 sid 整个进程不再真正拉取——2026-10-04 实锤的坑）。上游 CN API
+     * 对切季瞬间的 view+playurl 并发风暴会间歇 -412/-429 落成季空响应，为空 1s 后
+     * 重试一次；仍失败进 [SEASON_FAIL_COOLDOWN_MS] 冷却，窗口过后自然重估自愈。
+     */
+    private fun fetchEpisodes(
+        module: XposedModule,
+        seasonId: Int,
+        serverBase: String,
+        accessKey: String,
+    ): List<SeasonEpisode> {
+        val failedAt = seasonFailAt[seasonId]
+        if (failedAt != null &&
+            android.os.SystemClock.elapsedRealtime() - failedAt < SEASON_FAIL_COOLDOWN_MS
+        ) {
+            HookProbe.first(module, "viewTab:seasonCool", 3) { "sid=$seasonId 失败冷却期内，跳过拉取" }
+            return emptyList()
+        }
+        val url = "$serverBase/pgc/view/web/season?season_id=$seasonId" +
+            (if (accessKey.isNotEmpty()) "&access_key=$accessKey" else "") +
+            "&build=9070300&mobi_app=android&platform=android"
+        // 3s+1s+3s 的重试链要落在 8s 总超时内；超时同样按失败处理进冷却
+        val task = java.util.concurrent.Callable {
+            var episodes = fetchEpisodesOnce(url)
+            if (episodes.isEmpty()) {
+                HookProbe.first(module, "viewTab:seasonRetry", 3) {
+                    "sid=$seasonId 首拉为空，${SEASON_RETRY_DELAY_MS}ms 后重试"
+                }
+                Thread.sleep(SEASON_RETRY_DELAY_MS)
+                episodes = fetchEpisodesOnce(url)
+            }
+            episodes
+        }
+        val episodes = runCatching { executor.submit(task).get(8, TimeUnit.SECONDS) }
+            .getOrElse {
+                HookProbe.first(module, "viewTab:seasonTimeout", 3) {
+                    "sid=$seasonId ${it.javaClass.simpleName}: ${it.message}"
+                }
+                emptyList()
+            }
+        if (episodes.isNotEmpty()) {
+            episodesBySeasonId[seasonId] = episodes
+        } else {
+            seasonFailAt[seasonId] = android.os.SystemClock.elapsedRealtime()
+        }
+        return episodes
+    }
+
+    private fun fetchEpisodesOnce(url: String): List<SeasonEpisode> = runCatching {
+        SeasonParser.parseFlatEpisodes(
+            PlayViewHook.defaultFetch(url, "android", timeoutMs = SEASON_FETCH_TIMEOUT_MS),
+        )
+    }.getOrDefault(emptyList())
 
     /** supplement(6) → Any.value → ViewPgcAny.ogvData(1)；形态不符返回 null。 */
     private fun extractOgvData(replyBytes: ByteArray): ByteArray? {

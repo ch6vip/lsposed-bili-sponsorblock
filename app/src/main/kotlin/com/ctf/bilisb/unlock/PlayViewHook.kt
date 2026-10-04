@@ -496,6 +496,8 @@ object PlayViewHook {
             mainHandler.post {
                 runCatching {
                     android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
+                    // 真 D1 验证走这条：截图时机不可控，logcat 探针才是硬证据
+                    HookProbe.first(module, "unlock:failToastShown", 2) { text }
                 }
             }
         }.onFailure { t ->
@@ -504,10 +506,10 @@ object PlayViewHook {
     }
 
     /** 生产 HTTP 传输：GET + gzip + 超时（unlock 线各网络路径共用）。 */
-    internal fun defaultFetch(url: String, mobiApp: String): String {
+    internal fun defaultFetch(url: String, mobiApp: String, timeoutMs: Int = 8000): String {
         val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-        conn.connectTimeout = 8000
-        conn.readTimeout = 8000
+        conn.connectTimeout = timeoutMs
+        conn.readTimeout = timeoutMs
         conn.setRequestProperty("Accept-Encoding", "gzip")
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 BiliDroid/$mobiApp")
         val stream = try {
