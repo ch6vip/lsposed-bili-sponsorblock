@@ -28,3 +28,5 @@ __pycache__/
 
 # 开发文档只留在本机，不上传 GitHub
 docs/
+hs_err_*.log
+replay_*.log
