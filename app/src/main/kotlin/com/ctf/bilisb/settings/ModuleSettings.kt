@@ -179,6 +179,8 @@ data class SettingsSnapshot(
     val unlockServerUrl: String = "",
     val unlockServerAccessKey: String = "",
     val unlockCache: Boolean = false,
+    /** 搜索解锁：受限标题经解析服务器按区域搜索（S 线，SEARCH_UNLOCK_PLAN.md）。 */
+    val unlockSearch: Boolean = false,
     val unlockUposHost: String = "",
     /** 漫游区域 cn/hk/tw/th（空 = 消费端按 cn 处理）。 */
     val unlockServerArea: String = "",

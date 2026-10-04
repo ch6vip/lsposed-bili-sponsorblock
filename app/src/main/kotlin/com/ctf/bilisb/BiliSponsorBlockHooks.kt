@@ -112,6 +112,8 @@ object BiliSponsorBlockHooks {
         installSafely(module, "viewTab") { com.ctf.bilisb.unlock.ViewTabHook.install(module, cl) }
         // S 线 S1 观测（SEARCH_UNLOCK_PLAN.md）：KSearchMoss 搜索链只读观测。
         installSafely(module, "searchObservation") { com.ctf.bilisb.unlock.SearchObservationHook.install(module, cl) }
+        // S 线 S2+S3：搜索页签注入 + 标记页签搜索替换（unlock_search 开关，默认关）。
+        installSafely(module, "searchUnlock") { com.ctf.bilisb.unlock.SearchUnlockHook.install(module, cl) }
         installSafely(module, "biliIntlDns") { com.ctf.bilisb.unlock.BiliIntlDnsHook.install(module, cl) }
 
         module.info(HookProbe.summary())

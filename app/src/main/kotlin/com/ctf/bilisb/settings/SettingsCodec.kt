@@ -156,6 +156,7 @@ object SettingsCodec {
     private val UNLOCK_SERVER_URL = StrDef(SettingsKeys.UNLOCK_SERVER_URL, { it.unlockServerUrl }, "") { raw -> raw?.trim() ?: "" }
     private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { raw -> raw ?: "" }
     private val UNLOCK_CACHE = BoolDef(SettingsKeys.UNLOCK_CACHE, { it.unlockCache }, false)
+    private val UNLOCK_SEARCH = BoolDef(SettingsKeys.UNLOCK_SEARCH, { it.unlockSearch }, false)
     private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { raw -> raw?.trim() ?: "" }
     private val UNLOCK_AREA = StrDef(SettingsKeys.UNLOCK_SERVER_AREA, { it.unlockServerArea }, "") { raw -> sanitizeRoamArea(raw) }
     private val UNLOCK_TEST_EP = LongDef(SettingsKeys.UNLOCK_TEST_EPID, { it.unlockTestEpId })
@@ -166,7 +167,7 @@ object SettingsCodec {
         USER_ID, DEFAULT_SUBMIT_CATEGORY,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
         IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
-        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
+        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_SEARCH, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
     )
 
     // ---------------------------------------------------------------- 四条通道
@@ -273,6 +274,7 @@ object SettingsCodec {
             unlockServerUrl = f(UNLOCK_SERVER_URL),
             unlockServerAccessKey = f(UNLOCK_AK),
             unlockCache = f(UNLOCK_CACHE),
+            unlockSearch = f(UNLOCK_SEARCH),
             unlockUposHost = f(UNLOCK_UPOS),
             unlockServerArea = f(UNLOCK_AREA),
             unlockTestEpId = f(UNLOCK_TEST_EP),

@@ -188,6 +188,8 @@
     <string name="unlock_ak_label">access_key</string>
     <string name="unlock_cache_title">缓存解锁</string>
     <string name="unlock_cache_summary">放开客户端缓存入口（fnval 拉满 + download=0）</string>
+    <string name="unlock_search_title">搜索解锁</string>
+    <string name="unlock_search_summary">搜索页注入区域页签，受限番剧经解析服务器按区搜索</string>
     <string name="unlock_upos_label">CDN 替换 host</string>
     <string name="unlock_upos_hint">留空不替换；替换 bilivideo/akamaized 系</string>
 </resources>

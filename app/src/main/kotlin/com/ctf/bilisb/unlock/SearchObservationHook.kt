@@ -325,6 +325,8 @@ object SearchObservationHook {
                 "com.bapis.bilibili.polymer.app.search.v1.SearchAllResponse",
                 "com.bapis.bilibili.polymer.app.search.v1.SearchByTypeRequest",
                 "com.bapis.bilibili.polymer.app.search.v1.SearchByTypeResponse",
+                "com.bapis.bilibili.polymer.app.search.v1.Item",
+                "com.bapis.bilibili.polymer.app.search.v1.Nav",
             )) {
                 val cls = runCatching { Class.forName(name, true, cl) }.getOrNull() ?: continue
                 val dump = cls.declaredFields

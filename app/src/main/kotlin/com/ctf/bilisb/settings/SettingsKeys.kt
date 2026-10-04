@@ -54,6 +54,7 @@ object SettingsKeys {
     const val UNLOCK_SERVER_URL = "unlock_server_url"
     const val UNLOCK_SERVER_ACCESS_KEY = "unlock_server_access_key"
     const val UNLOCK_CACHE = "unlock_cache"
+    const val UNLOCK_SEARCH = "unlock_search"
     const val UNLOCK_UPOS_HOST = "unlock_upos_host"
     // 漫游区域（cn/hk/tw/th）：决定服务器转发到哪个上游。必须进 Codec 通道，
     // 否则设置同步会用不含此键的快照重写 JSON 镜像，UnlockConfig 只好回落 "cn"。

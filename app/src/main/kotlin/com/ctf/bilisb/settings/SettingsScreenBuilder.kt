@@ -276,6 +276,9 @@ object SettingsScreenBuilder {
                 addView(
                     createCheckBox(activity, prefs, SettingsKeys.UNLOCK_CACHE, str(activity, R.string.unlock_cache_title), str(activity, R.string.unlock_cache_summary), false),
                 )
+                addView(
+                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_SEARCH, str(activity, R.string.unlock_search_title), str(activity, R.string.unlock_search_summary), false),
+                )
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_UPOS_HOST, str(activity, R.string.unlock_upos_label), str(activity, R.string.unlock_upos_hint), InputType.TYPE_TEXT_VARIATION_URI))
             }
         }

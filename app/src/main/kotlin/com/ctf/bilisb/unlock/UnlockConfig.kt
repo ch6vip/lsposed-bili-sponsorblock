@@ -31,9 +31,11 @@ object UnlockConfig {
         val uposHost: String,
         /** U4.6 透传诊断：重构时保留原 vod_info（隔离合成 vodInfo 变量）。 */
         val passthrough: Boolean,
+        /** 搜索解锁（S 线）：searchAll 注入区域页签 + searchByType 标记页签短路。 */
+        val searchEnabled: Boolean,
     ) {
         companion object {
-            val DEFAULT = Config(false, emptyList(), 0, false, "", false)
+            val DEFAULT = Config(false, emptyList(), 0, false, "", false, false)
         }
     }
 
@@ -66,6 +68,7 @@ object UnlockConfig {
             val testEpId = json.optLong("unlock_test_epid", 0L)
             val cacheUnlock = json.optBoolean("unlock_cache", false)
             val uposHost = json.optString("unlock_upos_host", "")
+            val searchEnabled = json.optBoolean("unlock_search", false)
             val passthrough = json.optBoolean("unlock_passthrough", false)
             // 单服务器模型：area 可配（cn/hk/tw/th——决定服务器转发到哪个上游；
             // 国际版 App 的令牌配 th 走国际网关，国内版令牌配 cn 走国内 API）
@@ -81,7 +84,7 @@ object UnlockConfig {
                     ),
                 )
             }
-            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough).also {
+            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough, searchEnabled).also {
                 module.warn(
                     "unlock:cfgLoaded file=${file.path} len=${file.length()} " +
                         "enabled=$it.enabled url=${it.servers.firstOrNull()?.baseUrl} " +
