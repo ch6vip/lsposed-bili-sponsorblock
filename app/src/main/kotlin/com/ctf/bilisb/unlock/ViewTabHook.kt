@@ -163,7 +163,7 @@ object ViewTabHook {
                     val body = PlayViewHook.defaultFetch(url, "android")
                     SeasonParser.parseFlatEpisodes(body)
                 }
-                executor.submit(task).get(10, TimeUnit.SECONDS)
+                executor.submit(task).get(5, TimeUnit.SECONDS)
             }
             if (episodes.isEmpty()) {
                 HookProbe.first(module, "viewTab:seasonFail", 3) { "sid=$seasonId 服务端季数据为空" }
@@ -180,6 +180,21 @@ object ViewTabHook {
                 "sid=$seasonId eps=${episodes.size} (${replyBytes.size}B -> ${newReplyBytes.size}B)"
             }
             captureOnce(module, reply, "sid=$seasonId")
+            // 诊断：宿主 parseFrom 重建后的字节——若宿主解析丢弃了注入区块，
+            // 这里会比 newReplyBytes 明显缩水
+            runCatching {
+                val hostBytes = rebuilt.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+                    ?.invoke(rebuilt) as? ByteArray
+                if (hostBytes != null) {
+                    val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
+                    dir.mkdirs()
+                    java.io.File(dir, "viewtab_host_roundtrip.bin")
+                        .outputStream().use { it.write(hostBytes) }
+                    HookProbe.first(module, "viewTab:roundtrip", 3) {
+                        "new=${newReplyBytes.size}B host=${hostBytes.size}B"
+                    }
+                }
+            }
             rebuilt
         }.onFailure { t ->
             HookProbe.first(module, "viewTab:failed", 5) {
@@ -230,8 +245,10 @@ object ViewTabHook {
     }
 
     /**
-     * 把 Module 追加进 tab：tab_module{tab_type=1} 的 introduction.modules 尾部；
-     * 其余 tab 字节零损保留。
+     * 把 Module 插入 tab：tab_module{tab_type=1} 的 introduction.modules 里，
+     * 位置照服务端全量响应的实拍（輝夜姬 ss33088 受限 vs 全量逐字段 diff）：插在
+     * 第一个 type=9 模块之前（原生顺序 …serial_season(21) → 选集(13) → (9)…）。
+     * 追加到末尾不渲染（theseus 页面按序取槽位）。其余 tab 字节零损保留。
      */
     private fun appendSectionModule(tabBytes: ByteArray, moduleBytes: ByteArray): ByteArray {
         val newTms = mutableListOf<ByteArray>()
@@ -242,7 +259,18 @@ object ViewTabHook {
                 touched = true
                 val intro = WireSplice.firstMessage(tm, 2)
                 val newIntro = if (intro != null) {
-                    WireSplice.emit(WireSplice.parse(intro) + WireSplice.Elem(2, 2, WireSplice.message(2, moduleBytes)))
+                    val elems = WireSplice.parse(intro).toMutableList()
+                    // 插入点：第一个 type=9 模块的元素下标（原生顺序 …21 → 13 → 9…）
+                    var insertAt = elems.size
+                    for ((idx, e) in elems.withIndex()) {
+                        if (e.field == 2 && e.wireType == 2) {
+                            val t = WireSplice.parse(e.payload()).firstOrNull()
+                                ?.takeIf { it.field == 1 && it.wireType == 0 }?.varint()
+                            if (t == 9L) { insertAt = idx; break }
+                        }
+                    }
+                    elems.add(insertAt, WireSplice.Elem(2, 2, WireSplice.message(2, moduleBytes)))
+                    WireSplice.emit(elems)
                 } else {
                     WireSplice.message(2, moduleBytes)
                 }

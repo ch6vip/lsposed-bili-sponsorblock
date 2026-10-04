@@ -173,6 +173,7 @@
     <!-- 段时长文案 -->
     <string name="segment_duration_seconds">%1$s %2$s-%3$s (%4$s)</string>
     <string name="toast_fetch_failed">片段拉取失败(%s)，稍后自动重试</string>
+    <string name="toast_unlock_failed">解锁失败：%1$s，已放行原片</string>
     <string name="toast_submitted">片段已提交</string>
     <string name="toast_submit_failed">提交失败(%s)</string>
     <string name="toast_marked_start">已标记起点，再次点击提交</string>

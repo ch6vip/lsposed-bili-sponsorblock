@@ -43,7 +43,8 @@ object PlayViewHook {
     /**
      * 解锁网络/重构的专用单线程池：playview 的响应回调跑在主线程
      * （U4 实测 NetworkOnMainThreadException），网络必须挪到工作线程；
-     * 回调线程限时等待（8s），超时放行原响应——不黑屏优先。
+     * 回调线程限时等待（3s，D1：8s 曾伴随疑似 ANR 的进程重启），超时放行原响应
+     * 并弹失败 Toast——不黑屏优先。
      */
     private val unlockExecutor by lazy {
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -386,6 +387,7 @@ object PlayViewHook {
                 forceHost = reqFacts.forceHost,
                 fourk = reqFacts.fourk,
             )
+            var failReason = ""
             val rebuilt = runCatching {
                 // 网络+重构在工作线程执行，回调线程限时等待（主线程阻塞上限 8s）
                 val task = java.util.concurrent.Callable {
@@ -405,11 +407,13 @@ object PlayViewHook {
                     }
                     val result = client.fetchPlayUrl(servers, playQuery, priorityArea = UnlockConfig.lastArea())
                     if (!result.isSuccess) {
+                        failReason = "解析服务器不可用"
                         HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
                         return@Callable null
                     }
                     val data0 = PlayurlParser.parse(result.content!!)
                     if (data0 == null || data0.videos.isEmpty()) {
+                        failReason = "漫游响应解析失败"
                         HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
                         return@Callable null
                     }
@@ -431,6 +435,7 @@ object PlayViewHook {
                         }
                         ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
                     }.onFailure { t ->
+                        failReason = "响应重建失败"
                         HookProbe.first(module, "unlock:rebuildFailed", 5) {
                             // 反射包装类(InvocationTargetException 等)展开到根因
                             var root = t
@@ -449,13 +454,52 @@ object PlayViewHook {
                     }
                     inner
                 }
-                unlockExecutor.submit(task).get(8, java.util.concurrent.TimeUnit.SECONDS)
+                unlockExecutor.submit(task).get(3, java.util.concurrent.TimeUnit.SECONDS)
             }.onFailure { t ->
+                failReason = "处理超时"
                 HookProbe.first(module, "unlock:transformTimeout", 5) {
                     "${t.javaClass.simpleName}: ${t.message}"
                 }
             }.getOrNull()
+            if (rebuilt == null) showFailToast(module, failReason)
             return rebuilt ?: reply
+        }
+    }
+
+    private val mainHandler by lazy { Handler(android.os.Looper.getMainLooper()) }
+
+    /** 同一窗口只弹一次（重试风暴下不刷屏）。 */
+    private val lastFailToastAt = java.util.concurrent.atomic.AtomicLong(0)
+
+    /**
+     * 漫游失败的用户可见提示（D1）：宿主 Application Context + 主线程 Toast。
+     * 30s 节流——超时/失败后的宿主自动重试会反复走到这里。
+     */
+    private fun showFailToast(module: XposedModule, reason: String) {
+        if (reason.isEmpty()) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFailToastAt.get() < 30_000) return
+        lastFailToastAt.set(now)
+        runCatching {
+            val context = Class.forName("android.app.ActivityThread")
+                .getMethod("currentApplication").invoke(null) as? android.content.Context
+            if (context == null) {
+                HookProbe.first(module, "unlock:failToastNoCtx", 2) { "拿不到宿主 Context" }
+                return
+            }
+            val text = com.ctf.bilisb.ui.ModuleStrings.get(
+                context,
+                com.ctf.bilisb.R.string.toast_unlock_failed,
+                reason,
+                fallback = "解锁失败：$reason（已放行原片）",
+            )
+            mainHandler.post {
+                runCatching {
+                    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }.onFailure { t ->
+            HookProbe.first(module, "unlock:failToastError", 2) { "${t.javaClass.simpleName}: ${t.message}" }
         }
     }
 
