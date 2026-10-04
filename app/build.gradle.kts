@@ -49,8 +49,10 @@ val hasReleaseSigning = releaseStorePath != null &&
 //        解锁功能开发在本地分支 unlock-wip，未入主干（见 docs/UNLOCK_FEASIBILITY.md）。
 // 0.8.0 = 番剧区域解锁功能（默认关闭，GPL-3 附加功能）+ T5 错误可见化 + 场景回归；
 //        许可证由 MIT 转 GPL-3（解锁实现重写自 GPL-3 项目 BiliRoaming）。
-val MODULE_VERSION_CODE = 15
-val MODULE_VERSION_NAME = "0.8.0"
+// 0.9.0 = 解锁线收口：选集面板兜底（ViewTabHook）+ 清晰度面板 + 缓存补参/CDN 替换
+//        + season 重试冷却 + D1 失败 Toast；U8 真机回归全通（2026-10-04）。
+val MODULE_VERSION_CODE = 16
+val MODULE_VERSION_NAME = "0.9.0"
 
 android {
     namespace = "com.ctf.bilisb"
