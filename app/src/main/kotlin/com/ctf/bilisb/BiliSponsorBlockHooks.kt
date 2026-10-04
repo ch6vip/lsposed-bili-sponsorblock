@@ -110,6 +110,8 @@ object BiliSponsorBlockHooks {
         installSafely(module, "unlockPlayView") { com.ctf.bilisb.unlock.PlayViewHook.install(module, cl) }
         installSafely(module, "seasonMoss") { com.ctf.bilisb.unlock.SeasonMossHook.install(module, cl) }
         installSafely(module, "viewTab") { com.ctf.bilisb.unlock.ViewTabHook.install(module, cl) }
+        // S 线 S1 观测（SEARCH_UNLOCK_PLAN.md）：KSearchMoss 搜索链只读观测。
+        installSafely(module, "searchObservation") { com.ctf.bilisb.unlock.SearchObservationHook.install(module, cl) }
         installSafely(module, "biliIntlDns") { com.ctf.bilisb.unlock.BiliIntlDnsHook.install(module, cl) }
 
         module.info(HookProbe.summary())
