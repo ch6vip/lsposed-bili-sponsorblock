@@ -57,6 +57,23 @@ class SearchUnlockWireTest {
     }
 
     @Test
+    fun `S2 支持同时注入港澳台与东南亚页签且幂等`() {
+        val src = searchAllBytes(listOf(7, 2))
+        val out = SearchUnlockHook.spliceAreaNavs(src, listOf("港澳台" to 810, "东南亚" to 811))!!
+        val navs = WireSplice.allMessages(out, 3)
+        assertEquals(listOf(7L, 810L, 811L, 2L), navs.map(::navTypeOf))
+
+        // 全包含时幂等返回 null
+        assertNull(SearchUnlockHook.spliceAreaNavs(out, listOf("港澳台" to 810, "东南亚" to 811)))
+
+        // 仅包含其中一个时，只追加缺失的页签
+        val partial = searchAllBytes(listOf(7, 810, 2))
+        val outPartial = SearchUnlockHook.spliceAreaNavs(partial, listOf("港澳台" to 810, "东南亚" to 811))!!
+        val navsPartial = WireSplice.allMessages(outPartial, 3)
+        assertEquals(listOf(7L, 810L, 811L, 2L), navsPartial.map(::navTypeOf))
+    }
+
+    @Test
     fun `S2 无 nav 的响应也能追加`() {
         val src = searchAllBytes(emptyList())
         val out = SearchUnlockHook.spliceAreaNav(src, "台", 810)!!

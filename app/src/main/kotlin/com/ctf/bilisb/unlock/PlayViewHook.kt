@@ -69,6 +69,9 @@ object PlayViewHook {
         }
         try {
             installAccessKeyCapture(module, cl)
+            IjkPlayerUposHook.install(module, cl)
+            ThaiSubtitleHook.install(module, cl)
+            QualityPolicy.install(module, cl)
             val moss = Class.forName(HostTargets.PLAYER_MOSS_CLASS, false, cl)
             val hooked = mutableListOf<String>()
             for (name in HostTargets.PLAY_VIEW_UNITE_METHODS) {
@@ -188,9 +191,20 @@ object PlayViewHook {
                 }
                 val config = UnlockConfig.load(module)
 
-                // U6 缓存解锁：请求补参（fnval 拉满 + fourk + download=0），wire bytes 往返
-                val effectiveReq = if (config.enabled && config.cacheUnlock && reqFacts.isDownload && req != null) {
-                    patchRequestForCache(module, cl, req)
+                // U6 缓存解锁 与 清晰度策略：请求补参（fnval 拉满 + fourk + download=0 / qn），wire bytes 往返
+                val effectiveReq = if (config.enabled && req != null) {
+                    val targetQn = if (QualityPolicy.shouldPatchQuality(config.fullScreenQuality, config.halfScreenQuality)) {
+                        QualityPolicy.resolveTargetQn(config.fullScreenQuality, config.halfScreenQuality)
+                    } else 0
+                    val patchedForCache = if (config.cacheUnlock && reqFacts.isDownload) {
+                        patchRequestForCache(module, cl, req)
+                    } else req
+
+                    if (targetQn != 0) {
+                        patchRequestForQuality(module, cl, patchedForCache, targetQn)
+                    } else {
+                        patchedForCache
+                    }
                 } else {
                     req
                 }
@@ -311,6 +325,19 @@ object PlayViewHook {
             },
         )
 
+    private fun patchRequestForQuality(module: XposedModule, cl: ClassLoader, req: Any, targetQn: Int): Any =
+        try {
+            val bytes = req.javaClass.getMethod("toByteArray").invoke(req) as ByteArray
+            val patched = CacheRequestPatch.patchQuality(bytes, targetQn)
+            if (patched === bytes) req else {
+                cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REQ_CLASS)
+                    .getMethod("parseFrom", ByteArray::class.java).invoke(null, patched)
+                    .also { HookProbe.first(module, "unlock:qualityPatched", 3) { "qn=$targetQn" } }
+            }
+        } catch (_: Exception) {
+            req
+        }
+
     /** 回调接口里携带响应的方法名（moss KCall 与 Kotlin Continuation 两种家族）。 */
     private fun isResponseCarrier(name: String): Boolean =
         name == "onNext" || name == "onCompleted" || name == "resumeWith" || name == "onSuccess"
@@ -375,6 +402,7 @@ object PlayViewHook {
                 HookProbe.first(module, "unlock:forceTest", 3) { "ep=${facts.epId} 强制受限路径（开发验证）" }
             }
             captureReplyOnce(module, reply, verdict.name)
+            UnlockNotifier.toastAreaRestricted(module, isThai = (verdict == PlayViewDecision.Verdict.THAI_REDIRECT))
 
             if (!config.enabled || config.servers.isEmpty()) {
                 HookProbe.first(module, "unlock:skippedOff", 3) { "受限但解锁未启用/未配置服务器" }
@@ -433,16 +461,27 @@ object PlayViewHook {
             // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
             val epId = reqFacts.epId.toLongOrNull()?.takeIf { it != 0L } ?: supplementEpId
             val cid = reqFacts.vodCid.takeIf { it != 0L } ?: fallbackCid
+            if (cid > 0 && epId > 0) {
+                ThaiSubtitleHook.recordCidEpId(cid, epId)
+            }
+            val targetQn = if (QualityPolicy.shouldPatchQuality(config.fullScreenQuality, config.halfScreenQuality)) {
+                QualityPolicy.resolveTargetQn(config.fullScreenQuality, config.halfScreenQuality)
+            } else 0
+            val effectiveQn = when {
+                targetQn > 0 -> targetQn
+                targetQn == -1 -> 127
+                else -> reqFacts.qn.toInt()
+            }
             // 核心只要事实本身：查询串、网络、解析、重建全在 RoamingUnlockCore
             val facts = RoamingUnlockCore.UnlockRequestFacts(
                 epId = epId,
                 cid = cid,
                 seasonId = reqFacts.seasonId,
-                qn = reqFacts.qn.toInt(),
+                qn = effectiveQn,
                 fnver = reqFacts.fnver,
-                fnval = reqFacts.fnval,
+                fnval = if (targetQn != 0) (reqFacts.fnval or CacheRequestPatch.REQUIRED_FNVAL) else reqFacts.fnval,
                 forceHost = reqFacts.forceHost,
-                fourk = reqFacts.fourk,
+                fourk = if (targetQn != 0) true else reqFacts.fourk,
                 isDownload = reqFacts.isDownload,
             )
             var failReason = ""
@@ -512,7 +551,12 @@ object PlayViewHook {
                 }
             }.getOrNull()
             // 有原响应时才提示「已放行原片」；无原响应的路径失败会把异常抛回宿主，语义不同。
-            if (rebuilt == null && hostReply != null) showFailToast(module, failReason)
+            if (rebuilt == null) {
+                if (hostReply != null) showFailToast(module, failReason)
+                UnlockNotifier.toastProxyFailed(module, failReason)
+            } else {
+                UnlockNotifier.toastProxySuccess(module)
+            }
             return rebuilt
         }
 

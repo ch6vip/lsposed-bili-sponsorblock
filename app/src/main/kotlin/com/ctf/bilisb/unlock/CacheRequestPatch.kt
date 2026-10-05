@@ -17,6 +17,19 @@ internal object CacheRequestPatch {
         ).build().toByteArray()
     }
 
+    fun patchQuality(bytes: ByteArray, targetQn: Int): ByteArray {
+        val request = PlayViewUniteReq.parseFrom(bytes)
+        val vodBuilder = request.vod.toBuilder()
+            .setFnval(request.vod.fnval or REQUIRED_FNVAL)
+            .setFourk(true)
+        if (targetQn > 0) {
+            vodBuilder.setQn(targetQn.toLong())
+        } else if (targetQn == -1) {
+            vodBuilder.setQn(127L)
+        }
+        return request.toBuilder().setVod(vodBuilder).build().toByteArray()
+    }
+
     /** 序列化、补参或宿主 parseFrom 任一步失败，都保留原对象。 */
     fun <T : Any> apply(
         request: T,

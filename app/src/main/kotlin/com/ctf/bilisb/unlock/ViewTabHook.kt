@@ -193,7 +193,13 @@ object ViewTabHook {
             val moduleBytes = buildSectionModuleBytes(seasonId, episodes)
             val newTab = appendSectionModule(tabBytes, moduleBytes)
             val spliced = WireSplice.transformMessage(replyBytes, 5) { newTab }
-            val newReplyBytes = if (config.cacheUnlock) DownloadRightsPatch.patch(spliced) else spliced
+            val newReplyBytes = if (config.cacheUnlock) {
+                val patched = DownloadRightsPatch.patch(spliced)
+                if (!patched.contentEquals(spliced)) {
+                    UnlockNotifier.toastDownloadAllowed(module)
+                }
+                patched
+            } else spliced
             val rebuilt = cl.loadClass(HostTargets.VIEW_UNITE_REPLY_CLASS)
                 .getMethod("parseFrom", ByteArray::class.java)
                 .invoke(null, newReplyBytes)

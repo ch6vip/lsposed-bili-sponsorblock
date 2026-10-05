@@ -3,11 +3,12 @@ package com.ctf.bilisb.unlock
 /** 区域页用独立 type；原生番剧/影视请求不受解锁设置影响。 */
 internal object SearchRequestPolicy {
     const val MARKER_TYPE = 810
+    const val MARKER_TYPE_TH = 811
     const val ROUTE_MARKER = "bilisb_unlock"
     enum class Route { ORIGINAL, REGIONAL, NATIVE_BANGUMI }
 
     fun route(type: Int, enabled: Boolean, searchEnabled: Boolean, hasServer: Boolean, area: String): Route {
-        if (type != MARKER_TYPE) return Route.ORIGINAL
+        if (type != MARKER_TYPE && type != MARKER_TYPE_TH) return Route.ORIGINAL
         return if (enabled && searchEnabled && hasServer && area in setOf("hk", "tw", "th")) {
             Route.REGIONAL
         } else Route.NATIVE_BANGUMI // 已打开的区域页关闭开关后仍能回到原生搜索。

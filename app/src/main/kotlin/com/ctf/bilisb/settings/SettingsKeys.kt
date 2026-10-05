@@ -55,6 +55,8 @@ object SettingsKeys {
     const val UNLOCK_SERVER_ACCESS_KEY = "unlock_server_access_key"
     const val UNLOCK_CACHE = "unlock_cache"
     const val UNLOCK_SEARCH = "unlock_search"
+    const val UNLOCK_SEARCH_AREA_BANGUMI = "unlock_search_area_bangumi"
+    const val UNLOCK_ADD_BANGUMI = "unlock_add_bangumi"
     const val UNLOCK_UPOS_HOST = "unlock_upos_host"
     // 漫游区域（cn/hk/tw/th）：决定服务器转发到哪个上游。必须进 Codec 通道，
     // 否则设置同步会用不含此键的快照重写 JSON 镜像，UnlockConfig 只好回落 "cn"。
@@ -62,6 +64,26 @@ object SettingsKeys {
     // 开发专用：命中该 ep_id 的正常 PGC 请求被强制按受限处理（不进设置 UI）。
     // 同理必须在 Codec 通道里，否则镜像同步会把它抹掉，真机 forceTest 失效。
     const val UNLOCK_TEST_EPID = "unlock_test_epid"
+
+    // 解锁运行状态信息显示（对齐 BiliRoaming show_info）
+    const val UNLOCK_SHOW_INFO = "unlock_show_info"
+
+    // 清晰度策略（对齐 BiliRoaming full_screen_quality / half_screen_quality）
+    const val FULL_SCREEN_QUALITY = "full_screen_quality"
+    const val HALF_SCREEN_QUALITY = "half_screen_quality"
+
+    // UPOS 应用到所有视频与阻止 PCDN（对齐 BiliRoaming force_upos）
+    const val UNLOCK_FORCE_UPOS = "unlock_force_upos"
+
+    // 四区独立服务器（对齐 BiliRoaming cn/hk/tw/th_server）
+    const val UNLOCK_SERVER_CN = "unlock_server_cn"
+    const val UNLOCK_SERVER_HK = "unlock_server_hk"
+    const val UNLOCK_SERVER_TW = "unlock_server_tw"
+    const val UNLOCK_SERVER_TH = "unlock_server_th"
+
+    // 字幕设置（对齐 BiliRoaming auto_generate_subtitle 与泰区字幕）
+    const val UNLOCK_AUTO_GENERATE_SUBTITLE = "unlock_auto_generate_subtitle"
+    const val UNLOCK_TH_SUBTITLE = "unlock_th_subtitle"
 
     // 提交配置
     const val USER_ID = "user_id"

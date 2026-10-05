@@ -21,6 +21,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -29,6 +30,9 @@ import com.ctf.bilisb.R
 import com.ctf.bilisb.model.SponsorCategories
 import com.ctf.bilisb.sponsor.SkipStatsStore
 import com.ctf.bilisb.sponsor.UserIdentityStore
+import com.ctf.bilisb.unlock.QualityPolicy
+import com.ctf.bilisb.unlock.UnlockNotifier
+import com.ctf.bilisb.unlock.UposSpeedTester
 
 object SettingsScreenBuilder {
     private const val REPO_URL = "https://github.com/ch6vip/lsposed-bili-sponsorblock"
@@ -264,25 +268,460 @@ object SettingsScreenBuilder {
      * 风险提示置顶——账号风控由用户自担是本功能的明示前提（G1 定位反转的一部分）。
      */
     fun buildUnlock(activity: Activity, prefs: SharedPreferences): LinearLayout {
-        return LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            biliSection(this, activity, str(activity, R.string.unlock_section)) {
+        return biliPage(activity) {
+            biliSection(this, activity, str(activity, R.string.unlock_section_core)) {
                 addView(hint(activity, str(activity, R.string.unlock_note)))
                 addView(
-                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_ENABLED, str(activity, R.string.unlock_enabled_title), str(activity, R.string.unlock_enabled_summary), false),
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_ENABLED,
+                        str(activity, R.string.unlock_enabled_title),
+                        str(activity, R.string.unlock_enabled_summary),
+                        false,
+                        onChanged = { enabled ->
+                            findViewWithTag<View>("unlock_dependent_container")?.alpha = if (enabled) 1.0f else 0.45f
+                        },
+                    ),
                 )
-                addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_URL, str(activity, R.string.unlock_server_label), str(activity, R.string.unlock_server_hint), InputType.TYPE_TEXT_VARIATION_URI))
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_SHOW_INFO,
+                        str(activity, R.string.unlock_show_info_title),
+                        str(activity, R.string.unlock_show_info_summary),
+                        true,
+                    ),
+                )
+            }
+
+            val isEnabled = prefs.getBoolean(SettingsKeys.UNLOCK_ENABLED, false)
+            val dependentContainer = LinearLayout(activity).apply {
+                tag = "unlock_dependent_container"
+                orientation = LinearLayout.VERTICAL
+                alpha = if (isEnabled) 1.0f else 0.45f
+            }
+
+            biliSection(dependentContainer, activity, str(activity, R.string.unlock_section_server)) {
+                addView(multiServerRow(activity, prefs))
+                addView(biliDividerInner(activity))
                 addView(unlockAreaRow(activity, prefs))
+                addView(biliDividerInner(activity))
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, str(activity, R.string.unlock_ak_label), "", InputType.TYPE_CLASS_TEXT))
-                addView(
-                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_CACHE, str(activity, R.string.unlock_cache_title), str(activity, R.string.unlock_cache_summary), false),
-                )
-                addView(
-                    createCheckBox(activity, prefs, SettingsKeys.UNLOCK_SEARCH, str(activity, R.string.unlock_search_title), str(activity, R.string.unlock_search_summary), false),
-                )
+            }
+
+            biliSection(dependentContainer, activity, str(activity, R.string.unlock_section_quality)) {
+                addView(fullScreenQualityRow(activity, prefs))
+                addView(biliDividerInner(activity))
+                addView(halfScreenQualityRow(activity, prefs))
+            }
+
+            biliSection(dependentContainer, activity, str(activity, R.string.unlock_section_upos)) {
+                addView(uposSelectRow(activity, prefs))
+                addView(biliDividerInner(activity))
+                addView(uposSpeedTestRow(activity, prefs))
+                addView(biliDividerInner(activity))
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_UPOS_HOST, str(activity, R.string.unlock_upos_label), str(activity, R.string.unlock_upos_hint), InputType.TYPE_TEXT_VARIATION_URI))
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_FORCE_UPOS,
+                        str(activity, R.string.unlock_force_upos_title),
+                        str(activity, R.string.unlock_force_upos_summary),
+                        false,
+                    ),
+                )
+            }
+
+            biliSection(dependentContainer, activity, str(activity, R.string.unlock_section_enhance)) {
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_TH_SUBTITLE,
+                        str(activity, R.string.unlock_th_sub_title),
+                        str(activity, R.string.unlock_th_sub_summary),
+                        true,
+                    ),
+                )
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_AUTO_GENERATE_SUBTITLE,
+                        str(activity, R.string.unlock_auto_gen_sub_title),
+                        str(activity, R.string.unlock_auto_gen_sub_summary),
+                        false,
+                    ),
+                )
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_ADD_BANGUMI,
+                        str(activity, R.string.unlock_add_bangumi_title),
+                        str(activity, R.string.unlock_add_bangumi_summary),
+                        false,
+                    ),
+                )
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_SEARCH,
+                        str(activity, R.string.unlock_search_title),
+                        str(activity, R.string.unlock_search_summary),
+                        false,
+                    ),
+                )
+                addView(biliDividerInner(activity))
+                addView(
+                    createCheckBox(
+                        activity, prefs, SettingsKeys.UNLOCK_CACHE,
+                        str(activity, R.string.unlock_cache_title),
+                        str(activity, R.string.unlock_cache_summary),
+                        false,
+                    ),
+                )
+            }
+
+            addView(dependentContainer)
+        }
+    }
+
+    private fun multiServerRow(activity: Activity, prefs: SharedPreferences): View {
+        val row = LinearLayout(activity).apply {
+            tag = SettingsKeys.UNLOCK_SERVER_CN
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+            isClickable = true
+            isFocusable = true
+        }
+        val textCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val titleView = TextView(activity).apply {
+            text = str(activity, R.string.unlock_server_multi_title)
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+        }
+        val summaryView = TextView(activity).apply {
+            textSize = 12f
+            setTextColor(BILI_TEXT_SECONDARY)
+            setPadding(0, dp(activity, 2), 0, 0)
+        }
+        textCol.addView(titleView)
+        textCol.addView(summaryView)
+        val arrow = TextView(activity).apply {
+            text = "›"
+            textSize = 20f
+            setTextColor(BILI_PINK)
+        }
+        row.addView(textCol)
+        row.addView(arrow)
+
+        fun refresh() {
+            val configuredCount = listOf(
+                prefs.getString(SettingsKeys.UNLOCK_SERVER_CN, ""),
+                prefs.getString(SettingsKeys.UNLOCK_SERVER_HK, ""),
+                prefs.getString(SettingsKeys.UNLOCK_SERVER_TW, ""),
+                prefs.getString(SettingsKeys.UNLOCK_SERVER_TH, ""),
+            ).count { !it.isNullOrBlank() }
+            summaryView.text = if (configuredCount > 0) {
+                str(activity, R.string.unlock_server_multi_summary_fmt, configuredCount)
+            } else {
+                val legacy = prefs.getString(SettingsKeys.UNLOCK_SERVER_URL, "")?.trim().orEmpty()
+                if (legacy.isNotEmpty()) {
+                    legacy
+                } else {
+                    str(activity, R.string.unlock_server_default_summary)
+                }
             }
         }
+        refresh()
+
+        row.setOnClickListener {
+            val layout = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(activity, 20), dp(activity, 10), dp(activity, 20), dp(activity, 10))
+            }
+            val legacyUrl = prefs.getString(SettingsKeys.UNLOCK_SERVER_URL, "")?.trim().orEmpty()
+            fun inputBlock(labelRes: Int, key: String, hintText: String): EditText {
+                layout.addView(TextView(activity).apply {
+                    text = str(activity, labelRes)
+                    textSize = 13f
+                    setTextColor(primaryTextColor(activity))
+                    setTypeface(typeface, Typeface.BOLD)
+                    setPadding(0, dp(activity, 8), 0, dp(activity, 2))
+                })
+                val edit = EditText(activity).apply {
+                    hint = hintText
+                    val existing = prefs.getString(key, "")
+                    setText(if (!existing.isNullOrBlank()) existing else legacyUrl)
+                    textSize = 14f
+                    inputType = InputType.TYPE_TEXT_VARIATION_URI
+                }
+                layout.addView(edit)
+                return edit
+            }
+
+            val defaultHint = "http(s)://..."
+            val cnInput = inputBlock(R.string.unlock_server_cn_label, SettingsKeys.UNLOCK_SERVER_CN, defaultHint)
+            val hkInput = inputBlock(R.string.unlock_server_hk_label, SettingsKeys.UNLOCK_SERVER_HK, defaultHint)
+            val twInput = inputBlock(R.string.unlock_server_tw_label, SettingsKeys.UNLOCK_SERVER_TW, defaultHint)
+            val thInput = inputBlock(R.string.unlock_server_th_label, SettingsKeys.UNLOCK_SERVER_TH, defaultHint)
+
+            val scroll = ScrollView(activity).apply { addView(layout) }
+
+            AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.unlock_server_multi_title))
+                .setView(scroll)
+                .setPositiveButton(str(activity, R.string.common_save)) { _, _ ->
+                    val cn = cnInput.text.toString().trim()
+                    val hk = hkInput.text.toString().trim()
+                    val tw = twInput.text.toString().trim()
+                    val th = thInput.text.toString().trim()
+                    val editor = prefs.edit()
+                        .putString(SettingsKeys.UNLOCK_SERVER_CN, cn)
+                        .putString(SettingsKeys.UNLOCK_SERVER_HK, hk)
+                        .putString(SettingsKeys.UNLOCK_SERVER_TW, tw)
+                        .putString(SettingsKeys.UNLOCK_SERVER_TH, th)
+                    val firstNonBlank = listOf(cn, hk, tw, th).firstOrNull { it.isNotBlank() } ?: ""
+                    editor.putString(SettingsKeys.UNLOCK_SERVER_URL, firstNonBlank)
+                    editor.apply()
+                    refresh()
+                }
+                .setNeutralButton(str(activity, R.string.common_reset)) { _, _ ->
+                    cnInput.setText("")
+                    hkInput.setText("")
+                    twInput.setText("")
+                    thInput.setText("")
+                    prefs.edit()
+                        .remove(SettingsKeys.UNLOCK_SERVER_CN)
+                        .remove(SettingsKeys.UNLOCK_SERVER_HK)
+                        .remove(SettingsKeys.UNLOCK_SERVER_TW)
+                        .remove(SettingsKeys.UNLOCK_SERVER_TH)
+                        .remove(SettingsKeys.UNLOCK_SERVER_URL)
+                        .apply()
+                    refresh()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
+        }
+        return row
+    }
+
+    private fun fullScreenQualityRow(activity: Activity, prefs: SharedPreferences): View {
+        val options = QualityPolicy.FULL_SCREEN_OPTIONS
+        val values = options.map { it.first }
+        val labels = options.map { it.second }
+        fun selected(): Int = values.indexOf(
+            prefs.getString(SettingsKeys.FULL_SCREEN_QUALITY, "0")?.trim() ?: "0",
+        ).coerceAtLeast(0)
+        val row = TextView(activity).apply {
+            tag = SettingsKeys.FULL_SCREEN_QUALITY
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+        }
+        fun refresh() {
+            row.text = str(activity, R.string.quality_fs_value, labels[selected()])
+        }
+        refresh()
+        row.setOnClickListener {
+            AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.quality_fs_title))
+                .setSingleChoiceItems(labels.toTypedArray(), selected()) { dialog, which ->
+                    prefs.edit().putString(SettingsKeys.FULL_SCREEN_QUALITY, values[which]).apply()
+                    refresh()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
+        }
+        return row
+    }
+
+    private fun halfScreenQualityRow(activity: Activity, prefs: SharedPreferences): View {
+        val options = QualityPolicy.HALF_SCREEN_OPTIONS
+        val values = options.map { it.first }
+        val labels = options.map { it.second }
+        fun selected(): Int = values.indexOf(
+            prefs.getString(SettingsKeys.HALF_SCREEN_QUALITY, "0")?.trim() ?: "0",
+        ).coerceAtLeast(0)
+        val row = TextView(activity).apply {
+            tag = SettingsKeys.HALF_SCREEN_QUALITY
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+        }
+        fun refresh() {
+            row.text = str(activity, R.string.quality_hs_value, labels[selected()])
+        }
+        refresh()
+        row.setOnClickListener {
+            AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.quality_hs_title))
+                .setSingleChoiceItems(labels.toTypedArray(), selected()) { dialog, which ->
+                    prefs.edit().putString(SettingsKeys.HALF_SCREEN_QUALITY, values[which]).apply()
+                    refresh()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
+        }
+        return row
+    }
+
+    private fun uposSelectRow(activity: Activity, prefs: SharedPreferences): View {
+        val nodes = listOf(UposSpeedTester.UposNode(str(activity, R.string.unlock_upos_none), "")) + UposSpeedTester.NODES
+        val labels = nodes.map { it.name }
+        val hosts = nodes.map { it.host }
+        fun selected(): Int = hosts.indexOf(
+            prefs.getString(SettingsKeys.UNLOCK_UPOS_HOST, "")?.trim() ?: "",
+        ).coerceAtLeast(0)
+        val row = TextView(activity).apply {
+            tag = "upos_select_row"
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+        }
+        fun refresh() {
+            row.text = str(activity, R.string.unlock_upos_select_value, labels[selected()])
+        }
+        refresh()
+        row.setOnClickListener {
+            AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.unlock_upos_select_title))
+                .setSingleChoiceItems(labels.toTypedArray(), selected()) { dialog, which ->
+                    val host = hosts[which]
+                    prefs.edit().putString(SettingsKeys.UNLOCK_UPOS_HOST, host).apply()
+                    refresh()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
+        }
+        return row
+    }
+
+    private fun uposSpeedTestRow(activity: Activity, prefs: SharedPreferences): View {
+        val row = TextView(activity).apply {
+            tag = "upos_speed_test_row"
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+            text = str(activity, R.string.unlock_upos_speed_test_title) + " ›"
+        }
+        row.setOnClickListener {
+            showUposSpeedTestDialog(activity, prefs)
+        }
+        return row
+    }
+
+    private fun showUposSpeedTestDialog(activity: Activity, prefs: SharedPreferences) {
+        val dialogView = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 20), dp(activity, 14), dp(activity, 20), dp(activity, 14))
+        }
+        val statusText = TextView(activity).apply {
+            text = str(activity, R.string.unlock_upos_speed_testing, 0, UposSpeedTester.NODES.size)
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, 0, 0, dp(activity, 10))
+        }
+        val progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = false
+            max = UposSpeedTester.NODES.size
+            progress = 0
+            setPadding(0, 0, 0, dp(activity, 10))
+        }
+        val resultsContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val scrollView = ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(activity, 280),
+            )
+            addView(resultsContainer)
+        }
+        dialogView.addView(statusText)
+        dialogView.addView(progressBar)
+        dialogView.addView(scrollView)
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle(str(activity, R.string.unlock_upos_speed_test_title))
+            .setView(dialogView)
+            .setNegativeButton(str(activity, R.string.common_cancel), null)
+            .create()
+
+        val results = mutableListOf<UposSpeedTester.TestResult>()
+        val currentHost = prefs.getString(SettingsKeys.UNLOCK_UPOS_HOST, "")?.trim() ?: ""
+
+        fun renderItem(res: UposSpeedTester.TestResult): View {
+            val isCurrent = currentHost.isNotBlank() && currentHost == res.node.host
+            val dotColor = when {
+                res.latencyMs in 1..120 -> 0xFF4CAF50.toInt()
+                res.latencyMs in 121..250 -> 0xFFFF9800.toInt()
+                else -> 0xFFF44336.toInt()
+            }
+            return LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(activity, 6), 0, dp(activity, 6))
+                background = selectableItemBackground(activity)
+                addView(TextView(activity).apply {
+                    text = "●"
+                    textSize = 10f
+                    setTextColor(dotColor)
+                    setPadding(0, 0, dp(activity, 8), 0)
+                })
+                addView(TextView(activity).apply {
+                    text = res.node.name
+                    textSize = 13f
+                    setTextColor(primaryTextColor(activity))
+                    if (isCurrent) setTypeface(typeface, Typeface.BOLD)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                val extraText = if (isCurrent) " " + str(activity, R.string.unlock_upos_current_active) else ""
+                addView(TextView(activity).apply {
+                    text = "${res.formattedSpeed}  (${res.latencyMs}ms)$extraText"
+                    textSize = 12f
+                    setTextColor(if (isCurrent) BILI_PINK else BILI_TEXT_SECONDARY)
+                })
+                setOnClickListener {
+                    prefs.edit().putString(SettingsKeys.UNLOCK_UPOS_HOST, res.node.host).apply()
+                    UnlockNotifier.toastUposEnabled(activity, res.node.host)
+                    dialog.dismiss()
+                }
+            }
+        }
+
+        val future = UposSpeedTester.testAllAsync(
+            onProgress = { res ->
+                activity.runOnUiThread {
+                    results.add(res)
+                    progressBar.progress = results.size
+                    statusText.text = str(activity, R.string.unlock_upos_speed_testing, results.size, UposSpeedTester.NODES.size)
+                    resultsContainer.addView(renderItem(res))
+                }
+            },
+            onComplete = { _ ->
+                activity.runOnUiThread {
+                    statusText.text = str(activity, R.string.unlock_upos_speed_done)
+                    resultsContainer.removeAllViews()
+                    results.sortedByDescending { it.speedBytesPerSec }.forEach { res ->
+                        resultsContainer.addView(renderItem(res))
+                    }
+                }
+            },
+        )
+
+        dialog.setOnDismissListener {
+            future.cancel(true)
+        }
+        dialog.show()
     }
 
     private fun unlockAreaRow(activity: Activity, prefs: SharedPreferences): View {
@@ -568,6 +1007,7 @@ object SettingsScreenBuilder {
         title: String,
         summary: String,
         defaultValue: Boolean,
+        onChanged: ((Boolean) -> Unit)? = null,
     ): LinearLayout {
         val layout = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -587,6 +1027,7 @@ object SettingsScreenBuilder {
             isChecked = prefs.getBoolean(key, defaultValue)
             setOnCheckedChangeListener { _, isChecked ->
                 prefs.edit().putBoolean(key, isChecked).apply()
+                onChanged?.invoke(isChecked)
             }
         }
         val summaryView = TextView(activity).apply {

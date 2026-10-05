@@ -110,7 +110,9 @@ object SearchUnlockHook {
 
     internal fun markRegionalPage(arguments: android.os.Bundle): Boolean {
         if (arguments.getString(SearchRequestPolicy.ROUTE_MARKER) != "1") return false
-        arguments.putString("type", MARKER_TYPE.toString())
+        val area = arguments.getString("area")
+        val markerType = if (area == "th") SearchRequestPolicy.MARKER_TYPE_TH else MARKER_TYPE
+        arguments.putString("type", markerType.toString())
         return true
     }
 
@@ -136,13 +138,18 @@ object SearchUnlockHook {
                 String::class.java, Int::class.javaPrimitiveType, String::class.java,
             )
             ctor.isAccessible = true
-            val added = ctor.newInstance(
+            val addedTw = ctor.newInstance(
                 "PAGE_TW_UNLOCK", old.size,
-                "bilibili://search-result/new-bangumi?${SearchRequestPolicy.ROUTE_MARKER}=1", MARKER_TYPE, "bangumi",
+                "bilibili://search-result/new-bangumi?${SearchRequestPolicy.ROUTE_MARKER}=1&area=tw", MARKER_TYPE, "bangumi",
             )
-            val newArr = java.lang.reflect.Array.newInstance(cls, old.size + 1) as Array<Any>
+            val addedTh = ctor.newInstance(
+                "PAGE_TH_UNLOCK", old.size + 1,
+                "bilibili://search-result/new-bangumi?${SearchRequestPolicy.ROUTE_MARKER}=1&area=th", SearchRequestPolicy.MARKER_TYPE_TH, "bangumi",
+            )
+            val newArr = java.lang.reflect.Array.newInstance(cls, old.size + 2) as Array<Any>
             System.arraycopy(old, 0, newArr, 0, old.size)
-            newArr[old.size] = added
+            newArr[old.size] = addedTw
+            newArr[old.size + 1] = addedTh
             valuesField.set(null, newArr)
             // $ENTRIES（kotlin EnumEntries）：经 kotlin.enums.a.a(Array) 工厂重建
             runCatching {
@@ -156,7 +163,7 @@ object SearchUnlockHook {
                 if (m != null) entriesField.set(null, m.invoke(null, newArr))
             }
             routeReady.set(true)
-            HookProbe.ok(module, "search:enumInjected", "PageTypes ${old.size}+1 type=$MARKER_TYPE")
+            HookProbe.ok(module, "search:enumInjected", "PageTypes ${old.size}+2 type=$MARKER_TYPE,${SearchRequestPolicy.MARKER_TYPE_TH}")
         }.onFailure { t ->
             HookProbe.miss(
                 module, "search:enumInject",
@@ -195,18 +202,27 @@ object SearchUnlockHook {
         if (reply == null) return null
         val config = UnlockConfig.load(module)
         if (!config.enabled || !config.searchEnabled || !routeReady.get()) return reply
-        val area = config.servers.firstOrNull()?.area ?: return reply
-        if (area == "cn") return reply // 原生即本区，无需页签
+        val itemsToInject = mutableListOf<Pair<String, Int>>()
+        val hasHkTw = config.servers.any { it.area in setOf("hk", "tw") }
+        val hasTh = config.servers.any { it.area == "th" }
+        if (hasHkTw) itemsToInject.add("港澳台" to MARKER_TYPE)
+        if (hasTh) itemsToInject.add("东南亚" to SearchRequestPolicy.MARKER_TYPE_TH)
+        if (itemsToInject.isEmpty()) {
+            val area = config.servers.firstOrNull()?.area ?: return reply
+            if (area != "cn") itemsToInject.add(areaLabel(area) to MARKER_TYPE)
+        }
+        if (itemsToInject.isEmpty()) return reply
+
         return runCatching {
             val bytes = reply.javaClass.methods
                 .firstOrNull { it.name == "toByteArray" && it.parameterTypes.isEmpty() }
                 ?.invoke(reply) as? ByteArray ?: return@runCatching reply
-            val spliced = spliceAreaNav(bytes, areaLabel(area), MARKER_TYPE)
+            val spliced = spliceAreaNavs(bytes, itemsToInject)
                 ?: return@runCatching reply
             val rebuilt = cl.loadClass(ALL_RESP_CLASS)
                 .getMethod("parseFrom", ByteArray::class.java).invoke(null, spliced)
             HookProbe.first(module, "search:navInjected", 3) {
-                "nav+1 type=$MARKER_TYPE label=${areaLabel(area)} (${bytes.size}B -> ${spliced.size}B)"
+                "nav+${itemsToInject.size} (${bytes.size}B -> ${spliced.size}B)"
             }
             rebuilt
         }.onFailure { t ->
@@ -221,24 +237,52 @@ object SearchUnlockHook {
      * Nav{name=1,total=2,pages=3,type=4}（实拍反解：番剧={1:'番剧',2:2,3:1,4:7}）。
      */
     fun spliceAreaNav(bytes: ByteArray, label: String, markerType: Int): ByteArray? {
+        return spliceAreaNavs(bytes, listOf(label to markerType))
+    }
+
+    fun spliceAreaNavs(bytes: ByteArray, items: List<Pair<String, Int>>): ByteArray? {
+        if (items.isEmpty()) return null
         val elems = WireSplice.parse(bytes)
         var navSeen = 0
-        var inserted = false
+        var insertedCount = 0
         val out = mutableListOf<WireSplice.Elem>()
+        val existingTypes = mutableSetOf<Long>()
+        val itemTypes = items.map { it.second.toLong() }.toSet()
+        for (e in elems) {
+            if (e.field == 3 && e.wireType == 2) {
+                val nav = WireSplice.parse(e.payload())
+                val type = nav.firstOrNull { it.field == 4 && it.wireType == 0 }?.varint() ?: 0
+                existingTypes.add(type)
+            }
+        }
+        val remaining = items.filter { it.second.toLong() !in existingTypes }
+        if (remaining.isEmpty()) return null // 已注入（幂等）
+
+        val hasAnyExistingRegional = items.any { it.second.toLong() in existingTypes }
         for (e in elems) {
             out.add(e)
             if (e.field == 3 && e.wireType == 2) {
                 navSeen++
                 val nav = WireSplice.parse(e.payload())
                 val type = nav.firstOrNull { it.field == 4 && it.wireType == 0 }?.varint() ?: 0
-                if (type == markerType.toLong()) return null // 已注入（幂等）
-                if (navSeen == 1) {
-                    out.add(WireSplice.Elem(3, 2, WireSplice.message(3, navBytes(label, markerType))))
-                    inserted = true
+                val shouldInsertHere = if (hasAnyExistingRegional) {
+                    type in itemTypes
+                } else {
+                    navSeen == 1
+                }
+                if (shouldInsertHere && insertedCount == 0) {
+                    for ((lbl, mType) in remaining) {
+                        out.add(WireSplice.Elem(3, 2, WireSplice.message(3, navBytes(lbl, mType))))
+                        insertedCount++
+                    }
                 }
             }
         }
-        if (!inserted) out.add(WireSplice.Elem(3, 2, WireSplice.message(3, navBytes(label, markerType))))
+        if (insertedCount == 0 && remaining.isNotEmpty()) {
+            for ((lbl, mType) in remaining) {
+                out.add(WireSplice.Elem(3, 2, WireSplice.message(3, navBytes(lbl, mType))))
+            }
+        }
         return WireSplice.emit(out)
     }
 
@@ -275,9 +319,13 @@ object SearchUnlockHook {
                 if (req == null || handler == null) return@intercept chain.proceed()
                 val reqType = req.javaClass.getMethod("getType").invoke(req) as Int
                 val config = UnlockConfig.load(module)
+                val targetArea = if (reqType == SearchRequestPolicy.MARKER_TYPE_TH) "th" else "tw"
+                val relevantArea = config.servers.firstOrNull {
+                    if (targetArea == "th") it.area == "th" else it.area in setOf("tw", "hk")
+                }?.area ?: config.servers.firstOrNull()?.area.orEmpty()
                 val route = SearchRequestPolicy.route(
                     reqType, config.enabled, config.searchEnabled,
-                    config.servers.isNotEmpty(), config.servers.firstOrNull()?.area.orEmpty(),
+                    config.servers.isNotEmpty(), relevantArea,
                 )
                 if (route == SearchRequestPolicy.Route.ORIGINAL) return@intercept chain.proceed()
                 if (route == SearchRequestPolicy.Route.NATIVE_BANGUMI) {
@@ -294,8 +342,8 @@ object SearchUnlockHook {
                         val next = pagination.javaClass.getMethod("getNext").invoke(pagination) as String
                         val size = pagination.javaClass.getMethod("getPageSize").invoke(pagination) as Int
                         val page = SearchRequestPolicy.page(next, size)
-                        HookProbe.first(module, "search:markerHit", 6) { "type=$MARKER_TYPE page=${page.number}" }
-                        val bytes = fetchServerSearch(config, keyword, page)
+                        HookProbe.first(module, "search:markerHit", 6) { "type=$reqType page=${page.number} targetArea=$targetArea" }
+                        val bytes = fetchServerSearch(config, keyword, page, targetArea)
                         val resp = parseHost(module, cl, BYTYPE_RESP_CLASS, bytes)
                             ?: error("Cannot rebuild search response")
                         invokeHandler(handler, "onNext", resp)
@@ -313,9 +361,14 @@ object SearchUnlockHook {
         config: UnlockConfig.Config,
         keyword: String,
         page: SearchRequestPolicy.Page,
+        targetArea: String = "tw",
     ): ByteArray {
-        val server = config.servers.first()
-        val area = server.area
+        val server = if (targetArea == "th") {
+            config.servers.firstOrNull { it.area == "th" } ?: config.servers.first()
+        } else {
+            config.servers.firstOrNull { it.area in setOf("tw", "hk") } ?: config.servers.first()
+        }
+        val area = if (targetArea == "th") "th" else if (server.area in setOf("tw", "hk")) server.area else "tw"
         val accessKey = server.accessKey.ifBlank { HostAccessKey.lastSeen() } ?: ""
         val encoded = java.net.URLEncoder.encode(keyword, "UTF-8").replace("+", "%20")
         var query = "keyword=$encoded&type=7&area=$area&pn=${page.number}&ps=${page.size}"

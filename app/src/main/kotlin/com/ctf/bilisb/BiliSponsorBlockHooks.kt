@@ -117,6 +117,8 @@ object BiliSponsorBlockHooks {
         installSafely(module, "biliIntlDns") { com.ctf.bilisb.unlock.BiliIntlDnsHook.install(module, cl) }
         // K/gRPC 播放链路（离线下载引擎所在的那条；与上面的 MOSS PlayerMoss 是两套传输）。
         installSafely(module, "kPlayView") { com.ctf.bilisb.unlock.KPlayViewHook.install(module, cl) }
+        // 首页顶栏「追番（大陆）」与「追番（港澳台）」页签注入（unlock_add_bangumi 开关，默认关）。
+        installSafely(module, "homeTab") { com.ctf.bilisb.unlock.HomeTabHook.install(module, cl) }
 
         module.info(HookProbe.summary())
     }

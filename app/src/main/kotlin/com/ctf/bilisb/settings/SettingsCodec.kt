@@ -157,9 +157,20 @@ object SettingsCodec {
     private val UNLOCK_AK = StrDef(SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, { it.unlockServerAccessKey }, "") { raw -> raw ?: "" }
     private val UNLOCK_CACHE = BoolDef(SettingsKeys.UNLOCK_CACHE, { it.unlockCache }, false)
     private val UNLOCK_SEARCH = BoolDef(SettingsKeys.UNLOCK_SEARCH, { it.unlockSearch }, false)
+    private val UNLOCK_ADD_BANGUMI = BoolDef(SettingsKeys.UNLOCK_ADD_BANGUMI, { it.unlockAddBangumi }, false)
     private val UNLOCK_UPOS = StrDef(SettingsKeys.UNLOCK_UPOS_HOST, { it.unlockUposHost }, "") { raw -> raw?.trim() ?: "" }
     private val UNLOCK_AREA = StrDef(SettingsKeys.UNLOCK_SERVER_AREA, { it.unlockServerArea }, "") { raw -> sanitizeRoamArea(raw) }
     private val UNLOCK_TEST_EP = LongDef(SettingsKeys.UNLOCK_TEST_EPID, { it.unlockTestEpId })
+    private val UNLOCK_SHOW_INFO = BoolDef(SettingsKeys.UNLOCK_SHOW_INFO, { it.unlockShowInfo }, true)
+    private val FULL_SCREEN_QUALITY = StrDef(SettingsKeys.FULL_SCREEN_QUALITY, { it.fullScreenQuality }, "0") { raw -> raw?.trim() ?: "0" }
+    private val HALF_SCREEN_QUALITY = StrDef(SettingsKeys.HALF_SCREEN_QUALITY, { it.halfScreenQuality }, "0") { raw -> raw?.trim() ?: "0" }
+    private val UNLOCK_FORCE_UPOS = BoolDef(SettingsKeys.UNLOCK_FORCE_UPOS, { it.unlockForceUpos }, false)
+    private val UNLOCK_SERVER_CN = StrDef(SettingsKeys.UNLOCK_SERVER_CN, { it.unlockServerCn }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_SERVER_HK = StrDef(SettingsKeys.UNLOCK_SERVER_HK, { it.unlockServerHk }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_SERVER_TW = StrDef(SettingsKeys.UNLOCK_SERVER_TW, { it.unlockServerTw }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_SERVER_TH = StrDef(SettingsKeys.UNLOCK_SERVER_TH, { it.unlockServerTh }, "") { raw -> raw?.trim() ?: "" }
+    private val UNLOCK_AUTO_GEN_SUB = BoolDef(SettingsKeys.UNLOCK_AUTO_GENERATE_SUBTITLE, { it.unlockAutoGenerateSubtitle }, false)
+    private val UNLOCK_TH_SUB = BoolDef(SettingsKeys.UNLOCK_TH_SUBTITLE, { it.unlockThSubtitle }, true)
 
     private val FIELDS: List<FieldDef<*>> = listOf(
         ENABLED, AUTO_SKIP, MANUAL_SKIP, MUTE_SEGMENTS,
@@ -167,7 +178,10 @@ object SettingsCodec {
         USER_ID, DEFAULT_SUBMIT_CATEGORY,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
         IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
-        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_SEARCH, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
+        UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_SEARCH, UNLOCK_ADD_BANGUMI, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
+        UNLOCK_SHOW_INFO, FULL_SCREEN_QUALITY, HALF_SCREEN_QUALITY, UNLOCK_FORCE_UPOS,
+        UNLOCK_SERVER_CN, UNLOCK_SERVER_HK, UNLOCK_SERVER_TW, UNLOCK_SERVER_TH,
+        UNLOCK_AUTO_GEN_SUB, UNLOCK_TH_SUB,
     )
 
     // ---------------------------------------------------------------- 四条通道
@@ -275,9 +289,20 @@ object SettingsCodec {
             unlockServerAccessKey = f(UNLOCK_AK),
             unlockCache = f(UNLOCK_CACHE),
             unlockSearch = f(UNLOCK_SEARCH),
+            unlockAddBangumi = f(UNLOCK_ADD_BANGUMI),
             unlockUposHost = f(UNLOCK_UPOS),
             unlockServerArea = f(UNLOCK_AREA),
             unlockTestEpId = f(UNLOCK_TEST_EP),
+            unlockShowInfo = f(UNLOCK_SHOW_INFO),
+            fullScreenQuality = f(FULL_SCREEN_QUALITY),
+            halfScreenQuality = f(HALF_SCREEN_QUALITY),
+            unlockForceUpos = f(UNLOCK_FORCE_UPOS),
+            unlockServerCn = f(UNLOCK_SERVER_CN),
+            unlockServerHk = f(UNLOCK_SERVER_HK),
+            unlockServerTw = f(UNLOCK_SERVER_TW),
+            unlockServerTh = f(UNLOCK_SERVER_TH),
+            unlockAutoGenerateSubtitle = f(UNLOCK_AUTO_GEN_SUB),
+            unlockThSubtitle = f(UNLOCK_TH_SUB),
         )
     }
 

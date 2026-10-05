@@ -33,9 +33,47 @@ object UnlockConfig {
         val passthrough: Boolean,
         /** 搜索解锁（S 线）：searchAll 注入区域页签 + searchByType 标记页签短路。 */
         val searchEnabled: Boolean,
+        /** 解锁运行状态信息提示（show_info，默认 true）。 */
+        val unlockShowInfo: Boolean = true,
+        /** 全屏清晰度策略（0=默认，-1=自动最高，其余为 qn 代码）。 */
+        val fullScreenQuality: String = "0",
+        /** 半屏清晰度策略（0=默认，1=跟随全屏，-1=自动最高，其余为 qn 代码）。 */
+        val halfScreenQuality: String = "0",
+        /** UPOS 应用到所有视频与阻止 PCDN（force_upos）。 */
+        val forceUpos: Boolean = false,
+        /** 四区独立解析服务器地址。 */
+        val serverCn: String = "",
+        val serverHk: String = "",
+        val serverTw: String = "",
+        val serverTh: String = "",
+        /** 根据繁体字幕自动生成简体中文字幕。 */
+        val autoGenerateSubtitle: Boolean = false,
+        /** 泰区/东南亚多语言字幕注入。 */
+        val thSubtitle: Boolean = true,
+        /** 添加其他地区番剧（在首页顶栏导航添加大陆与港澳台追番分页）。 */
+        val addBangumi: Boolean = false,
     ) {
         companion object {
-            val DEFAULT = Config(false, emptyList(), 0, false, "", false, false)
+            val DEFAULT = Config(
+                enabled = false,
+                servers = emptyList(),
+                testEpId = 0,
+                cacheUnlock = false,
+                uposHost = "",
+                passthrough = false,
+                searchEnabled = false,
+                unlockShowInfo = true,
+                fullScreenQuality = "0",
+                halfScreenQuality = "0",
+                forceUpos = false,
+                serverCn = "",
+                serverHk = "",
+                serverTw = "",
+                serverTh = "",
+                autoGenerateSubtitle = false,
+                thSubtitle = true,
+                addBangumi = false,
+            )
         }
     }
 
@@ -70,26 +108,58 @@ object UnlockConfig {
             val uposHost = json.optString("unlock_upos_host", "")
             val searchEnabled = json.optBoolean("unlock_search", false)
             val passthrough = json.optBoolean("unlock_passthrough", false)
-            // 单服务器模型：area 可配（cn/hk/tw/th——决定服务器转发到哪个上游；
-            // 国际版 App 的令牌配 th 走国际网关，国内版令牌配 cn 走国内 API）
+            val unlockShowInfo = json.optBoolean("unlock_show_info", true)
+            val fullScreenQuality = json.optString("full_screen_quality", "0")
+            val halfScreenQuality = json.optString("half_screen_quality", "0")
+            val forceUpos = json.optBoolean("unlock_force_upos", false)
+            val serverCn = json.optString("unlock_server_cn", "").trim()
+            val serverHk = json.optString("unlock_server_hk", "").trim()
+            val serverTw = json.optString("unlock_server_tw", "").trim()
+            val serverTh = json.optString("unlock_server_th", "").trim()
+            val autoGenerateSubtitle = json.optBoolean("unlock_auto_generate_subtitle", false)
+            val thSubtitle = json.optBoolean("unlock_th_subtitle", true)
+            val addBangumi = json.optBoolean("unlock_add_bangumi", false)
+            val ak = json.optString("unlock_server_access_key", "")
+
+            val serverList = mutableListOf<RoamingClient.RoamingServer>()
+            if (serverCn.isNotEmpty()) serverList.add(RoamingClient.RoamingServer("cn", serverCn, ak))
+            if (serverHk.isNotEmpty()) serverList.add(RoamingClient.RoamingServer("hk", serverHk, ak))
+            if (serverTw.isNotEmpty()) serverList.add(RoamingClient.RoamingServer("tw", serverTw, ak))
+            if (serverTh.isNotEmpty()) serverList.add(RoamingClient.RoamingServer("th", serverTh, ak))
+
             val serverUrl = json.optString("unlock_server_url", "").trim()
-            val servers = if (serverUrl.isEmpty()) {
-                emptyList()
-            } else {
-                listOf(
-                    RoamingClient.RoamingServer(
-                        area = json.optString("unlock_server_area", "cn").ifBlank { "cn" },
-                        baseUrl = serverUrl,
-                        accessKey = json.optString("unlock_server_access_key", ""),
-                    ),
-                )
+            if (serverUrl.isNotEmpty()) {
+                val area = json.optString("unlock_server_area", "cn").ifBlank { "cn" }
+                if (serverList.none { it.area == area }) {
+                    serverList.add(RoamingClient.RoamingServer(area = area, baseUrl = serverUrl, accessKey = ak))
+                }
             }
-            Config(enabled, servers, testEpId, cacheUnlock, uposHost, passthrough, searchEnabled).also {
+
+            Config(
+                enabled = enabled,
+                servers = serverList,
+                testEpId = testEpId,
+                cacheUnlock = cacheUnlock,
+                uposHost = uposHost,
+                passthrough = passthrough,
+                searchEnabled = searchEnabled,
+                unlockShowInfo = unlockShowInfo,
+                fullScreenQuality = fullScreenQuality,
+                halfScreenQuality = halfScreenQuality,
+                forceUpos = forceUpos,
+                serverCn = serverCn,
+                serverHk = serverHk,
+                serverTw = serverTw,
+                serverTh = serverTh,
+                autoGenerateSubtitle = autoGenerateSubtitle,
+                thSubtitle = thSubtitle,
+                addBangumi = addBangumi,
+            ).also {
                 module.warn(
                     "unlock:cfgLoaded file=${file.path} len=${file.length()} " +
-                        "enabled=$it.enabled url=${it.servers.firstOrNull()?.baseUrl} " +
-                        "area=${it.servers.firstOrNull()?.area} testEpId=${it.testEpId} " +
-                        "rawTestEpId=${json.opt("unlock_test_epid")}",
+                        "enabled=${it.enabled} servers=${it.servers.size} " +
+                        "showInfo=${it.unlockShowInfo} forceUpos=${it.forceUpos} " +
+                        "fsQuality=${it.fullScreenQuality} hsQuality=${it.halfScreenQuality}",
                 )
             }
         }.onFailure { t ->

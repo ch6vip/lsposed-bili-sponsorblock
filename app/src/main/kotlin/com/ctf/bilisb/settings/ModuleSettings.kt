@@ -181,11 +181,30 @@ data class SettingsSnapshot(
     val unlockCache: Boolean = false,
     /** 搜索解锁：受限标题经解析服务器按区域搜索（S 线，SEARCH_UNLOCK_PLAN.md）。 */
     val unlockSearch: Boolean = false,
+    /** 添加其他地区番剧：在首页顶栏导航添加大陆与港澳台追番分页。 */
+    val unlockAddBangumi: Boolean = false,
     val unlockUposHost: String = "",
     /** 漫游区域 cn/hk/tw/th（空 = 消费端按 cn 处理）。 */
     val unlockServerArea: String = "",
     /** 开发专用强制受限 ep_id（0 = 关闭）。 */
     val unlockTestEpId: Long = 0,
+    /** 解锁运行状态信息显示（对齐 BiliRoaming show_info，默认 true）。 */
+    val unlockShowInfo: Boolean = true,
+    /** 全屏清晰度策略（0=默认，-1=自动最高，其余为 qn 代码）。 */
+    val fullScreenQuality: String = "0",
+    /** 半屏清晰度策略（0=默认，1=跟随全屏，-1=自动最高，其余为 qn 代码）。 */
+    val halfScreenQuality: String = "0",
+    /** UPOS 应用到所有视频与阻止 PCDN（对齐 BiliRoaming force_upos）。 */
+    val unlockForceUpos: Boolean = false,
+    /** 四区独立解析服务器地址。 */
+    val unlockServerCn: String = "",
+    val unlockServerHk: String = "",
+    val unlockServerTw: String = "",
+    val unlockServerTh: String = "",
+    /** 根据繁体字幕自动生成简体中文字幕。 */
+    val unlockAutoGenerateSubtitle: Boolean = false,
+    /** 泰区/东南亚多语言字幕注入。 */
+    val unlockThSubtitle: Boolean = true,
 ) {
     companion object {
         val DEFAULT = SettingsCodec.defaultSnapshot()

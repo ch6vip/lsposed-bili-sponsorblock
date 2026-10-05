@@ -280,6 +280,17 @@ class SettingsCodecTest {
             unlockUposHost = "upos.example.com",
             unlockServerArea = "tw",
             unlockTestEpId = 5189397L,
+            unlockShowInfo = false,
+            fullScreenQuality = "80",
+            halfScreenQuality = "1",
+            unlockForceUpos = true,
+            unlockServerCn = "https://cn.example.com",
+            unlockServerHk = "https://hk.example.com",
+            unlockServerTw = "https://tw.example.com",
+            unlockServerTh = "https://th.example.com",
+            unlockAutoGenerateSubtitle = true,
+            unlockThSubtitle = false,
+            unlockAddBangumi = true,
         )
 
         val restored = SettingsCodec.snapshotFromMap(SettingsCodec.snapshotToMap(original))
@@ -295,7 +306,7 @@ class SettingsCodecTest {
     fun mapKeySetIsPinned() {
         // 集合比较（顺序无关）；键总数也钉死，防止无意增删
         val keys = SettingsCodec.snapshotToMap(SettingsSnapshot.DEFAULT).keys
-        assertEquals(47, keys.size)
+        assertEquals(58, keys.size)
         assertEquals(
             setOf(
                 "enabled", "auto_skip", "manual_skip", "mute_segments",
@@ -312,7 +323,10 @@ class SettingsCodecTest {
                 "enhance_ip_location", "enhance_hide_triple", "enhance_hide_up_prompt",
                 "enhance_hide_vote", "enhance_no_auto_refresh", "enhance_share_qq",
                 "unlock_enabled", "unlock_server_url", "unlock_server_access_key",
-                "unlock_cache", "unlock_search", "unlock_upos_host", "unlock_server_area", "unlock_test_epid",
+                "unlock_cache", "unlock_search", "unlock_add_bangumi", "unlock_upos_host", "unlock_server_area", "unlock_test_epid",
+                "unlock_show_info", "full_screen_quality", "half_screen_quality", "unlock_force_upos",
+                "unlock_server_cn", "unlock_server_hk", "unlock_server_tw", "unlock_server_th",
+                "unlock_auto_generate_subtitle", "unlock_th_subtitle",
             ),
             keys,
         )

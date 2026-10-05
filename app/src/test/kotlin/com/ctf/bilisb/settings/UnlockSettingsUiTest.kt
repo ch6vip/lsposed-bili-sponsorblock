@@ -54,4 +54,55 @@ class UnlockSettingsUiTest {
         assertEquals("810", marked.getString("type"))
         assertEquals("retained", marked.getString("keyword"))
     }
+
+    @Test fun `fullscreen quality selection flows from UI to preferences`() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val prefs = activity.getSharedPreferences("unlock-ui-test", 0)
+            prefs.edit().clear().commit()
+            val page = SettingsScreenBuilder.buildUnlock(activity, prefs)
+            val row = page.findViewWithTag<TextView>(SettingsKeys.FULL_SCREEN_QUALITY)
+            assertNotNull(row)
+            row.performClick()
+            val dialog = ShadowAlertDialog.getLatestAlertDialog()
+            // Click item 1 -> "-1" (自动最高)
+            dialog.listView.performItemClick(null, 1, 1)
+            assertEquals("-1", prefs.getString(SettingsKeys.FULL_SCREEN_QUALITY, null))
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun `halfscreen quality selection flows from UI to preferences`() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val prefs = activity.getSharedPreferences("unlock-ui-test", 0)
+            prefs.edit().clear().commit()
+            val page = SettingsScreenBuilder.buildUnlock(activity, prefs)
+            val row = page.findViewWithTag<TextView>(SettingsKeys.HALF_SCREEN_QUALITY)
+            assertNotNull(row)
+            row.performClick()
+            val dialog = ShadowAlertDialog.getLatestAlertDialog()
+            // Click item 1 -> "1" (跟随全屏)
+            dialog.listView.performItemClick(null, 1, 1)
+            assertEquals("1", prefs.getString(SettingsKeys.HALF_SCREEN_QUALITY, null))
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    @Test fun `upos selection flows from UI to preferences`() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val prefs = activity.getSharedPreferences("unlock-ui-test", 0)
+            prefs.edit().clear().commit()
+            val page = SettingsScreenBuilder.buildUnlock(activity, prefs)
+            val row = page.findViewWithTag<TextView>("upos_select_row")
+            assertNotNull(row)
+            row.performClick()
+            val dialog = ShadowAlertDialog.getLatestAlertDialog()
+            // Click item 1 -> first node (ali)
+            dialog.listView.performItemClick(null, 1, 1)
+            assertEquals("upos-sz-mirrorali.bilivideo.com", prefs.getString(SettingsKeys.UNLOCK_UPOS_HOST, null))
+        } finally { controller.pause().stop().destroy() }
+    }
 }
