@@ -272,6 +272,7 @@ object SettingsScreenBuilder {
                     createCheckBox(activity, prefs, SettingsKeys.UNLOCK_ENABLED, str(activity, R.string.unlock_enabled_title), str(activity, R.string.unlock_enabled_summary), false),
                 )
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_URL, str(activity, R.string.unlock_server_label), str(activity, R.string.unlock_server_hint), InputType.TYPE_TEXT_VARIATION_URI))
+                addView(unlockAreaRow(activity, prefs))
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_SERVER_ACCESS_KEY, str(activity, R.string.unlock_ak_label), "", InputType.TYPE_CLASS_TEXT))
                 addView(
                     createCheckBox(activity, prefs, SettingsKeys.UNLOCK_CACHE, str(activity, R.string.unlock_cache_title), str(activity, R.string.unlock_cache_summary), false),
@@ -282,6 +283,40 @@ object SettingsScreenBuilder {
                 addView(textRow(activity, prefs, SettingsKeys.UNLOCK_UPOS_HOST, str(activity, R.string.unlock_upos_label), str(activity, R.string.unlock_upos_hint), InputType.TYPE_TEXT_VARIATION_URI))
             }
         }
+    }
+
+    private fun unlockAreaRow(activity: Activity, prefs: SharedPreferences): View {
+        val areas = listOf("cn", "hk", "tw", "th")
+        val labels = listOf(
+            R.string.unlock_area_cn, R.string.unlock_area_hk,
+            R.string.unlock_area_tw, R.string.unlock_area_th,
+        ).map { str(activity, it) }
+        fun selected(): Int = areas.indexOf(
+            SettingsCodec.snapshotFromPreferences(prefs).unlockServerArea.ifBlank { "cn" },
+        ).coerceAtLeast(0)
+        val row = TextView(activity).apply {
+            tag = SettingsKeys.UNLOCK_SERVER_AREA
+            textSize = 14f
+            setTextColor(primaryTextColor(activity))
+            setPadding(0, dp(activity, 14), 0, dp(activity, 14))
+            background = selectableItemBackground(activity)
+        }
+        fun refresh() {
+            row.text = str(activity, R.string.unlock_area_value, labels[selected()])
+        }
+        refresh()
+        row.setOnClickListener {
+            AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.unlock_area_label))
+                .setSingleChoiceItems(labels.toTypedArray(), selected()) { dialog, which ->
+                    prefs.edit().putString(SettingsKeys.UNLOCK_SERVER_AREA, areas[which]).apply()
+                    refresh()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
+        }
+        return row
     }
 
     /** 文本输入行（label + EditText，失焦落盘）。 */

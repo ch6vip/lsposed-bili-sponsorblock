@@ -11,7 +11,6 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -53,6 +52,20 @@ object ViewTabHook {
 
     /** season_id → 剧集（进程内缓存，避免每次进详情页都打服务端）。只存成功结果。 */
     private val episodesBySeasonId = ConcurrentHashMap<Int, List<SeasonEpisode>>()
+
+    /**
+     * 按 cid 反查 ep_id。
+     *
+     * 下载引擎取播放地址的请求只带 cid（season/ep 都是 0），而 PGC 播放接口只认 ep_id——
+     * 播放路径的 cid+ep 是齐的，所以这条兜底只在下载路径用得上（2026-10-05 真机实证：
+     * 只带 cid 去解析服务器会被上游按 -10403 拒掉）。
+     */
+    fun epIdForCid(cid: Long): Long? {
+        if (cid == 0L) return null
+        return episodesBySeasonId.values.asSequence().flatten()
+            .firstOrNull { it.cid == cid }
+            ?.epId
+    }
 
     /** sid → 最近一次季拉取失败时刻：冷却期内不再打服务端，防失败重试风暴放大上游 -429。 */
     private val seasonFailAt = ConcurrentHashMap<Int, Long>()
@@ -139,26 +152,33 @@ object ViewTabHook {
 
     private fun transform(module: XposedModule, cl: ClassLoader, req: Any?, reply: Any?): Any? {
         if (reply == null) return null
+        var fallback = reply
         return runCatching {
             val config = UnlockConfig.load(module)
-            if (!config.enabled || config.servers.isEmpty()) return@runCatching reply
-            val replyBytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
-                ?.invoke(reply) as? ByteArray ?: return@runCatching reply
+            if (!config.enabled || config.servers.isEmpty()) return@runCatching fallback
+            val originalBytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+                ?.invoke(reply) as? ByteArray ?: return@runCatching fallback
+            val replyBytes = if (config.cacheUnlock) DownloadRightsPatch.patch(originalBytes) else originalBytes
+            if (!replyBytes.contentEquals(originalBytes)) {
+                fallback = cl.loadClass(HostTargets.VIEW_UNITE_REPLY_CLASS)
+                    .getMethod("parseFrom", ByteArray::class.java).invoke(null, replyBytes)
+                HookProbe.first(module, "viewTab:downloadRights", 3) { "season/episode download rights updated" }
+            }
             captureOnce(module, reply, "pre")
 
             // supplement 须为 ViewPgcAny 且 ogvData 带 seasonId
-            val ogvData = extractOgvData(replyBytes) ?: return@runCatching reply
+            val ogvData = extractOgvData(replyBytes) ?: return@runCatching fallback
             val seasonId = WireSplice.parse(ogvData)
                 .firstOrNull { it.field == 2 && it.wireType == 0 }?.varint()?.toInt() ?: 0
             if (seasonId == 0) {
                 HookProbe.first(module, "viewTab:skipNoSeason", 3) { "ogvData 缺 seasonId" }
-                return@runCatching reply
+                return@runCatching fallback
             }
 
             val tabBytes = WireSplice.firstMessage(replyBytes, 5)
             if (tabBytes == null || panelPresent(tabBytes)) {
                 HookProbe.first(module, "viewTab:skipHasPanel", 3) { "sid=$seasonId tab 已有选集区块" }
-                return@runCatching reply
+                return@runCatching fallback
             }
 
             val serverBase = config.servers.first().baseUrl.trimEnd('/')
@@ -167,12 +187,13 @@ object ViewTabHook {
                 ?: fetchEpisodes(module, seasonId, serverBase, accessKey)
             if (episodes.isEmpty()) {
                 HookProbe.first(module, "viewTab:seasonFail", 3) { "sid=$seasonId 服务端季数据为空" }
-                return@runCatching reply
+                return@runCatching fallback
             }
 
             val moduleBytes = buildSectionModuleBytes(seasonId, episodes)
             val newTab = appendSectionModule(tabBytes, moduleBytes)
-            val newReplyBytes = WireSplice.transformMessage(replyBytes, 5) { newTab }
+            val spliced = WireSplice.transformMessage(replyBytes, 5) { newTab }
+            val newReplyBytes = if (config.cacheUnlock) DownloadRightsPatch.patch(spliced) else spliced
             val rebuilt = cl.loadClass(HostTargets.VIEW_UNITE_REPLY_CLASS)
                 .getMethod("parseFrom", ByteArray::class.java)
                 .invoke(null, newReplyBytes)
@@ -202,7 +223,7 @@ object ViewTabHook {
                 while (root.cause != null) root = root.cause!!
                 "${t.javaClass.simpleName}: ${t.message} <- ${root.javaClass.simpleName}: ${root.message}"
             }
-        }.getOrNull() ?: reply
+        }.getOrNull() ?: fallback
     }
 
     /**
@@ -239,7 +260,7 @@ object ViewTabHook {
             }
             episodes
         }
-        val episodes = runCatching { executor.submit(task).get(8, TimeUnit.SECONDS) }
+        val episodes = runCatching { BoundedCall.await(executor, 8000) { task.call() } }
             .getOrElse {
                 HookProbe.first(module, "viewTab:seasonTimeout", 3) {
                     "sid=$seasonId ${it.javaClass.simpleName}: ${it.message}"

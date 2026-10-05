@@ -206,11 +206,13 @@ class SeasonWireBuildersTest {
             UnlockWire.buildSeasonSectionsReplyBytes(sections),
         )
 
+        // 形状对齐宿主原生实拍：id 是 1 基索引，episode_ids(6) 不写（原生为空）。
         assertEquals(1, reply.sectionsCount)
         val section = reply.getSections(0)
+        assertEquals(1, section.id)
         assertEquals(328806, section.sectionId)
         assertEquals("第二季", section.title)
-        assertEquals(listOf(744345L, 744346L), section.episodeIdsList)
+        assertEquals(0, section.episodeIdsCount)
         // 剧集条目是消息类型（wire type 2）——拍平写会在此解析失败
         assertEquals(2, section.episodesCount)
         val ep = section.getEpisodes(0)
@@ -220,6 +222,11 @@ class SeasonWireBuildersTest {
         assertEquals(90000001L, ep.aid)
         assertEquals("第一话", ep.longTitle)
         assertEquals(1, ep.epIndex)
+        // 缓存页每集下载位与分区内序号（原生实拍：allow_download=1 / allow_dm=1 / section_index=1）
+        assertEquals(1, ep.sectionIndex)
+        assertEquals(1, ep.rights.allowDownload)
+        assertEquals(1, ep.rights.allowDm)
+        assertEquals("1", ep.showTitle)
     }
 
     @Test
@@ -251,8 +258,44 @@ class SeasonWireBuildersTest {
 /** SeasonParser：CN season JSON（pgc/view/web/season）→ 选集中间模型的映射回归。 */
 class SeasonParserTest {
 
+    /**
+     * 真机实测形状（2026-10-05 season 91755）：正片在 `result.episodes[]`，花絮/PV 在
+     * `result.section[]`，`result.seasons[]` 只是「其他季」摘要（无 episodes）。
+     * 旧实现按 `seasons[]` 建分区 → 「42 个分区 / 0 条剧集」，缓存页判定无内容而失败。
+     */
     @Test
-    fun `CN season JSON 解析为分区与剧集`() {
+    fun `正片取自 result episodes 花絮取自 result section`() {
+        val json = """
+            {"code":0,"result":{"season_id":91755,"season_title":"哆啦A梦 第五季",
+              "episodes":[
+                {"id":1522361,"aid":114216904296911,"cid":29045623909,"title":"1",
+                 "long_title":"爸爸与大雄与在河川游泳的酒","index":1,"cover":"http://mock/1.jpg"},
+                {"id":1522362,"aid":114216904296912,"cid":29045623622,"title":"2",
+                 "long_title":"第二话","index":2}],
+              "section":[{"id":181845,"title":"PV","type":2,"episodes":[
+                {"id":1522400,"aid":114211,"cid":290457,"title":"PV1"}]}],
+              "seasons":[{"season_id":32777,"season_title":"第一季"},
+                         {"season_id":32800,"season_title":"第二季"}]}}
+        """.trimIndent()
+
+        val sections = SeasonParser.parseSections(json)
+
+        // 正片 + PV；「其他季」摘要不得被当成分区。
+        assertEquals(2, sections.size)
+        assertEquals(91755, sections[0].sectionId)
+        assertEquals(2, sections[0].episodes.size)
+        assertEquals(1522361L, sections[0].episodes[0].epId)
+        assertEquals(29045623909L, sections[0].episodes[0].cid)
+        assertEquals(1, sections[0].episodes[0].epIndex)
+        assertEquals(181845, sections[1].sectionId)
+        assertEquals("PV", sections[1].title)
+        assertEquals(2, sections[1].type)
+        assertEquals(1, sections[1].episodes.size)
+    }
+
+    /** 正片与 section 都缺失时的形态漂移回退（仅在此时才按 seasons[] 建分区）。 */
+    @Test
+    fun `缺 episodes 与 section 时回退按 seasons 摘要建分区`() {
         val json = """
             {"code":0,"result":{"seasons":[
                 {"season_id":328806,"title":"第二季","episodes":[

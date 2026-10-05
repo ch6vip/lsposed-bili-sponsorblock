@@ -137,9 +137,24 @@ message SeasonViewEpisode {
   string title = 9;
   string long_title = 12;
   int64 cid = 14;
+  // 缓存页原生每集都带（2026-10-05 实拍 The Eternal Strife）：rights{allow_download=1,allow_dm=1}。
+  SeasonViewRights rights = 22;
+  string bvid = 24;
+  string link = 26;
+  int64 pub_time = 29;
   int32 ep_index = 31;
   int32 section_index = 32;
   string show_title = 44;
+}
+
+// viewunite.common.Rights（选集/缓存页每集）：allow_download=1 / allow_review=2 /
+// can_watch=3 / resource=4 / allow_dm=5 / allow_demand=6 / area_limit=7。
+message SeasonViewRights {
+  int32 allow_download = 1;
+  int32 allow_review = 2;
+  int32 can_watch = 3;
+  int32 allow_dm = 5;
+  int32 area_limit = 7;
 }
 
 message PageSectionEpisodesReply {

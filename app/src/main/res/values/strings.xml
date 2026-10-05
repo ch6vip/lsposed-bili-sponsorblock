@@ -184,10 +184,17 @@
     <string name="unlock_enabled_title">启用解锁</string>
     <string name="unlock_enabled_summary">受限请求转向解析服务器获取播放地址</string>
     <string name="unlock_server_label">服务器地址</string>
+    <string name="unlock_area_label">解析区域</string>
+    <string name="unlock_area_value">解析区域：%1$s ›</string>
+    <string name="unlock_area_cn">中国大陆</string>
+    <string name="unlock_area_hk">香港</string>
+    <string name="unlock_area_tw">台湾</string>
+    <string name="unlock_area_th">东南亚</string>
+    <string name="toast_search_unlock_failed">区域搜索失败，请稍后重试</string>
     <string name="unlock_server_hint">http://192.168.1.10:8787</string>
     <string name="unlock_ak_label">access_key</string>
     <string name="unlock_cache_title">缓存解锁</string>
-    <string name="unlock_cache_summary">放开客户端缓存入口（fnval 拉满 + download=0）</string>
+    <string name="unlock_cache_summary">调整番剧缓存权限和下载请求；实际下载取决于解析服务器与账号权益</string>
     <string name="unlock_search_title">搜索解锁</string>
     <string name="unlock_search_summary">搜索页注入区域页签，受限番剧经解析服务器按区搜索</string>
     <string name="unlock_upos_label">CDN 替换 host</string>

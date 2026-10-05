@@ -126,6 +126,10 @@ data class SeasonEpisode(
     val longTitle: String,
     val cid: Long,
     val epIndex: Int,
+    /** 缓存页原生每集都带的展示/播放元数据；来源 CN JSON 的 bvid/link/pub_time。 */
+    val bvid: String = "",
+    val link: String = "",
+    val pubTime: Long = 0,
 ) {
     /**
      * 宿主卡片主标题（实拍模板：title 为数字序号时 = `第N话 <long_title>`；
@@ -169,29 +173,77 @@ object SeasonParser {
                 longTitle = e.optString("long_title"),
                 cid = e.optLong("cid"),
                 epIndex = e.optInt("index", i + 1),
+                bvid = e.optString("bvid"),
+                link = e.optString("link"),
+                pubTime = e.optLong("pub_time"),
             )
         }
     }
 
-    /** 解析 seasons[] → 分区列表（每季一个分区，episodes 内联）。 */
+    /**
+     * 解析 → 分区列表。
+     *
+     * CN `pgc/view/web/season` 真实形状（2026-10-05 实测 season 91755 哆啦A梦第五季）：
+     * **正片在 `result.episodes[]`**（80 话），花絮/PV 等在 `result.section[]`（各自带
+     * `episodes`），而 `result.seasons[]` 只是「其他季」的摘要条目（**无 episodes**，
+     * 仅 1 条存根）。旧实现按 `seasons[]` 建分区，得到「42 个分区 / 0 条剧集」的空响应，
+     * 缓存页判定无内容 → 「页面加载失败，请重试」（真机实证 2026-10-05）。
+     */
     fun parseSections(content: String): List<SeasonSection> = runCatching {
         var json = org.json.JSONObject(content)
         json.opt("result")?.let { result ->
             if (result !is String) json = json.getJSONObject("result")
         }
+        val sections = ArrayList<SeasonSection>()
+        val seasonId = json.optInt("season_id")
+        val main = parseEpisodes(json.optJSONArray("episodes"))
+        if (main.isNotEmpty()) {
+            sections += SeasonSection(
+                id = seasonId,
+                sectionId = seasonId,
+                title = MAIN_SECTION_TITLE,
+                type = MAIN_SECTION_TYPE,
+                episodes = main,
+            )
+        }
+        val extras = json.optJSONArray("section")
+        if (extras != null) {
+            for (i in 0 until extras.length()) {
+                val s = extras.optJSONObject(i) ?: continue
+                val sid = s.optInt("id")
+                if (sid == 0) continue
+                sections += SeasonSection(
+                    id = sid,
+                    sectionId = sid,
+                    title = s.optString("title"),
+                    type = s.optInt("type", 1),
+                    episodes = parseEpisodes(s.optJSONArray("episodes")),
+                )
+            }
+        }
+        if (sections.isEmpty()) parseSeasonSummaries(json) else sections
+    }.getOrDefault(emptyList())
+
+    /** CN JSON 里正片没有独立条目，需按 season_id 由 `episodes[]` 自建。 */
+    /** 原生实拍（seasonSectionsForCache）正片分区标题为「选集」；CN JSON 无该条目，需自建。 */
+    private const val MAIN_SECTION_TITLE = "选集"
+    private const val MAIN_SECTION_TYPE = 0
+
+    /** 「其他季」摘要回退（接口形态漂移保险）：正片与 section 都取不到时才用。 */
+    private fun parseSeasonSummaries(json: org.json.JSONObject): List<SeasonSection> {
         val seasons = json.optJSONArray("seasons") ?: return emptyList()
-        (0 until seasons.length()).mapNotNull { i ->
+        return (0 until seasons.length()).mapNotNull { i ->
             val s = seasons.optJSONObject(i) ?: return@mapNotNull null
             val sid = s.optInt("season_id")
             SeasonSection(
                 id = sid,
                 sectionId = sid,
-                title = s.optString("title"),
-                type = i, // 首个分区（当前季）由调用方排序保证在前
+                title = s.optString("title").ifEmpty { s.optString("season_title") },
+                type = i,
                 episodes = parseEpisodes(s.optJSONArray("episodes")),
             )
         }
-    }.getOrDefault(emptyList())
+    }
 
     /**
      * 解析 `pgc/view/web/season` 顶层 `result.episodes[]`（正季剧集平铺形态；

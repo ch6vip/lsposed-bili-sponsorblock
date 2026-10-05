@@ -117,7 +117,21 @@ object SeasonMossHook {
                         handler.javaClass.interfaces,
                         InvocationHandler { _, method, args ->
                             if (args != null && args.isNotEmpty() && isResponseCarrier(method.name)) {
-                                args[0] = injector.transform(method.name, args[0])
+                                // 回调参数类型是宿主的强契约（KTX suspend 路径把 onNext 的实参存进
+                                // 续体，在 onCompleted 里 resume 并强转）。只允许「同类对象」替换：
+                                // 异类或空值一律不写回，否则宿主在 resume 处强转失败直接崩进程。
+                                val original = args[0]
+                                val mapped = injector.transform(method.name, original)
+                                if (mapped != null && original != null &&
+                                    original.javaClass.isInstance(mapped)
+                                ) {
+                                    args[0] = mapped
+                                } else if (mapped !== original) {
+                                    HookProbe.first(module, "seasonMoss:cbSkip", 3) {
+                                        "${method.name} ${original?.javaClass?.simpleName}" +
+                                            " <- ${mapped?.javaClass?.simpleName}"
+                                    }
+                                }
                             }
                             method.invoke(handler, *(args ?: emptyArray()))
                         },
@@ -157,12 +171,54 @@ object SeasonMossHook {
                 reply.javaClass.methods.any { it.name == "getSectionsList" }
             }.getOrDefault(false)
             return if (isSections) {
+                captureSections(via, reply)
                 transformSections(via, reply)
             } else {
                 transformEpisodes(via, reply)
             }
         }
 
+        /**
+         * 侦察：落盘原生 SeasonSectionsReply 并打印分区形状，取得「宿主应有形状」基线
+         * （我们注入的是同一消息的自建版本，形状对齐才好比对）。每进程最多 3 份。
+         */
+        private fun captureSections(via: String, reply: Any) {
+            val n = captured.incrementAndGet()
+            if (n > 3) return
+            val list = runCatching {
+                reply.javaClass.methods.firstOrNull { it.name == "getSectionsList" }
+                    ?.invoke(reply) as? List<*>
+            }.getOrNull()
+            if (list != null) {
+                val shape = list.take(4).joinToString(" | ") { sec ->
+                    sec?.let { s ->
+                        runCatching {
+                            fun call(name: String) =
+                                s.javaClass.methods.firstOrNull { it.name == name }?.invoke(s)
+                            "id=${call("getId")} sid=${call("getSectionId")} type=${call("getType")} " +
+                                "eps=${call("getEpisodesCount")} eids=${call("getEpisodeIdsCount")} " +
+                                "title=${call("getTitle")}"
+                        }.getOrDefault("?")
+                    } ?: "null"
+                }
+                HookProbe.first(module, "seasonMoss:shape", 3) { "via=$via n=${list.size} :: $shape" }
+            }
+            runCatching {
+                val bytes = reply.javaClass.methods
+                    .firstOrNull { m -> m.name == "toByteArray" && m.parameterTypes.isEmpty() }
+                    ?.invoke(reply) as? ByteArray ?: return
+                val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
+                dir.mkdirs()
+                val f = java.io.File(dir, "season_sections_$n.bin")
+                f.outputStream().use { it.write(bytes) }
+                HookProbe.first(module, "seasonMoss:capture", 3) { "${f.absolutePath} ${bytes.size}B via=$via" }
+            }
+        }
+
+        private companion object {
+            val captured = java.util.concurrent.atomic.AtomicInteger(0)
+            val outCaptured = java.util.concurrent.atomic.AtomicInteger(0)
+        }
         /** seasonSections：reply 无 sections 即注入。 */
         private fun transformSections(via: String, reply: Any): Any? {
             val existing = runCatching {
@@ -185,15 +241,29 @@ object SeasonMossHook {
             }
             val replyCls = cl.loadClass(HostTargets.SEASON_SECTIONS_REPLY_CLASS)
             val bytes = UnlockWire.buildSeasonSectionsReplyBytes(sections)
+            captureOut(module, bytes)
             val rebuilt = replyCls.getMethod("parseFrom", ByteArray::class.java).invoke(null, bytes)
             HookProbe.first(module, "seasonMoss:sectionsInjected", 3) {
-                "via=$via sections=${sections.size} episodes=${sections.sumOf { it.episodes.size }}"
+                "via=$via sections=${sections.size} episodes=${sections.sumOf { it.episodes.size }} ${bytes.size}B head=${sections.firstOrNull()?.let { "id=${it.id} sid=${it.sectionId} type=${it.type} eps=${it.episodes.size}" }}"
             }
             sections.forEach { sec ->
                 sectionsBySectionId[sec.sectionId] = sec
                 sec.episodes.forEach { ep -> seasonIdByAid[ep.aid] = sec.sectionId }
             }
             return rebuilt
+        }
+
+        /** 落盘本模块重建的字节，便于与原生实拍逐字段比对（每进程最多 3 份）。 */
+        private fun captureOut(module: XposedModule, bytes: ByteArray) {
+            val n = outCaptured.incrementAndGet()
+            if (n > 3) return
+            runCatching {
+                val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
+                dir.mkdirs()
+                val f = java.io.File(dir, "season_sections_out_$n.bin")
+                f.outputStream().use { it.write(bytes) }
+                HookProbe.first(module, "seasonMoss:captureOut", 3) { "${f.absolutePath} ${bytes.size}B" }
+            }
         }
 
         /** pageSectionEpisodes：reply 无 episodes 时按 section_id 取缓存分区重建。 */

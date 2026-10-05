@@ -46,7 +46,7 @@ val hasReleaseSigning = releaseStorePath != null &&
 // 挂起即拉起自持轮询、tick 先试补绑、teardown 清 pending 收窄到本 widget、加 stuck/expire 探针。
 // 0.7.4 = T5 错误可见化（拉取失败迁移 Toast/提交结果反馈/设置来源展示）
 //        + README 重构 + release 工作流改进（发布说明取 tag 注释）。
-//        解锁功能开发在本地分支 unlock-wip，未入主干（见 docs/UNLOCK_FEASIBILITY.md）。
+//        解锁功能开发在本地分支 unlock-wip，未入主干（见 docs/UNLOCK_PLAN.md）。
 // 0.8.0 = 番剧区域解锁功能（默认关闭，GPL-3 附加功能）+ T5 错误可见化 + 场景回归；
 //        许可证由 MIT 转 GPL-3（解锁实现重写自 GPL-3 项目 BiliRoaming）。
 // 0.9.0 = 解锁线收口：选集面板兜底（ViewTabHook）+ 清晰度面板 + 缓存补参/CDN 替换

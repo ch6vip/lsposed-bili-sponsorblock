@@ -134,21 +134,23 @@ object UnlockWire {
     }
 
     /**
-     * 选集面板响应（SeasonSectionsReply：sections=1, 每区 SectionData{id=1,
-     * section_id=2, title=3, episode_ids=6, episodes=7, type=13}）。字段号
-     * 静态实证（2026-10-02, classes9/classes6 static_values）。
+     * 选集分区响应（SeasonSectionsReply：sections=1；每区 SectionData{id=1, section_id=2,
+     * title=3, episodes=7, type=13}）。
+     *
+     * 形状以**宿主原生实拍**为基准（2026-10-05 抓取非受限标题 The Eternal Strife 的
+     * seasonSectionsForCache 回复）：`id=1, section_id=581472, type=0, title="选集", episodes=16`，
+     * 且**不写 episode_ids(6)**（原生为空）。缓存页对形状敏感：自造 `id`/多余字段会整页失败。
+     * 其中 `section_id` 是服务端不透明 id（既非 season_id 也非 media_id），
+     * 由宿主在 pageSectionEpisodes 里原样回传，本模块按它自查即可自洽。
      */
     fun buildSeasonSectionsReplyBytes(sections: List<SeasonSection>): ByteArray {
         val w = WireWriter()
-        for (sec in sections) {
+        sections.forEachIndexed { index, sec ->
             val s = WireWriter()
-            s.int32Field(1, sec.id)
+            s.int32Field(1, index + 1)
             s.int32Field(2, sec.sectionId)
             s.stringField(3, sec.title)
             s.int32Field(13, sec.type)
-            for (ep in sec.episodes) {
-                s.int64Field(6, ep.epId)
-            }
             for (ep in sec.episodes) {
                 s.messageField(7, buildSeasonEpisodeBytes(ep))
             }
@@ -177,9 +179,29 @@ object UnlockWire {
         w.stringField(9, ep.title)
         w.stringField(12, ep.longTitle)
         w.int64Field(14, ep.cid)
+        if (ep.bvid.isNotEmpty()) w.stringField(24, ep.bvid)
+        if (ep.link.isNotEmpty()) w.stringField(26, ep.link)
+        if (ep.pubTime > 0) w.int64Field(29, ep.pubTime)
         w.int32Field(31, ep.epIndex)
+        w.int32Field(32, SECTION_INDEX_MAIN)
+        // show_title(44)：原生实拍等于 title（行主标签就是话序号；副行另有 long_title）。
+        w.stringField(44, ep.title.ifEmpty { ep.showTitle() })
+        // rights(22)：原生实拍每集都带 allow_download=1 / allow_dm=1（viewunite.common.Rights）。
+        // 缓存页据此判定每集可否缓存；缺这个子消息会让整页判成不可缓存（真机实证）。
+        w.messageField(22, seasonEpisodeRightsBytes())
         return w.toByteArray()
     }
+
+    /** viewunite.common.Rights：allow_download=1, allow_review=2, can_watch=3, allow_dm=5。 */
+    private fun seasonEpisodeRightsBytes(): ByteArray {
+        val w = WireWriter()
+        w.int32Field(1, 1)
+        w.int32Field(5, 1)
+        return w.toByteArray()
+    }
+
+    /** 原生实拍：正片分区内所有剧集的 section_index 均为 1。 */
+    private const val SECTION_INDEX_MAIN = 1
 
     /**
      * viewunite.common.ViewEpisode 卡片（选集面板 tab 注入用；字段号 2026-10-04 jadx

@@ -7,15 +7,15 @@ package com.ctf.bilisb.unlock
  *  - 请求：`GET {server}{path}?{query}`，path 按区域区分——
  *    `th`（东南亚）走 `/intl/gateway/v2/ogv/playurl` 且 extra 多 appkey/build/mobi_app/platform，
  *    其余（tw/hk/cn）走 `/pgc/player/api/playurl` 且 extra 只有 area + access_key。
- *  - 签名：查询串由**宿主的 appkey/secret 签名静态方法**签名（借宿主，不自己实现）；
- *    本类把签名作为注入函数，生产实现接宿主反射（U4），单测用 fake。
+ *  - 签名：查询串由 HostSigner 按区域本地签名；
+ *    本类把签名作为注入函数，生产实现接 HostSigner，单测用 fake。
  *  - 探活：响应含 `"code":0` 即成功；逐台降级，全失败把各台错误带回。
  *  - 服务器（含 accessKey）由用户按区配置，模块不含内置服务器。
  *
  * 纯 JVM：签名与 HTTP 传输全部注入，单测不触网。
  */
 class RoamingClient(
-    /** 借宿主的请求签名：输入查询串与附加参数，输出已签名查询串。生产实现接宿主反射。 */
+    /** 请求签名：输入查询串与附加参数，输出已签名查询串。生产实现接 HostSigner。 */
     private val sign: (query: String, extra: Map<String, String>) -> String,
     /** HTTP 传输：GET 并返回响应体（含 gzip/超时处理）。失败抛异常。 */
     private val fetch: (url: String, mobiApp: String) -> String,

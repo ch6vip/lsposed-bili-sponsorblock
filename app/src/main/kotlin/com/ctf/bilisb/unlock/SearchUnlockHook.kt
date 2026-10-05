@@ -10,29 +10,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 搜索解锁（S 线 S2+S3，docs/SEARCH_UNLOCK_PLAN.md）。
- *
- * S1 实证：intl 6.6.0 搜索走非 K javalite `polymer.app.search.v1.SearchMoss`
- * （searchAll/searchByType + MossResponseHandler），且**原生搜索过滤受限标题**
- * （Kaguya 全空 / TONIKAWA 正常）。本钩做两件事，其余请求零改动：
- *
- *  - **S2 页签注入**：searchAll 响应的 nav（field 3）里插一个「台」页签
- *    （Nav{name,total,pages,type=810}，810 沿用 BiliRoaming tw×bangumi 标记惯例）；
- *  - **S3 搜索替换**：searchByType 请求 type==810 时**短路宿主 RPC**，改向解析服务器
- *    `/x/v2/search/type?keyword=..&type=7&area=tw`（appsign 本地签名，服务端现成路由）
- *    取全量台区结果，按宿主实拍模板（TONIKAWA 393KB 黄金样本）的字段号重建
- *    `SearchByTypeResponse` 回喂 handler。点击卡片进详情 → 既有 ViewTab/漫游链兜底。
- *
- * wire 依据（runtime *_FIELD_NUMBER dump + 实拍字节解析，计划文档 §4）：
- *  Item{uri=1,param=2,goto=3,linktype=4,trackid=6,bangumi卡=38}
- *  卡体(38){title=1,cover=2,area=5,style=6,styles=7,ptime=14,season_type_name=15,
- *          badge=32,badge2=24/31,集网格=26,selection_style=28,追番按钮=30}
- *  集(26){序号=1,uri=2,ep_id=3,position=5/7}
- *  Badge(32){text=1,text_color=2,text_color_night=3,bg_color=4,bg_color_night=5,bg_style=8}
- *
- * 失败语义：页签注入失败放行原响应；搜索替换失败回喂空响应（页面显示「暂无搜索结果」），
- * 探针留名。开关：unlock_enabled + unlock_search（默认关）。
+ * 区域搜索：nav/type=810 + 独立页面参数，保留原生番剧(7)/影视(8)请求。
+ * 协议和宿主路由证据见 docs/SEARCH_UNLOCK_PLAN.md。
  */
+// Note: 路由隔离、错误回调及下载边界见 .agents/notes/implemented/bug-fix/2026-10-05-unlock-boundaries.md
 object SearchUnlockHook {
 
     private const val MOSS_CLASS = "com.bapis.bilibili.polymer.app.search.v1.SearchMoss"
@@ -40,20 +21,8 @@ object SearchUnlockHook {
     private const val BYTYPE_RESP_CLASS =
         "com.bapis.bilibili.polymer.app.search.v1.SearchByTypeResponse"
 
-    /** 注入页签的标记 type（BiliRoaming tw×bangumi 惯例值，宿主原生不发送）。 */
-    const val MARKER_TYPE = 810
-
-    /**
-     * 实际劫持的搜索请求 type。S3 二轮真机实证：台页签经枚举路由到番剧页后，页面把
-     * 请求 type **写死为 7**（枚举 pageType 不透传，101B 请求与原生番剧页签仅 act_seq
-     * 遥测不同，无法区分）——因此路由改走影视页（new-movie，请求 type=8），钩子劫持
-     * type=8 回喂台区番剧卡。代价：原生影视页签（影视类关键词才出现）会被一并劫持，
-     * 属可接受的已知限制（SEARCH_UNLOCK_PLAN.md §5）。
-     */
-    const val HIJACK_TYPE = 8
-
-    /** 原生番剧搜索的真实 type（S1 请求 wire 实测）。 */
-    private const val NATIVE_BANGUMI_TYPE = 7
+    const val MARKER_TYPE = SearchRequestPolicy.MARKER_TYPE
+    private val routeReady = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private const val MAX_RETRY = 20
     private const val RETRY_DELAY_MS = 1000L
@@ -98,7 +67,7 @@ object SearchUnlockHook {
                 return
             }
             HookProbe.ok(module, "search:unlock", hooked.joinToString(", "))
-            injectPageTypeEnum(module, cl)
+            if (installPageRoute(module, cl)) injectPageTypeEnum(module, cl)
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "search:unlockRetry", 3) {
                 "class not loaded yet, attempt=${attempts.get()}"
@@ -116,13 +85,36 @@ object SearchUnlockHook {
         }
     }
 
-    /**
-     * S2 前置：向宿主 `BiliMainSearchResultPage$PageTypes` 枚举追加 PAGE_TW_UNLOCK
-     * （pageType=810，路由复用番页 + from=tw 标记）。S3 首轮真机实证：nav 注入的页签
-     * 能渲染（页签行由 nav 驱动）但点击被宿主按 type 查枚举，未知 type 回落综合搜索
-     * （searchAll from_source=app_count）——枚举是点击→请求的分发注册表，必须补位。
-     * 枚举是 kotlinx 形态：$VALUES 与 $ENTRIES（kotlin.enums.a.a 工厂）都要更新。
-     */
+    /** 6.6.0：Fragment 从 arguments.type 读 c0，loadData 将 c0 传给搜索请求。 */
+    private fun installPageRoute(module: XposedModule, cl: ClassLoader): Boolean = runCatching {
+        val cls = cl.loadClass(HostTargets.SEARCH_OGV_FRAGMENT_CLASS)
+        val method = cls.getDeclaredMethod("onCreate", android.os.Bundle::class.java)
+        method.isAccessible = true
+        runCatching { module.deoptimize(method) }
+        module.hook(method)
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .intercept { chain ->
+                val fragment = chain.thisObject
+                val args = fragment?.javaClass?.getMethod("getArguments")?.invoke(fragment) as? android.os.Bundle
+                if (args != null && markRegionalPage(args)) {
+                    HookProbe.first(module, "search:pageMarked", 3) { "page request type=$MARKER_TYPE" }
+                }
+                chain.proceed()
+            }
+        HookProbe.ok(module, "search:pageRoute", "OgvSearchResultFragment.onCreate")
+        true
+    }.getOrElse {
+        HookProbe.miss(module, "search:pageRoute", "${it.javaClass.simpleName}: ${it.message}")
+        false
+    }
+
+    internal fun markRegionalPage(arguments: android.os.Bundle): Boolean {
+        if (arguments.getString(SearchRequestPolicy.ROUTE_MARKER) != "1") return false
+        arguments.putString("type", MARKER_TYPE.toString())
+        return true
+    }
+
+    /** nav 的 type 必须在宿主页面枚举中有对应项，URI 上的私有参数区分页面来源。 */
     private fun injectPageTypeEnum(module: XposedModule, cl: ClassLoader) {
         if (!enumInjected.compareAndSet(false, true)) return
         runCatching {
@@ -135,6 +127,7 @@ object SearchUnlockHook {
                 runCatching { cls.getMethod("getPageType").invoke(e) as? Int }.getOrDefault(null) ?: 0
             }
             if (old.any { typeOf(it) == MARKER_TYPE }) {
+                routeReady.set(true)
                 HookProbe.first(module, "search:enumInjected", 1) { "already present" }
                 return
             }
@@ -145,7 +138,7 @@ object SearchUnlockHook {
             ctor.isAccessible = true
             val added = ctor.newInstance(
                 "PAGE_TW_UNLOCK", old.size,
-                "bilibili://search-result/new-movie?from=tw", MARKER_TYPE, "bangumi",
+                "bilibili://search-result/new-bangumi?${SearchRequestPolicy.ROUTE_MARKER}=1", MARKER_TYPE, "bangumi",
             )
             val newArr = java.lang.reflect.Array.newInstance(cls, old.size + 1) as Array<Any>
             System.arraycopy(old, 0, newArr, 0, old.size)
@@ -162,6 +155,7 @@ object SearchUnlockHook {
                 m?.isAccessible = true
                 if (m != null) entriesField.set(null, m.invoke(null, newArr))
             }
+            routeReady.set(true)
             HookProbe.ok(module, "search:enumInjected", "PageTypes ${old.size}+1 type=$MARKER_TYPE")
         }.onFailure { t ->
             HookProbe.miss(
@@ -200,7 +194,7 @@ object SearchUnlockHook {
     private fun injectAreaNav(module: XposedModule, cl: ClassLoader, reply: Any?): Any? {
         if (reply == null) return null
         val config = UnlockConfig.load(module)
-        if (!config.enabled || !config.searchEnabled) return reply
+        if (!config.enabled || !config.searchEnabled || !routeReady.get()) return reply
         val area = config.servers.firstOrNull()?.area ?: return reply
         if (area == "cn") return reply // 原生即本区，无需页签
         return runCatching {
@@ -278,70 +272,63 @@ object SearchUnlockHook {
             .intercept { chain ->
                 val req = chain.args.getOrNull(0)
                 val handler = chain.args.getOrNull(1)
-                if (req == null || handler == null) {
-                    return@intercept chain.proceed(chain.args.toTypedArray())
-                }
-                val reqType = runCatching {
-                    req.javaClass.methods.firstOrNull { it.name == "getType" }?.invoke(req) as? Int
-                }.getOrNull()
-                if (reqType != HIJACK_TYPE) {
-                    return@intercept chain.proceed(chain.args.toTypedArray())
-                }
-                // 短路宿主 RPC：异步取数回喂（moss handler 本就是异步回调，不阻塞调用线程）
+                if (req == null || handler == null) return@intercept chain.proceed()
+                val reqType = req.javaClass.getMethod("getType").invoke(req) as Int
                 val config = UnlockConfig.load(module)
-                val keyword = runCatching {
-                    req.javaClass.methods.firstOrNull { it.name == "getKeyword" }?.invoke(req) as? String
-                }.getOrDefault("") ?: ""
-                if (!config.enabled || !config.searchEnabled || config.servers.isEmpty()) {
-                    HookProbe.first(module, "search:replacedOff", 2) { "标记页签但开关关/无服务器，回空" }
-                    feedEmpty(module, cl, handler, keyword)
-                    return@intercept null
+                val route = SearchRequestPolicy.route(
+                    reqType, config.enabled, config.searchEnabled,
+                    config.servers.isNotEmpty(), config.servers.firstOrNull()?.area.orEmpty(),
+                )
+                if (route == SearchRequestPolicy.Route.ORIGINAL) return@intercept chain.proceed()
+                if (route == SearchRequestPolicy.Route.NATIVE_BANGUMI) {
+                    val builder = req.javaClass.getMethod("newBuilder", req.javaClass).invoke(null, req)
+                    builder.javaClass.getMethod("setType", Int::class.javaPrimitiveType).invoke(builder, 7)
+                    val native = builder.javaClass.getMethod("build").invoke(builder)
+                    return@intercept chain.proceed(arrayOf(native, handler))
                 }
-                HookProbe.first(module, "search:markerHit", 4) { "type=$HIJACK_TYPE keyword=$keyword" }
+                // 真正属于区域页的请求才转服务器；页码由本页响应游标往返。
+                val keyword = req.javaClass.getMethod("getKeyword").invoke(req) as String
                 executor.submit {
-                    val bytes = runCatching {
-                        fetchServerSearch(module, config, keyword)
-                    }.onFailure { t ->
-                        HookProbe.first(module, "search:fetchFail", 3) {
-                            "${t.javaClass.simpleName}: ${t.message}"
-                        }
-                    }.getOrNull()
-                    val resp = if (bytes != null) {
-                        parseHost(module, cl, BYTYPE_RESP_CLASS, bytes)
-                    } else {
-                        null
-                    }
-                    if (resp != null) {
-                        HookProbe.first(module, "search:rebuilt", 4) { "${bytes!!.size}B 回喂" }
+                    try {
+                        val pagination = req.javaClass.getMethod("getPagination").invoke(req)
+                        val next = pagination.javaClass.getMethod("getNext").invoke(pagination) as String
+                        val size = pagination.javaClass.getMethod("getPageSize").invoke(pagination) as Int
+                        val page = SearchRequestPolicy.page(next, size)
+                        HookProbe.first(module, "search:markerHit", 6) { "type=$MARKER_TYPE page=${page.number}" }
+                        val bytes = fetchServerSearch(config, keyword, page)
+                        val resp = parseHost(module, cl, BYTYPE_RESP_CLASS, bytes)
+                            ?: error("Cannot rebuild search response")
                         invokeHandler(handler, "onNext", resp)
                         invokeHandler(handler, "onCompleted")
-                    } else {
-                        feedEmpty(module, cl, handler, keyword)
+                        HookProbe.first(module, "search:rebuilt", 6) { "page=${page.number} ${bytes.size}B" }
+                    } catch (failure: Exception) {
+                        feedError(module, cl, handler, failure)
                     }
                 }
                 null
             }
     }
 
-    /** 服务端搜索：/x/v2/search/type?keyword&type=7&area=..（appsign 本地签名，不依赖宿主）。 */
     private fun fetchServerSearch(
-        module: XposedModule,
         config: UnlockConfig.Config,
         keyword: String,
+        page: SearchRequestPolicy.Page,
     ): ByteArray {
         val server = config.servers.first()
-        val area = server.area.ifBlank { "tw" }
+        val area = server.area
         val accessKey = server.accessKey.ifBlank { HostAccessKey.lastSeen() } ?: ""
-        // 注意：keyword 进签名串前须 URL 编码——签名按「编码后的查询串」算（服务端校验原样）
-        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8")
-            .replace("+", "%20")
-        var query = "keyword=$encoded&type=$NATIVE_BANGUMI_TYPE&area=$area&build=6400000&pn=1&ps=20"
+        val encoded = java.net.URLEncoder.encode(keyword, "UTF-8").replace("+", "%20")
+        var query = "keyword=$encoded&type=7&area=$area&pn=${page.number}&ps=${page.size}"
         if (accessKey.isNotEmpty()) query += "&access_key=$accessKey"
+        val thailand = area == "th"
+        if (thailand) query += "&s_locale=zh_SG&c_locale=zh_SG&sim_code=52004&lang=hans"
+        val path = if (thailand) "/intl/gateway/v2/app/search/type" else "/x/v2/search/type"
         val signed = HostSigner.sign(area, query, emptyMap())
-        val url = server.baseUrl.trimEnd('/') + "/x/v2/search/type?" + signed
-        android.util.Log.w("Bili2233URL", "SEARCH $url")
-        val body = PlayViewHook.defaultFetch(url, "android", timeoutMs = 8000)
-        return buildSearchResponseBytes(keyword, body)
+        val body = PlayViewHook.defaultFetch(
+            server.baseUrl.trimEnd('/') + path + "?" + signed,
+            if (thailand) "bstar_a" else "android", timeoutMs = 5000,
+        )
+        return buildSearchResponseBytes(keyword, body, page)
     }
 
     /**
@@ -350,7 +337,11 @@ object SearchUnlockHook {
      * Item{param=2,goto=3,linktype=4,trackid=6,番剧卡=38}；
      * 卡体{title=1,cover=2,area=5,style=6,styles=7,ptime=14,类型名=15,badge=32,追番=30,集网格=26,grid=28}。
      */
-    fun buildSearchResponseBytes(keyword: String, body: String): ByteArray {
+    internal fun buildSearchResponseBytes(
+        keyword: String,
+        body: String,
+        page: SearchRequestPolicy.Page = SearchRequestPolicy.Page(1, 20),
+    ): ByteArray {
         val json = org.json.JSONObject(body)
         val code = json.optInt("code", -1)
         check(code == 0) { "server code=$code ${json.optString("message").take(80)}" }
@@ -360,6 +351,14 @@ object SearchUnlockHook {
         val pages = data.optLong("pages", 0)
         if (pages > 0) w.int64Field(2, pages)
         w.stringField(4, keyword)
+        // SearchByTypeResponse.page=10 / pagination=7；PaginationReply.next=1, prev=2。
+        w.int64Field(10, page.number.toLong())
+        val cursor = WireWriter()
+        if (page.number < pages) cursor.stringField(1, (page.number + 1).toString())
+        if (page.number > 1) cursor.stringField(2, (page.number - 1).toString())
+        w.messageField(7, cursor.toByteArray())
+        val recommended = data.optInt("result_is_recommend", 0)
+        if (recommended != 0) w.int64Field(5, recommended.toLong())
         val items = data.optJSONArray("items")
         if (items != null) {
             for (i in 0 until items.length()) {
@@ -464,25 +463,40 @@ object SearchUnlockHook {
         }.getOrNull()
 
     private fun invokeHandler(handler: Any, name: String, arg: Any? = null) {
-        runCatching {
-            val m = handler.javaClass.methods.firstOrNull {
-                it.name == name && it.parameterTypes.size == (if (arg == null) 0 else 1)
-            } ?: return
-            m.isAccessible = true
-            if (arg == null) m.invoke(handler) else m.invoke(handler, arg)
-        }
+        val method = handler.javaClass.methods.firstOrNull {
+            it.name == name && it.parameterTypes.size == (if (arg == null) 0 else 1)
+        } ?: throw NoSuchMethodException("Missing callback $name")
+        method.isAccessible = true
+        if (arg == null) method.invoke(handler) else method.invoke(handler, arg)
     }
 
-    /** 失败回喂：空响应（trackid+keyword，页面显示「暂无搜索结果」）。 */
-    private fun feedEmpty(module: XposedModule, cl: ClassLoader, handler: Any, keyword: String) {
+    private val lastErrorAt = java.util.concurrent.atomic.AtomicLong(0)
+
+    /** 失败是失败：交给宿主错误态，不再伪造空结果或继续发送 onCompleted。 */
+    private fun feedError(module: XposedModule, cl: ClassLoader, handler: Any, failure: Exception) {
+        HookProbe.first(module, "search:fetchFail", 5) { failure.javaClass.simpleName }
         runCatching {
-            val w = WireWriter()
-            w.stringField(1, randomTrackid())
-            w.stringField(4, keyword)
-            val resp = parseHost(module, cl, BYTYPE_RESP_CLASS, w.toByteArray()) ?: return
-            invokeHandler(handler, "onNext", resp)
-            invokeHandler(handler, "onCompleted")
-            HookProbe.first(module, "search:fedEmpty", 3) { "keyword=$keyword" }
+            val error = cl.loadClass(HostTargets.MOSS_EXCEPTION_CLASS)
+                .getConstructor(String::class.java, Throwable::class.java)
+                .newInstance("Regional search failed", failure)
+            invokeHandler(handler, "onError", error)
+        }.onFailure {
+            HookProbe.first(module, "search:errorCallbackFailed", 3) { it.javaClass.simpleName }
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastErrorAt.get()
+        if (previous != 0L && now - previous < 30_000) return
+        if (!lastErrorAt.compareAndSet(previous, now)) return
+        runCatching {
+            val context = cl.loadClass("android.app.ActivityThread").getMethod("currentApplication")
+                .invoke(null) as? android.content.Context ?: return
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context,
+                    com.ctf.bilisb.ui.ModuleStrings.get(context, com.ctf.bilisb.R.string.toast_search_unlock_failed),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 }

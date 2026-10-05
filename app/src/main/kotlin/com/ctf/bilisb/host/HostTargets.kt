@@ -12,6 +12,10 @@ package com.ctf.bilisb.host
  * 依据：`docs/APK_6.5.0_ANALYSIS.md`（静态分析 + 字节码交叉引用）。
  */
 object HostTargets {
+    // intl 6.6.0 classes18 / classes16 DEX：区域搜索页面及错误回调。
+    const val SEARCH_OGV_FRAGMENT_CLASS = "com.bilibili.search2.ogv.OgvSearchResultFragment"
+    const val MOSS_EXCEPTION_CLASS = "com.bilibili.lib.moss.api.MossException"
+
     /** 目标宿主包名（bilibili 国际版）。 */
     const val HOST_PACKAGE = "com.bilibili.app.in"
 
@@ -33,6 +37,9 @@ object HostTargets {
         ":sandboxed_process0", ":sandboxed_process1", ":sandboxed_process2",
         ":sandboxed_process3", ":sandboxed_process4",
     )
+
+    /** 下载引擎所在子进程（`com.bilibili.app.in:download`）：它会自己取播放地址，必须挂播放链路钩子。 */
+    const val DOWNLOAD_PROCESS = ":download"
 
     // ---------------------------------------------------------------- 进度 / 时长
 
@@ -327,7 +334,7 @@ object HostTargets {
 
     // 播放链路 6.6.0 已全 gRPC 化（moss/protobuf），旧 REST playurl 端点不存在。
     // 本段全部是 bapis/**真名类**（protobuf 族宿主不混淆），跨版本稳定性远好于混淆短名；
-    // 实证见 docs/UNLOCK_FEASIBILITY.md §2.1（索引逐条验证，2026-09-30）。
+    // 实证见 docs/UNLOCK_PLAN.md §2.1（索引逐条验证，2026-09-30）。
 
     /** 播放器聚合 moss 服务：`playViewUnite(req)` 是播放地址的唯一入口。 */
     const val PLAYER_MOSS_CLASS = "com.bapis.bilibili.app.playerunite.v1.PlayerMoss"

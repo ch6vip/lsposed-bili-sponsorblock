@@ -23,20 +23,17 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * ## 变换语义
  * 受限判定（[PlayViewDecision]）为 RESTRICTED/THAI_REDIRECT 且开关开启时：
- * req 七参数 → [RoamingClient]（签名借宿主 LibBili，mock 阶段恒等签名即可）→
+ * req 七参数 → [RoamingClient]（HostSigner 按区域本地签名）→
  * 经典 playurl JSON → [PlayurlParser] → [ResponseReconstructor] 用宿主类重建 reply。
  * **任何失败退化为放行原响应**（宁可不解锁不黑屏），探针留名。
  *
  * 开关与服务器配置来自设置镜像的 `unlock_*` 键（[UnlockConfig]，U7 并入设置管线），
- * **默认关闭**；G1/G2 完成前本功能不随版本发布。
+ * **默认关闭**；当前实现与验证范围见 docs/UNLOCK_PLAN.md。
  */
 object PlayViewHook {
 
     private const val MAX_RETRY = 30
     private const val RETRY_DELAY_MS = 1000L
-
-    /** fnval 全能力位（dash/hdr/4k/dolby/dolby 视/8k/av1）——与参考实现一致。 */
-    private const val MAX_FNVAL = 16 or 64 or 128 or 256 or 512 or 1024 or 2048
 
     private val attempts = AtomicInteger(0)
 
@@ -188,15 +185,20 @@ object PlayViewHook {
                     "${m.name}: cid=${reqFacts.vodCid} season=${reqFacts.seasonId} " +
                         "ep=${reqFacts.epId} download=${reqFacts.isDownload}"
                 }
-                val transformer = ResponseTransformer(module, cl, req, reqFacts)
                 val config = UnlockConfig.load(module)
 
                 // U6 缓存解锁：请求补参（fnval 拉满 + fourk + download=0），wire bytes 往返
-                val effectiveReq = if (config.enabled && config.cacheUnlock && req != null) {
+                val effectiveReq = if (config.enabled && config.cacheUnlock && reqFacts.isDownload && req != null) {
                     patchRequestForCache(module, cl, req)
                 } else {
                     req
                 }
+
+                // 代理使用实际发送的参数，同时保留原请求“下载”语义用于判定。
+                val effectiveFacts = if (effectiveReq !== req) {
+                    extractRequestFacts(module, effectiveReq).copy(isDownload = reqFacts.isDownload)
+                } else reqFacts
+                val transformer = ResponseTransformer(module, cl, effectiveReq, effectiveFacts)
 
                 // 双参形态（req, 回调）：包装回调，在回调里对 reply 做变换
                 if (chain.args.size >= 2 && chain.args[1] != null) {
@@ -216,8 +218,28 @@ object PlayViewHook {
                     return@intercept transformer.apply("return", result)
                 }
 
-                // 同步形态：proceed 后对返回值做变换
-                transformer.apply("return", chain.proceed(arrayOf(effectiveReq)))
+                // 同步形态：proceed 后对返回值做变换。
+                // 宿主 `PlayerMoss.executePlayViewUnite(req)` 同步返回 PlayViewUniteReply 且声明抛
+                // MossException —— 受限内容上这一步可能直接抛（拿不到 reply 就没法做解锁变换），
+                // 所以这里必须把「返回 null / 抛异常」显式记下来，否则下载路径静默失效。
+                val syncReply = try {
+                    chain.proceed(arrayOf(effectiveReq))
+                } catch (failure: Throwable) {
+                    HookProbe.first(module, "unlock:syncFail", 5) {
+                        "download=${reqFacts.isDownload} ep=${reqFacts.epId} " +
+                            "${failure.javaClass.simpleName}: ${failure.message}"
+                    }
+                    // 宿主取地址直接抛异常（下载引擎路径）——先按「无原始响应」漫游重建：
+                    // 重建成功即替代该异常，下载才可能继续；否则维持宿主原语义抛回，不改变非解锁场景。
+                    val rebuilt = transformer.rebuildAfterHostFailure()
+                    if (rebuilt != null) return@intercept rebuilt
+                    throw failure
+                }
+                HookProbe.first(module, "unlock:syncReturn", 5) {
+                    "download=${reqFacts.isDownload} ep=${reqFacts.epId} " +
+                        "reply=${syncReply?.javaClass?.simpleName ?: "null"}"
+                }
+                transformer.apply("return", syncReply)
             }
     }
 
@@ -271,27 +293,22 @@ object PlayViewHook {
      * U6 缓存解锁：req 补参（wire bytes 往返——自备 schema 补参后由宿主类 parseFrom，
      * 与 ResponseReconstructor 同款技术）。fnval 拉满 + fourk + download=0。
      */
-    private fun patchRequestForCache(module: XposedModule, cl: ClassLoader, req: Any): Any? = runCatching {
-        val bytes = req.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
-            ?.invoke(req) as? ByteArray ?: return@runCatching null
-        val parsed = com.ctf.bilisb.unlock.proto.PlayViewUniteReq.parseFrom(bytes)
-        // javalite Builder 无 getVodBuilder：setVod(补参后的 vod)
-        val patched = parsed.toBuilder()
-            .setVod(parsed.vod.toBuilder().setFnval(MAX_FNVAL).setFourk(true).setDownload(0).build())
-            .build()
-            .toByteArray()
-        val hostReq = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REQ_CLASS)
-            .getMethod("parseFrom", ByteArray::class.java)
-            .invoke(null, patched)
-        HookProbe.first(module, "unlock:reqPatched", 3) {
-            "fnval=$MAX_FNVAL fourk=true download=0 (原 fnval=${parsed.vod.fnval} download=${parsed.vod.download})"
-        }
-        hostReq
-    }.onFailure { t ->
-        HookProbe.first(module, "unlock:patchFailed", 3) {
-            "${t.javaClass.simpleName}: ${t.message}"
-        }
-    }.getOrNull()
+    // Note: 下载失败回退与搜索隔离的取舍见 .agents/notes/implemented/bug-fix/2026-10-05-unlock-boundaries.md
+    private fun patchRequestForCache(module: XposedModule, cl: ClassLoader, req: Any): Any =
+        CacheRequestPatch.apply(
+            request = req,
+            serialize = { it.javaClass.getMethod("toByteArray").invoke(it) as ByteArray },
+            parse = { bytes ->
+                cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REQ_CLASS)
+                    .getMethod("parseFrom", ByteArray::class.java).invoke(null, bytes)
+                    .also { HookProbe.first(module, "unlock:reqPatched", 3) { "download=0; capabilities merged" } }
+            },
+            onFailure = { failure ->
+                HookProbe.first(module, "unlock:patchFailed", 3) {
+                    "${failure.javaClass.simpleName}; original request preserved"
+                }
+            },
+        )
 
     /** 回调接口里携带响应的方法名（moss KCall 与 Kotlin Continuation 两种家族）。 */
     private fun isResponseCarrier(name: String): Boolean =
@@ -387,9 +404,50 @@ object PlayViewHook {
                 forceHost = reqFacts.forceHost,
                 fourk = reqFacts.fourk,
             )
+            return roamAndRebuild(reply, respFacts.respCid, respFacts.supplementEpId) ?: reply
+        }
+
+        /**
+         * 漫游取播放地址 → 重建响应。受限判定路径与「宿主自己抛异常」路径共用同一实现。
+         *
+         * @param hostReply 原响应。**null = 宿主直接抛了异常，没有响应可变换**——下载引擎取地址
+         *   走的就是这条（2026-10-05 真机实证：`executePlayViewUnite` 抛
+         *   `BusinessException: 抱歉您所在地区不可观看！`）。此时 `rebuildReply` 用宿主
+         *   `newBuilder()` 从零构造，只带漫游流与空的 PGC 载荷。
+         * @param fallbackCid 原响应缺失时定位内容的 cid（取请求侧 vodCid）。
+         * @param supplementEpId 原响应里的 ep_id（请求没带 ep 时用它补）。
+         */
+        private fun roamAndRebuild(hostReply: Any?, fallbackCid: Long, supplementEpId: Long): Any? {
+            val config = UnlockConfig.load(module)
+            val configAccessKey = config.servers[0].accessKey
+            val accessKey = configAccessKey.ifBlank { HostAccessKey.lastSeen() }
+            if (accessKey.isNullOrBlank()) {
+                HookProbe.first(module, "unlock:noAccessKey", 3) {
+                    "宿主令牌尚未捕获（REST 请求还没发生过）且未配置 access_key"
+                }
+                return null
+            }
+            HookProbe.first(module, "unlock:ak", 2) {
+                "access_key len=${accessKey.length} " +
+                    "hex32=${accessKey.length == 32 && accessKey.all { c -> c.isDigit() || c in 'a'..'f' }} " +
+                    "head4=${accessKey.take(4)}"
+            }
+
+            // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
+            val epId = reqFacts.epId.toLongOrNull()?.takeIf { it != 0L } ?: supplementEpId
+            val cid = reqFacts.vodCid.takeIf { it != 0L } ?: fallbackCid
+            val playQuery = RoamingClient.PlayQuery(
+                epId = epId,
+                cid = cid,
+                qn = reqFacts.qn,
+                fnver = reqFacts.fnver,
+                fnval = reqFacts.fnval,
+                forceHost = reqFacts.forceHost,
+                fourk = reqFacts.fourk,
+            )
             var failReason = ""
             val rebuilt = runCatching {
-                // 网络+重构在工作线程执行，回调线程限时等待（主线程阻塞上限 8s）
+                // 网络+重构限时执行；等待超时后取消未完成任务。
                 val task = java.util.concurrent.Callable {
                     val client = RoamingClient(
                         // 签名身份必须跟随服务器区域（th=BstarA，其余=Android）；
@@ -397,8 +455,8 @@ object PlayViewHook {
                         // th 的 bstar 身份覆盖成 Android（上游 -3）
                         sign = { q, extra -> HostSigner.sign(extra["area"] ?: "cn", q, extra) },
                         fetch = { url, mA ->
-                            android.util.Log.w("Bili2233URL", "GET $url")
-                            defaultFetch(url, mA)
+                            // 查询串含账号令牌，不写入日志。
+                            defaultFetch(url, mA, timeoutMs = 2500)
                         },
                         mobiApp = "android",
                     )
@@ -423,17 +481,18 @@ object PlayViewHook {
                         HookProbe.first(module, "unlock:uposReplaced", 3) { "host -> ${config.uposHost}" }
                     }
                     val inner = runCatching {
-                        if (config.passthrough) {
+                        if (config.passthrough && hostReply != null) {
                             // U4.6 纯重序列化测试：newBuilder(reply).build() 零修改
                             val replyCls = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REPLY_CLASS)
-                            val b = replyCls.getMethod("newBuilder", replyCls).invoke(null, reply)
+                            val b = replyCls.getMethod("newBuilder", replyCls).invoke(null, hostReply)
                             val reserialized = b.javaClass.getMethod("build").invoke(b)
-                            val n1 = (reply.javaClass.getMethod("toByteArray").invoke(reply) as ByteArray).size
-                            val n2 = (reserialized.javaClass.getMethod("toByteArray").invoke(reserialized) as ByteArray).size
+                            val n1 = (hostReply.javaClass.getMethod("toByteArray").invoke(hostReply) as ByteArray).size
+                            val n2 = (reserialized.javaClass.getMethod("toByteArray")
+                                .invoke(reserialized) as ByteArray).size
                             HookProbe.first(module, "unlock:reserialized", 2) { "原 ${n1}B -> 重序列化 ${n2}B" }
                             return@Callable reserialized
                         }
-                        ResponseReconstructor.rebuildReply(cl, reply, data, cid, 0L)
+                        ResponseReconstructor.rebuildReply(cl, hostReply, data, cid, 0L)
                     }.onFailure { t ->
                         failReason = "响应重建失败"
                         HookProbe.first(module, "unlock:rebuildFailed", 5) {
@@ -448,21 +507,52 @@ object PlayViewHook {
                     if (inner != null) {
                         HookProbe.first(module, "unlock:proxied", 5) {
                             "area=${result.areaUsed} quality=${data.quality} streams=${data.videos.size} " +
-                                "audio=${data.audios.size} cid=$cid ep=${playQuery.epId}"
+                                "audio=${data.audios.size} cid=$cid ep=${playQuery.epId} " +
+                                "from=${if (hostReply == null) "hostFail" else "restricted"}"
                         }
                         UnlockConfig.rememberArea(result.areaUsed)
                     }
                     inner
                 }
-                unlockExecutor.submit(task).get(3, java.util.concurrent.TimeUnit.SECONDS)
+                BoundedCall.await(unlockExecutor, 3000) { task.call() }
             }.onFailure { t ->
                 failReason = "处理超时"
                 HookProbe.first(module, "unlock:transformTimeout", 5) {
                     "${t.javaClass.simpleName}: ${t.message}"
                 }
             }.getOrNull()
-            if (rebuilt == null) showFailToast(module, failReason)
-            return rebuilt ?: reply
+            // 有原响应时才提示「已放行原片」；无原响应的路径失败会把异常抛回宿主，语义不同。
+            if (rebuilt == null && hostReply != null) showFailToast(module, failReason)
+            return rebuilt
+        }
+
+        /**
+         * 宿主取地址**直接抛异常**时的兜底（下载引擎路径）。
+         * 适用时返回漫游重建的响应（宿主异常被替代，下载得以继续）；不适用返回 null，
+         * 由调用方把原异常抛回，保持宿主原本行为。
+         */
+        fun rebuildAfterHostFailure(): Any? {
+            if (!reqFacts.isDownload) {
+                HookProbe.first(module, "unlock:hostFailSkipped", 3) { "非下载请求，保留宿主异常" }
+                return null
+            }
+            val config = UnlockConfig.load(module)
+            if (!config.enabled || config.servers.isEmpty()) {
+                HookProbe.first(module, "unlock:hostFailOff", 3) { "宿主取地址失败且解锁未启用/未配服务器" }
+                return null
+            }
+            // 下载请求只带 cid（season/ep 都是 0），而 PGC 播放接口只认 ep_id ——
+            // 用本季剧集缓存（ViewTabHook 的 episodesBySeasonId）按 cid 反查补上。
+            val epId = reqFacts.epId.toLongOrNull()?.takeIf { it != 0L }
+                ?: ViewTabHook.epIdForCid(reqFacts.vodCid)
+            if (epId == null && reqFacts.vodCid == 0L) {
+                HookProbe.first(module, "unlock:hostFailNoId", 3) { "既无 cid 也无 ep，无法漫游" }
+                return null
+            }
+            HookProbe.first(module, "unlock:hostFailEp", 3) {
+                "cid=${reqFacts.vodCid} ep=${epId ?: 0L} resolved=${epId != null}"
+            }
+            return roamAndRebuild(null, reqFacts.vodCid, epId ?: 0L)
         }
     }
 
@@ -512,15 +602,19 @@ object PlayViewHook {
         conn.readTimeout = timeoutMs
         conn.setRequestProperty("Accept-Encoding", "gzip")
         conn.setRequestProperty("User-Agent", "Mozilla/5.0 BiliDroid/$mobiApp")
-        val stream = try {
-            conn.inputStream
-        } catch (e: java.io.IOException) {
-            conn.errorStream ?: throw e
+        try {
+            val stream = try {
+                conn.inputStream
+            } catch (e: java.io.IOException) {
+                conn.errorStream ?: throw e
+            }
+            val body = (if (conn.contentEncoding == "gzip") java.util.zip.GZIPInputStream(stream) else stream)
+                .bufferedReader().use { it.readText() }
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("unlock request cancelled")
+            return body
+        } finally {
+            conn.disconnect()
         }
-        val body = (if (conn.contentEncoding == "gzip") java.util.zip.GZIPInputStream(stream) else stream)
-            .bufferedReader().use { it.readText() }
-        conn.disconnect()
-        return body
     }
 
     // ---- 事实提取（ResponseTransformer 复用）----

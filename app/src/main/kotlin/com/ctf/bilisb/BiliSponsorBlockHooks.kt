@@ -106,19 +106,44 @@ object BiliSponsorBlockHooks {
         installSafely(module, "cleartextPolicy") { com.ctf.bilisb.hook.CleartextPolicyHooks.install(module, cl) }
 
         // 解锁番剧 U1(只读观测):PlayerMoss.playViewUnite 的受限判定探针,不改任何行为。
-        // G1/G2(定位反转/GPL-3)完成前仅此观测钩,处置逻辑按 docs/UNLOCK_PLAN.md 里程碑推进。
+        // 解锁钩子独立安装，行为由配置开关控制；验证范围见 docs/UNLOCK_PLAN.md。
         installSafely(module, "unlockPlayView") { com.ctf.bilisb.unlock.PlayViewHook.install(module, cl) }
         installSafely(module, "seasonMoss") { com.ctf.bilisb.unlock.SeasonMossHook.install(module, cl) }
         installSafely(module, "viewTab") { com.ctf.bilisb.unlock.ViewTabHook.install(module, cl) }
-        // S 线 S1 观测（SEARCH_UNLOCK_PLAN.md）：KSearchMoss 搜索链只读观测。
+        // 搜索协议观测：6.6.0 实际命中非 K SearchMoss，K 通道保留诊断。
         installSafely(module, "searchObservation") { com.ctf.bilisb.unlock.SearchObservationHook.install(module, cl) }
         // S 线 S2+S3：搜索页签注入 + 标记页签搜索替换（unlock_search 开关，默认关）。
         installSafely(module, "searchUnlock") { com.ctf.bilisb.unlock.SearchUnlockHook.install(module, cl) }
         installSafely(module, "biliIntlDns") { com.ctf.bilisb.unlock.BiliIntlDnsHook.install(module, cl) }
+        // K/gRPC 播放链路（离线下载引擎所在的那条；与上面的 MOSS PlayerMoss 是两套传输）。
+        installSafely(module, "kPlayView") { com.ctf.bilisb.unlock.KPlayViewHook.install(module, cl) }
 
         module.info(HookProbe.summary())
     }
 
+    /**
+     * 下载引擎（宿主 `:download` 进程）专用安装：只挂「取播放地址」所需的最小集合。
+     *
+     * 该进程没有播放器 UI，进度/搜索/页签/增强类 Hook 一律不装；但**必须**装播放链路，
+     * 因为下载引擎是在这个进程里自己取一次播放地址（含下载能力位）。缺了这里的补丁，
+     * 宿主拿到的仍是区域受限的响应，表现 = 缓存任务建好、entry.json 落盘后立刻
+     * 「已暂停：缓存失败，请删除重试」（真机 2026-10-05 实证）。
+     */
+    fun installForDownloadProcess(module: XposedModule, param: PackageLoadedParam, processName: String) {
+        val installKey = "${param.packageName}:$processName"
+        if (!installed.add(installKey)) {
+            return
+        }
+        val cl = param.defaultClassLoader
+        moduleRef = module
+        com.ctf.bilisb.ui.ModuleStrings.attach(module)
+        module.info("Installing download-process hooks for ${param.packageName} process=$processName")
+        // PlayViewHook 自带 access_key 捕获钩，下载进程取地址需要它来签名漫游请求。
+        installSafely(module, "unlockPlayView") { com.ctf.bilisb.unlock.PlayViewHook.install(module, cl) }
+        // 下载引擎在 :download 进程里走 K/gRPC 版 playViewUnite，必须一起挂。
+        installSafely(module, "kPlayView") { com.ctf.bilisb.unlock.KPlayViewHook.install(module, cl) }
+        module.info(HookProbe.summary())
+    }
     private inline fun installSafely(module: XposedModule, key: String, block: () -> Unit) {
         runCatching { block() }.onFailure { throwable ->
             HookProbe.miss(module, key, "install threw: ${throwable.javaClass.simpleName}: ${throwable.message}")

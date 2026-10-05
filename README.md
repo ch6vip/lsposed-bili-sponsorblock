@@ -2,7 +2,7 @@
 
 [![Android CI](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml/badge.svg)](https://github.com/ch6vip/lsposed-bili-sponsorblock/actions/workflows/android.yml)
 [![Release](https://img.shields.io/github/v/release/ch6vip/lsposed-bili-sponsorblock)](https://github.com/ch6vip/lsposed-bili-sponsorblock/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区片段数据，在哔哩哔哩**国际版**播放视频时
 自动跳过或标记赞助内容、片头、自我推广、互动提醒等片段。只改本机播放行为：不登录、不接管账号、无遥测。
@@ -44,8 +44,10 @@ Bili2233 是一个需要 LSPosed 框架的模块。它使用 SponsorBlock 社区
   需**自配解析服务器**）：
   受限番剧自动经解析服务器**漫游播放**；受限详情页的**选集面板兜底注入**（服务端拉全季，
   wire 级定点拼接，不破坏原生数据）；**清晰度选级面板**修复；**CDN upos 域名替换**
-  （PCDN / 纯 IP / gotcha 形态自动跳过）；**缓存请求补参**（fnval 拉满 / 4K）；
+  （PCDN / 纯 IP / gotcha 形态自动跳过）；**缓存权限与下载请求调整**；
   解锁失败**提示并放行原片**，不黑屏。
+- 当前源码另含**区域搜索**：区域页签、番剧卡片、分页和失败提示，保留原生番剧及影视搜索。
+  搜索及 2026-10-05 修复在 `v0.9.0` 标签之后，安装该标签的 APK 不包含这些后续改动。
 
 支持的类别：赞助/恰饭、自我推广、互动提醒、开场动画、结束画面、回顾/概要、非音乐片段、填充内容、精彩时刻。
 
@@ -123,8 +125,9 @@ SponsorBlock 设置需重进播放页；「B 站增强」开关约 10 秒内热�
 ## 已知限制
 
 - 仅适配国际版 6.5.0 / 6.6.0；宿主更新后可能**静默失效**（日志 `hook summary` 可快速判断）。
-- 解锁线：详情页**权利位改写未做**——受限标题的「离线缓存」入口可能仍被权利位挡
-  （请求侧补参已就绪）；能否实际观看取决于**账号权益**与解析服务器出口，账号风控风险自担。
+- 解锁线：当前源码已调整详情页下载权利位及下载请求；新缓存鉴权与完整离线下载仍需真机验收。
+  能否实际观看、下载取决于**账号权益**与解析服务器出口，账号风控风险自担。
+- 区域搜索只转换番剧卡片；上游零命中时可能返回推荐内容。新路由和分页的宿主行为需独立真机验收。
 - 已验证场景：切集（含 PGC→UGC 状态重置）、小窗（轮询存活）、番剧（PGC 优雅降级，
   数据源无 PGC 片段属预期）；未验证：OGV 纪录片、切换账号。
 - 片段数据依赖第三方实例，可用性与数据质量由数据源决定。
@@ -143,4 +146,4 @@ SponsorBlock 设置需重进播放页；「B 站增强」开关约 10 秒内热�
 
 ## 许可
 
-[MIT](LICENSE) © 2026 ch6vip
+[GPL-3.0](LICENSE) © 2026 ch6vip
