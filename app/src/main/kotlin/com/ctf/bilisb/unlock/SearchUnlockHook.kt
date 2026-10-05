@@ -43,6 +43,15 @@ object SearchUnlockHook {
     /** 注入页签的标记 type（BiliRoaming tw×bangumi 惯例值，宿主原生不发送）。 */
     const val MARKER_TYPE = 810
 
+    /**
+     * 实际劫持的搜索请求 type。S3 二轮真机实证：台页签经枚举路由到番剧页后，页面把
+     * 请求 type **写死为 7**（枚举 pageType 不透传，101B 请求与原生番剧页签仅 act_seq
+     * 遥测不同，无法区分）——因此路由改走影视页（new-movie，请求 type=8），钩子劫持
+     * type=8 回喂台区番剧卡。代价：原生影视页签（影视类关键词才出现）会被一并劫持，
+     * 属可接受的已知限制（SEARCH_UNLOCK_PLAN.md §5）。
+     */
+    const val HIJACK_TYPE = 8
+
     /** 原生番剧搜索的真实 type（S1 请求 wire 实测）。 */
     private const val NATIVE_BANGUMI_TYPE = 7
 
@@ -136,7 +145,7 @@ object SearchUnlockHook {
             ctor.isAccessible = true
             val added = ctor.newInstance(
                 "PAGE_TW_UNLOCK", old.size,
-                "bilibili://search-result/new-bangumi?from=tw", MARKER_TYPE, "bangumi",
+                "bilibili://search-result/new-movie?from=tw", MARKER_TYPE, "bangumi",
             )
             val newArr = java.lang.reflect.Array.newInstance(cls, old.size + 1) as Array<Any>
             System.arraycopy(old, 0, newArr, 0, old.size)
@@ -275,7 +284,7 @@ object SearchUnlockHook {
                 val reqType = runCatching {
                     req.javaClass.methods.firstOrNull { it.name == "getType" }?.invoke(req) as? Int
                 }.getOrNull()
-                if (reqType != MARKER_TYPE) {
+                if (reqType != HIJACK_TYPE) {
                     return@intercept chain.proceed(chain.args.toTypedArray())
                 }
                 // 短路宿主 RPC：异步取数回喂（moss handler 本就是异步回调，不阻塞调用线程）
@@ -288,7 +297,7 @@ object SearchUnlockHook {
                     feedEmpty(module, cl, handler, keyword)
                     return@intercept null
                 }
-                HookProbe.first(module, "search:markerHit", 4) { "type=$MARKER_TYPE keyword=$keyword" }
+                HookProbe.first(module, "search:markerHit", 4) { "type=$HIJACK_TYPE keyword=$keyword" }
                 executor.submit {
                     val bytes = runCatching {
                         fetchServerSearch(module, config, keyword)
@@ -363,11 +372,16 @@ object SearchUnlockHook {
         return w.toByteArray()
     }
 
-    /** Item 包装层：{param=2, goto=3, linktype=4, trackid=6, 卡体=38}（实拍形状）。 */
+    /** Item 包装层：{uri=1, param=2, goto=3, linktype=4, trackid=6, 卡体=38}（实拍形状）。 */
     private fun buildBangumiItem(card: org.json.JSONObject): ByteArray? {
         val param = card.optString("param")
         if (param.isEmpty()) return null
         val w = WireWriter()
+        // uri：影视页点击分发不认 goto=bangumi 的卡（S3 二轮真机：渲染✅点击✗）——
+        // 补显式路由 uri，点击走 uri 而非 goto+param 分发（P0 深链同款路由）。
+        card.optLong("season_id", 0).takeIf { it > 0 }?.let {
+            w.stringField(1, "bilibili://bangumi/season/$it")
+        }
         w.stringField(2, param)
         w.stringField(3, "bangumi")
         w.stringField(4, "media_bangumi")
