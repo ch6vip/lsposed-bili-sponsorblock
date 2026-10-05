@@ -22,6 +22,10 @@ import java.lang.reflect.Proxy
  * 一次就能拿到方法描述符、请求对象与响应回调（`xr1.m` 由它内部 new 出来，回调即换成了我们的代理）。
  *
  * 本文件目前只做**观测**：确认受限内容上到底是 `onError` 还是「空 `onNext`」，据此再定替换形态。
+ *
+ * 替换形态待定，但**核心已就位**：K 适配器将来只需把 `xr1.j` 请求转成
+ * [RoamingUnlockCore.UnlockRequestFacts]、把 `onNext` 的 reply 序列化成字节，即可复用同一份
+ * 网络/解析/重建（[RoamingUnlockCore]）。本文件在此之前保持只观测，不做任何替换。
  */
 object KPlayViewHook {
 

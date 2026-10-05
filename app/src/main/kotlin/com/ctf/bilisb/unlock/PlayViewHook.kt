@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * 经典 playurl JSON → [PlayurlParser] → [ResponseReconstructor] 用宿主类重建 reply。
  * **任何失败退化为放行原响应**（宁可不解锁不黑屏），探针留名。
  *
+ * 网络与重建的实现在 [RoamingUnlockCore]（传输无关核心，P0 抽出）——本文件是 MOSS 侧适配器。
  * 开关与服务器配置来自设置镜像的 `unlock_*` 键（[UnlockConfig]，U7 并入设置管线），
  * **默认关闭**；当前实现与验证范围见 docs/UNLOCK_PLAN.md。
  */
@@ -393,27 +394,23 @@ object PlayViewHook {
                 "access_key len=${accessKey.length} hex32=${accessKey.length == 32 && accessKey.all { c -> c.isDigit() || c in 'a'..'f' }} head4=${accessKey.take(4)}"
             }
 
-            // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
-            val cid = reqFacts.vodCid.takeIf { it != 0L } ?: respFacts.respCid
-            val playQuery = RoamingClient.PlayQuery(
-                epId = effectiveEpId,
-                cid = cid,
-                qn = reqFacts.qn,
-                fnver = reqFacts.fnver,
-                fnval = reqFacts.fnval,
-                forceHost = reqFacts.forceHost,
-                fourk = reqFacts.fourk,
-            )
+            // req 七参数与「cid 缺省借响应 playArc」的逻辑都在 RoamingUnlockCore 里，
+            // 适配器只把 ep/cid 补齐后交事实过去（下面 roamAndRebuild 内）。
             return roamAndRebuild(reply, respFacts.respCid, respFacts.supplementEpId) ?: reply
         }
 
         /**
          * 漫游取播放地址 → 重建响应。受限判定路径与「宿主自己抛异常」路径共用同一实现。
          *
+         * 网络与重建本身已抽到 [RoamingUnlockCore]（P0）；这里只剩适配器职责：事实拼装、
+         * 3s 限时、探针、失败 Toast。下面的 access_key 检查**刻意保留**（核心内另有一份）：
+         * 无令牌时这里直接返回 null，不走「失败文案 + Toast」那条路 —— 下载取地址的兜底
+         * 路径原本就是静默放弃。
+         *
          * @param hostReply 原响应。**null = 宿主直接抛了异常，没有响应可变换**——下载引擎取地址
          *   走的就是这条（2026-10-05 真机实证：`executePlayViewUnite` 抛
-         *   `BusinessException: 抱歉您所在地区不可观看！`）。此时 `rebuildReply` 用宿主
-         *   `newBuilder()` 从零构造，只带漫游流与空的 PGC 载荷。
+         *   `BusinessException: 抱歉您所在地区不可观看！`）。此时重建用宿主 `newBuilder()`
+         *   从零构造，只带漫游流与空的 PGC 载荷。
          * @param fallbackCid 原响应缺失时定位内容的 cid（取请求侧 vodCid）。
          * @param supplementEpId 原响应里的 ep_id（请求没带 ep 时用它补）。
          */
@@ -436,53 +433,37 @@ object PlayViewHook {
             // req 七参数：cid 缺省时借响应 playArc（重定向场景 respCid 即目标 cid）
             val epId = reqFacts.epId.toLongOrNull()?.takeIf { it != 0L } ?: supplementEpId
             val cid = reqFacts.vodCid.takeIf { it != 0L } ?: fallbackCid
-            val playQuery = RoamingClient.PlayQuery(
+            // 核心只要事实本身：查询串、网络、解析、重建全在 RoamingUnlockCore
+            val facts = RoamingUnlockCore.UnlockRequestFacts(
                 epId = epId,
                 cid = cid,
-                qn = reqFacts.qn,
+                seasonId = reqFacts.seasonId,
+                qn = reqFacts.qn.toInt(),
                 fnver = reqFacts.fnver,
                 fnval = reqFacts.fnval,
                 forceHost = reqFacts.forceHost,
                 fourk = reqFacts.fourk,
+                isDownload = reqFacts.isDownload,
             )
             var failReason = ""
             val rebuilt = runCatching {
                 // 网络+重构限时执行；等待超时后取消未完成任务。
                 val task = java.util.concurrent.Callable {
-                    val client = RoamingClient(
-                        // 签名身份必须跟随服务器区域（th=BstarA，其余=Android）；
-                        // RoamingClient 的 extra 两个分支都恒写 area，硬编码区域会把
-                        // th 的 bstar 身份覆盖成 Android（上游 -3）
-                        sign = { q, extra -> HostSigner.sign(extra["area"] ?: "cn", q, extra) },
-                        fetch = { url, mA ->
-                            // 查询串含账号令牌，不写入日志。
-                            defaultFetch(url, mA, timeoutMs = 2500)
-                        },
-                        mobiApp = "android",
-                    )
-                    val servers = config.servers.map {
-                        if (it.accessKey == configAccessKey) it.copy(accessKey = accessKey) else it
-                    }
-                    val result = client.fetchPlayUrl(servers, playQuery, priorityArea = UnlockConfig.lastArea())
+                    val result = RoamingUnlockCore.roam(config, facts, module)
                     if (!result.isSuccess) {
+                        // 失败原因文案留在适配器：它同时决定 Toast 文案
                         failReason = "解析服务器不可用"
-                        HookProbe.first(module, "unlock:roamFailed", 5) { result.errors.toString() }
                         return@Callable null
                     }
-                    val data0 = PlayurlParser.parse(result.content!!)
-                    if (data0 == null || data0.videos.isEmpty()) {
+                    val data = RoamingUnlockCore.parsePlayurl(config, result.content!!, module)
+                    if (data == null) {
                         failReason = "漫游响应解析失败"
-                        HookProbe.first(module, "unlock:parseFailed", 5) { "漫游响应无法解析为 DASH" }
                         return@Callable null
-                    }
-                    // U5 CDN upos 替换（配置了目标 host 才生效；PCDN 形态自动跳过）
-                    val data = UposReplacer.applyTo(data0, config.uposHost)
-                    if (data !== data0) {
-                        HookProbe.first(module, "unlock:uposReplaced", 3) { "host -> ${config.uposHost}" }
                     }
                     val inner = runCatching {
                         if (config.passthrough && hostReply != null) {
-                            // U4.6 纯重序列化测试：newBuilder(reply).build() 零修改
+                            // U4.6 纯重序列化测试：newBuilder(reply).build() 零修改。
+                            // 这一步吃的是宿主对象本身（不是字节），属纯适配器职责，留在这一侧。
                             val replyCls = cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REPLY_CLASS)
                             val b = replyCls.getMethod("newBuilder", replyCls).invoke(null, hostReply)
                             val reserialized = b.javaClass.getMethod("build").invoke(b)
@@ -492,7 +473,16 @@ object PlayViewHook {
                             HookProbe.first(module, "unlock:reserialized", 2) { "原 ${n1}B -> 重序列化 ${n2}B" }
                             return@Callable reserialized
                         }
-                        ResponseReconstructor.rebuildReply(cl, hostReply, data, cid, 0L)
+                        // 重建走核心（宿主字节进、宿主字节出），再 parseFrom 回宿主实例：
+                        // MOSS 的回调链要求交回的是宿主自己的 PlayViewUniteReply 类型。
+                        val hostReplyBytes = hostReply?.let {
+                            it.javaClass.getMethod("toByteArray").invoke(it) as ByteArray
+                        }
+                        val rebuiltBytes =
+                            RoamingUnlockCore.rebuildReplyBytes(cl, hostReplyBytes, data, cid, 0L)
+                        cl.loadClass(HostTargets.PLAY_VIEW_UNITE_REPLY_CLASS)
+                            .getMethod("parseFrom", ByteArray::class.java)
+                            .invoke(null, rebuiltBytes)
                     }.onFailure { t ->
                         failReason = "响应重建失败"
                         HookProbe.first(module, "unlock:rebuildFailed", 5) {
@@ -507,7 +497,7 @@ object PlayViewHook {
                     if (inner != null) {
                         HookProbe.first(module, "unlock:proxied", 5) {
                             "area=${result.areaUsed} quality=${data.quality} streams=${data.videos.size} " +
-                                "audio=${data.audios.size} cid=$cid ep=${playQuery.epId} " +
+                                "audio=${data.audios.size} cid=$cid ep=${facts.epId} " +
                                 "from=${if (hostReply == null) "hostFail" else "restricted"}"
                         }
                         UnlockConfig.rememberArea(result.areaUsed)
