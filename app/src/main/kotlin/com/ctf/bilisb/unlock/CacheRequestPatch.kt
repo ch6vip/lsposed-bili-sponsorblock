@@ -4,7 +4,16 @@ import com.ctf.bilisb.unlock.proto.PlayViewUniteReq
 
 /** 下载请求补参；保留宿主已声明的新能力位及所有未知字段。 */
 internal object CacheRequestPatch {
-    const val REQUIRED_FNVAL = 16 or 64 or 128 or 256 or 512 or 1024 or 2048
+    const val FNVAL_DASH = 16
+    const val FNVAL_HDR10 = 64
+    const val FNVAL_4K = 128
+    const val FNVAL_DOLBY_AUDIO = 256
+    const val FNVAL_DOLBY_VISION = 512
+    const val FNVAL_8K = 1024
+    const val FNVAL_AV1 = 2048
+
+    const val REQUIRED_FNVAL = FNVAL_DASH or FNVAL_HDR10 or FNVAL_4K or FNVAL_DOLBY_AUDIO or
+        FNVAL_DOLBY_VISION or FNVAL_8K or FNVAL_AV1
 
     fun patch(bytes: ByteArray): ByteArray {
         val request = PlayViewUniteReq.parseFrom(bytes)
@@ -40,7 +49,7 @@ internal object CacheRequestPatch {
         val bytes = serialize(request)
         val patched = patch(bytes)
         if (patched === bytes) request else parse(patched)
-    } catch (failure: Exception) {
+    } catch (failure: Throwable) {
         onFailure(failure)
         request
     }

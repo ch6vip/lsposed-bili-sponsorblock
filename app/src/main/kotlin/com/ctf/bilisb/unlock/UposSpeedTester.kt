@@ -53,9 +53,11 @@ object UposSpeedTester {
         UposNode("hk_bcache（Bilibili海外）", "cn-hk-eq-bcache-01.bilivideo.com"),
     )
 
-    private val pool = Executors.newFixedThreadPool(3) { r ->
-        Thread(r, "BiliSB-UposSpeedTest").apply { isDaemon = true }
-    }
+    private val pool = java.util.concurrent.ThreadPoolExecutor(
+        2, 6, 60L, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue(),
+        { r -> Thread(r, "BiliSB-UposSpeedTest").apply { isDaemon = true } },
+    ).apply { allowCoreThreadTimeOut(true) }
 
     /**
      * 格式化传输速率。
@@ -94,11 +96,9 @@ object UposSpeedTester {
             val latency = (System.currentTimeMillis() - start).coerceAtLeast(1)
 
             val code = conn.responseCode
-            // 200/206 视为有效；即使是 404/403 也证明 TCP + SSL 握手通畅，可记录握手耗时
+            // 200/206 视为有效；若为 403/404 等，记录延迟但速度置 0，避免误导排到前面
             if (code !in 200..299 && code != 206) {
-                // 如果是 403/404 等，通常代表无鉴权探测包，但只要网络通了，也计算延迟
-                val speed = if (latency > 0) (1024 * 1000 / latency) else 0L
-                return TestResult(node, latency, speed, "${latency}ms (响应 $code)")
+                return TestResult(node, latency, 0L, "${latency}ms (响应 $code)")
             }
 
             stream = conn.inputStream
@@ -134,13 +134,27 @@ object UposSpeedTester {
         onComplete: (List<TestResult>) -> Unit,
     ): Future<*> {
         return pool.submit {
-            val results = mutableListOf<TestResult>()
+            val results = java.util.Collections.synchronizedList(mutableListOf<TestResult>())
+            val latch = java.util.concurrent.CountDownLatch(NODES.size)
             for (node in NODES) {
-                val res = testNode(node, sampleUrl)
-                results.add(res)
-                onProgress(res)
+                if (Thread.currentThread().isInterrupted) break
+                pool.submit {
+                    try {
+                        val res = testNode(node, sampleUrl)
+                        results.add(res)
+                        onProgress(res)
+                    } finally {
+                        latch.countDown()
+                    }
+                }
             }
-            onComplete(results.sortedByDescending { it.speedBytesPerSec })
+            latch.await()
+            val sorted = synchronized(results) {
+                results.sortedWith(
+                    compareByDescending<TestResult> { it.speedBytesPerSec }.thenBy { it.latencyMs },
+                )
+            }
+            onComplete(sorted)
         }
     }
 }

@@ -701,6 +701,7 @@ object SettingsScreenBuilder {
         val future = UposSpeedTester.testAllAsync(
             onProgress = { res ->
                 activity.runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
                     results.add(res)
                     progressBar.progress = results.size
                     statusText.text = str(activity, R.string.unlock_upos_speed_testing, results.size, UposSpeedTester.NODES.size)
@@ -709,9 +710,12 @@ object SettingsScreenBuilder {
             },
             onComplete = { _ ->
                 activity.runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
                     statusText.text = str(activity, R.string.unlock_upos_speed_done)
                     resultsContainer.removeAllViews()
-                    results.sortedByDescending { it.speedBytesPerSec }.forEach { res ->
+                    results.sortedWith(
+                        compareByDescending<UposSpeedTester.TestResult> { it.speedBytesPerSec }.thenBy { it.latencyMs },
+                    ).forEach { res ->
                         resultsContainer.addView(renderItem(res))
                     }
                 }
@@ -731,7 +735,7 @@ object SettingsScreenBuilder {
             R.string.unlock_area_tw, R.string.unlock_area_th,
         ).map { str(activity, it) }
         fun selected(): Int = areas.indexOf(
-            SettingsCodec.snapshotFromPreferences(prefs).unlockServerArea.ifBlank { "cn" },
+            prefs.getString(SettingsKeys.UNLOCK_SERVER_AREA, "cn")?.ifBlank { "cn" } ?: "cn",
         ).coerceAtLeast(0)
         val row = TextView(activity).apply {
             tag = SettingsKeys.UNLOCK_SERVER_AREA
@@ -790,7 +794,9 @@ object SettingsScreenBuilder {
     }
 
     private fun statusPanel(activity: Activity, statusWriter: SettingsWriter? = null): View {
-        val writer = statusWriter ?: sharedStatusWriter ?: SettingsWriter(activity).also { sharedStatusWriter = it }
+        val writer = statusWriter ?: synchronized(this) {
+            sharedStatusWriter ?: SettingsWriter(activity.applicationContext).also { sharedStatusWriter = it }
+        }
         val prefs = writer.sharedPreferences
         val snapshot = SettingsCodec.snapshotFromPreferences(prefs)
         val userIdState = when {
@@ -1305,14 +1311,6 @@ object SettingsScreenBuilder {
             })
             setOnClickListener { onClick() }
         }
-    }
-
-    private fun sectionTitle(activity: Activity, title: String): TextView = TextView(activity).apply {
-        text = title
-        textSize = 16f
-        setTextColor(Color.parseColor("#FF6699"))
-        setPadding(0, dp(activity, 24), 0, dp(activity, 8))
-        setTypeface(typeface, Typeface.BOLD)
     }
 
     private fun aboutItem(activity: Activity, title: String, value: String, onClick: (() -> Unit)? = null): View {

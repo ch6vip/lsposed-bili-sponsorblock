@@ -269,7 +269,7 @@ object BiliSponsorBlockHooks {
     /** 延迟清理窗口：全屏切换的 detach→attach 间隔远小于它；退出播放页则不会再有回调。 */
     private const val TEARDOWN_DELAY_MS = 3000L
 
-    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     /** 计算 host/container 的 contextHash，取不到返回 0（调用方按 0 跳过）。 */
     private fun teardownHashOf(host: Any, container: Any?): Int {

@@ -84,9 +84,10 @@ object UnlockConfig {
 
     fun load(module: XposedModule): Config {
         val now = android.os.SystemClock.uptimeMillis()
-        cache.get().let { (at, cfg) -> if (now - at < TTL_MS) return cfg }
+        val old = cache.get()
+        if (now - old.first < TTL_MS) return old.second
         val cfg = readFromMirror(module)
-        cache.set(now to cfg)
+        cache.compareAndSet(old, now to cfg)
         return cfg
     }
 
@@ -155,12 +156,12 @@ object UnlockConfig {
                 thSubtitle = thSubtitle,
                 addBangumi = addBangumi,
             ).also {
-                module.warn(
-                    "unlock:cfgLoaded file=${file.path} len=${file.length()} " +
+                com.ctf.bilisb.host.HookProbe.first(module, "unlock:cfgLoaded", 5) {
+                    "file=${file.path} len=${file.length()} " +
                         "enabled=${it.enabled} servers=${it.servers.size} " +
                         "showInfo=${it.unlockShowInfo} forceUpos=${it.forceUpos} " +
-                        "fsQuality=${it.fullScreenQuality} hsQuality=${it.halfScreenQuality}",
-                )
+                        "fsQuality=${it.fullScreenQuality} hsQuality=${it.halfScreenQuality}"
+                }
             }
         }.onFailure { t ->
             module.warn("unlock: config read failed: ${t.message}")

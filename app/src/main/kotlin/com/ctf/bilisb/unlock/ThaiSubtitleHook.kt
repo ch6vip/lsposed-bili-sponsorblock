@@ -82,9 +82,12 @@ object ThaiSubtitleHook {
                 if (chain.args.size >= 2) {
                     val origCallback = chain.args[1]
                     if (origCallback != null) {
-                        chain.args[1] = wrapCallback(module, cl, origCallback, oid, config)
+                        val newArgs = chain.args.toTypedArray()
+                        newArgs[1] = wrapCallback(module, cl, origCallback, oid, config)
+                        chain.proceed(newArgs)
+                    } else {
+                        chain.proceed()
                     }
-                    chain.proceed()
                 } else {
                     val result = chain.proceed()
                     transformDmViewReply(module, cl, result, oid, config) ?: result

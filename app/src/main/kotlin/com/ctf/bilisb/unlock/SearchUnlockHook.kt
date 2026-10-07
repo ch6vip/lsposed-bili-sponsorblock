@@ -150,17 +150,30 @@ object SearchUnlockHook {
             System.arraycopy(old, 0, newArr, 0, old.size)
             newArr[old.size] = addedTw
             newArr[old.size + 1] = addedTh
-            valuesField.set(null, newArr)
-            // $ENTRIES（kotlin EnumEntries）：经 kotlin.enums.a.a(Array) 工厂重建
-            runCatching {
-                val entriesField = cls.getDeclaredField("\$ENTRIES")
-                entriesField.isAccessible = true
-                val factory = cl.loadClass("kotlin.enums.a")
-                val m = factory.declaredMethods.firstOrNull {
-                    it.name == "a" && it.parameterTypes.size == 1 && it.parameterTypes[0].isArray
+            synchronized(cls) {
+                valuesField.set(null, newArr)
+                // $ENTRIES（kotlin EnumEntries）：经 kotlin.enums.a.a(Array) 工厂重建
+                runCatching {
+                    val entriesField = cls.getDeclaredField("\$ENTRIES")
+                    entriesField.isAccessible = true
+                    val factory = cl.loadClass("kotlin.enums.a")
+                    val m = factory.declaredMethods.firstOrNull {
+                        it.name == "a" && it.parameterTypes.size == 1 && it.parameterTypes[0].isArray
+                    }
+                    m?.isAccessible = true
+                    if (m != null) entriesField.set(null, m.invoke(null, newArr))
                 }
-                m?.isAccessible = true
-                if (m != null) entriesField.set(null, m.invoke(null, newArr))
+                // 清除 Class 的 enumConstants / enumConstantDirectory 缓存
+                runCatching {
+                    val enumConstantsField = Class::class.java.getDeclaredField("enumConstants")
+                    enumConstantsField.isAccessible = true
+                    enumConstantsField.set(cls, null)
+                }
+                runCatching {
+                    val enumDirectoryField = Class::class.java.getDeclaredField("enumConstantDirectory")
+                    enumDirectoryField.isAccessible = true
+                    enumDirectoryField.set(cls, null)
+                }
             }
             routeReady.set(true)
             HookProbe.ok(module, "search:enumInjected", "PageTypes ${old.size}+2 type=$MARKER_TYPE,${SearchRequestPolicy.MARKER_TYPE_TH}")
@@ -364,10 +377,10 @@ object SearchUnlockHook {
         targetArea: String = "tw",
     ): ByteArray {
         val server = if (targetArea == "th") {
-            config.servers.firstOrNull { it.area == "th" } ?: config.servers.first()
+            config.servers.firstOrNull { it.area == "th" } ?: config.servers.firstOrNull()
         } else {
-            config.servers.firstOrNull { it.area in setOf("tw", "hk") } ?: config.servers.first()
-        }
+            config.servers.firstOrNull { it.area in setOf("tw", "hk") } ?: config.servers.firstOrNull()
+        } ?: throw IllegalStateException("未配置可用的解析服务器")
         val area = if (targetArea == "th") "th" else if (server.area in setOf("tw", "hk")) server.area else "tw"
         val accessKey = server.accessKey.ifBlank { HostAccessKey.lastSeen() } ?: ""
         val encoded = java.net.URLEncoder.encode(keyword, "UTF-8").replace("+", "%20")
@@ -476,21 +489,36 @@ object SearchUnlockHook {
         fw.messageField(2, s1.toByteArray())
         fw.stringField(3, "bangumi")
         w.messageField(30, fw.toByteArray())
-        // 集网格（实拍 26：{序号=1,uri=2,ep_id=3,position=7}，折叠形态最多 6 格）
-        val eps = card.optJSONArray("episodes_new")
+        // 集网格（实拍 26：{序号=1,uri=2,ep_id=3,position=7,badge=4}，折叠形态最多 6 格）
+        val eps = card.optJSONArray("episodes") ?: card.optJSONArray("episodes_new")
         if (eps != null) {
             for (i in 0 until eps.length().coerceAtMost(6)) {
                 val ep = eps.optJSONObject(i) ?: continue
                 val epId = ep.optString("param")
                 if (epId.isEmpty()) continue
                 val ew = WireWriter()
-                ew.stringField(1, ep.optString("title", (i + 1).toString()))
+                val epTitle = ep.optString("index").ifEmpty { ep.optString("title", (i + 1).toString()) }
+                ew.stringField(1, epTitle)
                 val uri = ep.optString("uri").ifEmpty {
                     "https://www.bilibili.com/bangumi/play/ep$epId"
                 }
                 ew.stringField(2, uri)
                 ew.stringField(3, epId)
                 ew.int64Field(7, ep.optInt("position", i + 1).toLong())
+                val epBadges = ep.optJSONArray("badges") ?: ep.optJSONArray("badges_v2")
+                if (epBadges != null && epBadges.length() > 0) {
+                    val b = epBadges.optJSONObject(0)
+                    if (b != null) {
+                        val bw = WireWriter()
+                        bw.stringField(1, b.optString("text"))
+                        bw.stringField(2, b.optString("text_color"))
+                        bw.stringField(3, b.optString("text_color_night"))
+                        bw.stringField(4, b.optString("bg_color"))
+                        bw.stringField(5, b.optString("bg_color_night"))
+                        bw.int64Field(8, b.optInt("bg_style", 1).toLong())
+                        ew.messageField(4, bw.toByteArray())
+                    }
+                }
                 w.messageField(26, ew.toByteArray())
             }
         }
@@ -502,7 +530,11 @@ object SearchUnlockHook {
     private fun stripEm(s: String): String = s.replace(Regex("</?em[^>]*>"), "")
 
     private fun randomTrackid(): String =
-        (1..19).joinToString("") { (0..9).random().toString() }
+        String.format(
+            java.util.Locale.US,
+            "%019d",
+            java.util.concurrent.ThreadLocalRandom.current().nextLong(1_000_000_000_000_000_000L, Long.MAX_VALUE),
+        )
 
     // ---------------------------------------------------------------- 回喂基建
 

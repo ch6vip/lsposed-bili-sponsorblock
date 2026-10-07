@@ -150,15 +150,9 @@ object PlayViewHook {
                     runCatching {
                         (result as? String)?.takeIf { it.isNotEmpty() }?.let {
                             com.ctf.bilisb.unlock.HostAccessKey.capture(it)
+                            // 诊断：令牌捕获探针（不再明文写文件到磁盘）
                             HookProbe.first(module, "unlock:akCapture", 1) {
                                 "len=${it.length} hex32=${it.length == 32 && it.all { c -> c.isDigit() || c in 'a'..'f' }} head4=${it.take(4)}"
-                            }
-                            // 诊断：令牌落盘（root-only 目录，供真实链路验证）
-                            runCatching {
-                                val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
-                                dir.mkdirs()
-                                java.io.File(dir, "access_key_runtime.txt")
-                                    .writeText(it)
                             }
                         }
                     }
@@ -291,15 +285,17 @@ object PlayViewHook {
         // 诊断：前 4 个 PGC 响应全部落盘（定位受限形态的真实字节位置）
         val n = capturedRestricted.incrementAndGet()
         if (n > 4) return
-        runCatching {
-            val bytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
-                ?.invoke(reply) as? ByteArray ?: return
-            val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
-            dir.mkdirs()
-            val f = java.io.File(dir, "pgc_reply_$n.bin")
-            f.outputStream().use { it.write(bytes) }
-            HookProbe.first(module, "unlock:capture:pgc", 4) {
-                "${f.absolutePath} ${bytes.size}B verdict=$verdictName"
+        unlockExecutor.execute {
+            runCatching {
+                val bytes = reply.javaClass.methods.firstOrNull { f -> f.name == "toByteArray" }
+                    ?.invoke(reply) as? ByteArray ?: return@runCatching
+                val dir = java.io.File(HostTargets.HOST_DATA_DIRS.first(), "unlock_capture")
+                dir.mkdirs()
+                val f = java.io.File(dir, "pgc_reply_$n.bin")
+                f.outputStream().use { it.write(bytes) }
+                HookProbe.first(module, "unlock:capture:pgc", 4) {
+                    "${f.absolutePath} ${bytes.size}B verdict=$verdictName"
+                }
             }
         }
     }
@@ -344,7 +340,8 @@ object PlayViewHook {
 
     /** COROUTINE_SUSPENDED 标记（类名比对，避免依赖 kotlin.coroutines 运行时符号）。 */
     private fun isSuspendedMarker(result: Any): Boolean =
-        result.javaClass == Any::class.java && result.toString() == "COROUTINE_SUSPENDED"
+        (result.javaClass == Any::class.java || result.javaClass.name.endsWith("CoroutineSingletons")) &&
+            result.toString() == "COROUTINE_SUSPENDED"
 
     /**
      * 响应变换器：对一次 playViewUnite 调用的 reply 应用解锁变换。
@@ -356,6 +353,8 @@ object PlayViewHook {
         private val req: Any?,
         private val reqFacts: ExtractedRequestFacts,
     ) {
+        private val config: UnlockConfig.Config by lazy { UnlockConfig.load(module) }
+
         fun apply(via: String, reply: Any?): Any? {
             if (reply == null) return reply
             val respFacts = extractResponseFacts(module, cl, reply)
@@ -380,7 +379,6 @@ object PlayViewHook {
                     "endDlg=${facts.supplementEndPageDialogType} prev=${facts.isPreview} " +
                     "typeUrl=${facts.supplementTypeUrl ?: "null"} usable=${facts.respUsable}"
             }
-            val config = UnlockConfig.load(module)
             // 开发专用强制路径：命中的 ep_id == unlock_test_epid 的正常 PGC 请求
             // 被强制按受限处理——没有已知受限样本时验证闭环用（U7 评估去留）
             val forcedTest = config.testEpId != 0L &&
@@ -443,8 +441,7 @@ object PlayViewHook {
          * @param supplementEpId 原响应里的 ep_id（请求没带 ep 时用它补）。
          */
         private fun roamAndRebuild(hostReply: Any?, fallbackCid: Long, supplementEpId: Long): Any? {
-            val config = UnlockConfig.load(module)
-            val configAccessKey = config.servers[0].accessKey
+            val configAccessKey = config.servers.firstOrNull()?.accessKey.orEmpty()
             val accessKey = configAccessKey.ifBlank { HostAccessKey.lastSeen() }
             if (accessKey.isNullOrBlank()) {
                 HookProbe.first(module, "unlock:noAccessKey", 3) {
@@ -570,7 +567,6 @@ object PlayViewHook {
                 HookProbe.first(module, "unlock:hostFailSkipped", 3) { "非下载请求，保留宿主异常" }
                 return null
             }
-            val config = UnlockConfig.load(module)
             if (!config.enabled || config.servers.isEmpty()) {
                 HookProbe.first(module, "unlock:hostFailOff", 3) { "宿主取地址失败且解锁未启用/未配服务器" }
                 return null
@@ -602,8 +598,9 @@ object PlayViewHook {
     private fun showFailToast(module: XposedModule, reason: String) {
         if (reason.isEmpty()) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastFailToastAt.get() < 30_000) return
-        lastFailToastAt.set(now)
+        val prev = lastFailToastAt.get()
+        if (now - prev < 30_000) return
+        if (!lastFailToastAt.compareAndSet(prev, now)) return
         runCatching {
             val context = Class.forName("android.app.ActivityThread")
                 .getMethod("currentApplication").invoke(null) as? android.content.Context

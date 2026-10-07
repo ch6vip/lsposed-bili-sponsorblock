@@ -24,6 +24,12 @@ class SearchRequestPolicyTest {
     @Test fun `only marked regional request reaches server`() {
         assertEquals(SearchRequestPolicy.Route.REGIONAL,
             SearchRequestPolicy.route(810, true, true, true, "tw"))
+        assertEquals(SearchRequestPolicy.Route.REGIONAL,
+            SearchRequestPolicy.route(810, true, true, true, "hk"))
+        assertEquals(SearchRequestPolicy.Route.REGIONAL,
+            SearchRequestPolicy.route(SearchRequestPolicy.MARKER_TYPE_TH, true, true, true, "th"))
+        assertEquals(SearchRequestPolicy.Route.NATIVE_BANGUMI,
+            SearchRequestPolicy.route(SearchRequestPolicy.MARKER_TYPE_TH, true, true, true, "cn"))
     }
 
     @Test fun `next page cursor and requested size are retained`() {

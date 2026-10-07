@@ -181,19 +181,21 @@ object QualityPolicy {
                                 val config = UnlockConfig.load(module)
                                 val hs = config.halfScreenQuality.toIntOrNull() ?: 0
                                 val fs = config.fullScreenQuality.toIntOrNull() ?: 0
+                                if (hs == 0 && fs == 0) return@intercept chain.proceed()
+                                val newArgs = chain.args.toTypedArray()
                                 if (hs != 0) {
                                     val q = if (hs == QUALITY_AUTO_HIGHEST) 127 else hs
-                                    chain.args[0] = q
-                                    chain.args[3] = q
-                                    chain.args[4] = q
-                                    chain.args[5] = q
+                                    newArgs[0] = q
+                                    newArgs[3] = q
+                                    newArgs[4] = q
+                                    newArgs[5] = q
                                 }
                                 if (fs != 0) {
                                     val q = if (fs == QUALITY_AUTO_HIGHEST) 127 else fs
-                                    chain.args[1] = q
-                                    chain.args[2] = q
+                                    newArgs[1] = q
+                                    newArgs[2] = q
                                 }
-                                chain.proceed()
+                                chain.proceed(newArgs)
                             }
                         HookProbe.ok(module, "unlock:qualityStrategy", "hooked $name#${m.name}")
                     }

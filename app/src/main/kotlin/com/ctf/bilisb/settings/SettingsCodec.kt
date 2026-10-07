@@ -112,7 +112,11 @@ object SettingsCodec {
             prefs.getString(key, null)?.toLongOrNull() ?: 0L
         }.getOrDefault(0L)
         override fun readMap(values: Map<String, Any?>): Long =
-            (values[key] as? Number)?.toLong() ?: values[key].toString().toLongOrNull() ?: 0L
+            when (val v = values[key]) {
+                is Number -> v.toLong()
+                is String -> v.toLongOrNull() ?: 0L
+                else -> 0L
+            }
         override fun mapValue(snapshot: SettingsSnapshot): Any = get(snapshot)
     }
 

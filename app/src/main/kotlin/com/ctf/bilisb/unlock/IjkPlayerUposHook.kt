@@ -39,10 +39,12 @@ object IjkPlayerUposHook {
                                 if (origUrl != null) {
                                     val rewritten = rewriteMediaUrl(origUrl, config.uposHost)
                                     if (rewritten != origUrl) {
-                                        chain.args[0] = rewritten
                                         HookProbe.first(module, "unlock:forceUposApplied", 3) {
                                             "ijk segment url replaced -> ${config.uposHost}"
                                         }
+                                        val newArgs = chain.args.toTypedArray()
+                                        newArgs[0] = rewritten
+                                        return@intercept chain.proceed(newArgs)
                                     }
                                 }
                             }
@@ -70,7 +72,9 @@ object IjkPlayerUposHook {
                                     val filtered = origList.mapNotNull { it as? String }
                                         .filterNot { UposReplacer.isPcdnUrl(it) }
                                         .map { rewriteMediaUrl(it, config.uposHost) }
-                                    chain.args[0] = filtered
+                                    val newArgs = chain.args.toTypedArray()
+                                    newArgs[0] = filtered
+                                    return@intercept chain.proceed(newArgs)
                                 }
                             }
                             chain.proceed()

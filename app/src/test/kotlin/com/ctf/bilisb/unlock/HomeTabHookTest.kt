@@ -90,4 +90,55 @@ class HomeTabHookTest {
         assertTrue(tabs.any { it.uri == "bilibili://following/home_activity_tab/6544" })
         assertEquals(1, tabs.count { it.uri == "bilibili://pgc/bangumi_v2" })
     }
+
+    @Test
+    fun `idempotent when identified by tabId only`() {
+        val resp = MockTabResponse()
+        resp.tabData.tab = listOf(
+            MockTab().apply { tabId = "50"; uri = "custom://uri1" },
+            MockTab().apply { tabId = "60"; uri = "custom://uri2" },
+        )
+
+        val changed = HomeTabHook.injectBangumiTabs(resp, MockTab::class.java)
+        assertFalse(changed)
+        assertEquals(2, resp.tabData.tab.size)
+    }
+
+    class MockEmptyResp
+
+    @Test
+    fun `handles missing or null tabData gracefully`() {
+        assertFalse(HomeTabHook.injectBangumiTabs(MockEmptyResp(), MockTab::class.java))
+    }
+
+    class BeanTab {
+        private var tabId: String = ""
+        private var name: String = ""
+        private var uri: String = ""
+        private var reportId: String = ""
+        private var pos: Int = 0
+
+        fun getTabId(): String = tabId
+        fun setTabId(v: String) { tabId = v }
+        fun getName(): String = name
+        fun setName(v: String) { name = v }
+        fun getUri(): String = uri
+        fun setUri(v: String) { uri = v }
+        fun getReportId(): String = reportId
+        fun setReportId(v: String) { reportId = v }
+        fun getPos(): Int = pos
+        fun setPos(v: Int) { pos = v }
+    }
+
+    class BeanResponse {
+        var tabData: MockTabData = MockTabData()
+    }
+
+    @Test
+    fun `injects tabs using getter and setter methods fallback`() {
+        val resp = BeanResponse()
+        val changed = HomeTabHook.injectBangumiTabs(resp, BeanTab::class.java)
+        assertTrue(changed)
+        assertEquals(2, resp.tabData.tab.size)
+    }
 }

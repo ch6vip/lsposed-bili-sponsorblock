@@ -51,8 +51,9 @@ val hasReleaseSigning = releaseStorePath != null &&
 //        许可证由 MIT 转 GPL-3（解锁实现重写自 GPL-3 项目 BiliRoaming）。
 // 0.9.0 = 解锁线收口：选集面板兜底（ViewTabHook）+ 清晰度面板 + 缓存补参/CDN 替换
 //        + season 重试冷却 + D1 失败 Toast；U8 真机回归全通（2026-10-04）。
-val MODULE_VERSION_CODE = 16
-val MODULE_VERSION_NAME = "0.9.0"
+// 0.10.0 = 区域搜索、首页番剧页签、清晰度策略、UPOS 测速、TH 字幕 + 并发与边界加固批（真机验收 2026-10-07）
+val MODULE_VERSION_CODE = 17
+val MODULE_VERSION_NAME = "0.10.0"
 
 android {
     namespace = "com.ctf.bilisb"
