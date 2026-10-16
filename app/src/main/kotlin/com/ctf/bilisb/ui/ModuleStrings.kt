@@ -5,6 +5,7 @@ import android.content.res.AssetManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import io.github.libxposed.api.XposedModule
+import com.ctf.bilisb.settings.SettingsLanguage
 
 /**
  * **模块文案的唯一入口** —— 所有读 `R.string.*` 的地方都必须走这里。
@@ -64,11 +65,11 @@ object ModuleStrings {
     fun get(context: Context?, resId: Int, vararg args: Any, fallback: String? = null): String {
         // 模块自己的进程：Context 就是模块的，资源 id 天然对得上
         if (context != null && context.packageName == MODULE_PACKAGE) {
-            runCatching { context.getString(resId, *args) }.getOrNull()?.let { return it }
+            runCatching { localized(context.resources).getString(resId, *args) }.getOrNull()?.let { return it }
         }
         // 宿主进程：走模块自己的资源表
         moduleResources()?.let { res ->
-            runCatching { res.getString(resId, *args) }.getOrNull()?.let { return it }
+            runCatching { localized(res).getString(resId, *args) }.getOrNull()?.let { return it }
         }
         return fallback.orEmpty()
     }
@@ -108,9 +109,31 @@ object ModuleStrings {
         return Resources(assets, system.displayMetrics, Configuration(system.configuration))
     }
 
+    @Volatile private var localizedResources: Resources? = null
+    private var localizedBase: Resources? = null
+    private var localizedConfiguration: Configuration? = null
+
+    /** Copy configuration only; never mutate the host Activity, Resources, or default Locale. */
+    @Synchronized
+    internal fun localized(base: Resources): Resources {
+        val config = Configuration(if (base === cachedResources) Resources.getSystem().configuration else base.configuration)
+        SettingsLanguage.locale()?.let { config.setLocale(it) }
+        if (localizedBase === base && localizedConfiguration == config) return localizedResources ?: base
+        @Suppress("DEPRECATION")
+        val resources = Resources(base.assets, base.displayMetrics, config)
+        localizedBase = base
+        localizedConfiguration = config
+        localizedResources = resources
+        return resources
+    }
+
     /** 仅供测试。 */
     fun resetForTest() {
         hookModule = null
         cachedResources = null
+        localizedResources = null
+        localizedBase = null
+        localizedConfiguration = null
+        SettingsLanguage.apply(SettingsLanguage.SYSTEM)
     }
 }

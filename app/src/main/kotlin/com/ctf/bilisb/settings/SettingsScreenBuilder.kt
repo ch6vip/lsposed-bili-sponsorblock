@@ -157,6 +157,7 @@ object SettingsScreenBuilder {
         onSponsorBlockClick: () -> Unit,
         onEnhanceClick: (() -> Unit)? = null,
         onUnlockClick: (() -> Unit)? = null,
+        onLanguageChanged: (() -> Unit)? = null,
     ): LinearLayout {
         // 控制中心 = B 站风格:浅灰页面底(#F1F2F3)+ 白色圆角卡片 + 品牌粉头图(#FB7299)。
         // 行内文字用 B 站 App 的固定色板,不跟随宿主主题(与播放器面板的浅色卡片取舍一致)。
@@ -199,6 +200,12 @@ object SettingsScreenBuilder {
                 })
             }, cardLayoutParams())
 
+            if (onLanguageChanged != null && statusWriter != null) {
+                addView(card {
+                    addView(languageRow(activity, statusWriter.sharedPreferences, onLanguageChanged))
+                }, cardLayoutParams())
+            }
+
             if (showStatusPanel) {
                 addView(card { addView(statusPanel(activity, statusWriter)) }, cardLayoutParams())
             }
@@ -230,6 +237,28 @@ object SettingsScreenBuilder {
                 addView(biliDivider(activity))
                 addView(aboutItem(activity, str(activity, R.string.common_author), "ch6vip"))
             })
+        }
+    }
+
+    private fun languageRow(activity: Activity, prefs: SharedPreferences, onChanged: () -> Unit): View {
+        val selected = SettingsLanguage.sanitize(prefs.getString(SettingsKeys.LANGUAGE, SettingsLanguage.SYSTEM))
+        val labels = arrayOf(
+            str(activity, R.string.language_system),
+            str(activity, R.string.language_chinese),
+            str(activity, R.string.language_english),
+        )
+        return entryRow(activity, str(activity, R.string.language_title), labels[SettingsLanguage.choices.indexOf(selected)]) {
+            android.app.AlertDialog.Builder(activity)
+                .setTitle(str(activity, R.string.language_title))
+                .setSingleChoiceItems(labels, SettingsLanguage.choices.indexOf(selected)) { dialog, which ->
+                    val choice = SettingsLanguage.choices[which]
+                    prefs.edit().putString(SettingsKeys.LANGUAGE, choice).apply()
+                    SettingsLanguage.apply(choice)
+                    dialog.dismiss()
+                    onChanged()
+                }
+                .setNegativeButton(str(activity, R.string.common_cancel), null)
+                .show()
         }
     }
 

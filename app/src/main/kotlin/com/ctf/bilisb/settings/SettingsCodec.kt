@@ -149,6 +149,7 @@ object SettingsCodec {
     private val SHOW_TIME_DEDUCTION = BoolDef(SettingsKeys.SHOW_TIME_DEDUCTION, { it.showTimeDeduction }, true)
     private val SHOW_SKIP_STATS = BoolDef(SettingsKeys.SHOW_SKIP_STATS, { it.showSkipStats }, true)
     private val SHOW_SUBMIT_BUTTON = BoolDef(SettingsKeys.SHOW_SUBMIT_BUTTON, { it.showSubmitButton }, true)
+    private val LANGUAGE = StrDef(SettingsKeys.LANGUAGE, { it.language }, SettingsLanguage.SYSTEM, SettingsLanguage::sanitize)
     private val IP_LOCATION = BoolDef(SettingsKeys.ENHANCE_IP_LOCATION, { it.ipLocation }, false)
     private val HIDE_TRIPLE = BoolDef(SettingsKeys.ENHANCE_HIDE_TRIPLE, { it.hideTriple }, false)
     private val HIDE_UP_PROMPT = BoolDef(SettingsKeys.ENHANCE_HIDE_UP_PROMPT, { it.hideUpPrompt }, false)
@@ -181,7 +182,7 @@ object SettingsCodec {
         MIN_SKIP_DURATION, SKIP_COUNTDOWN, SERVER_ADDRESS, CACHE_TTL,
         USER_ID, DEFAULT_SUBMIT_CATEGORY,
         SHOW_TOAST, SHOW_SEEKBAR_MARKER, SHOW_TIME_DEDUCTION, SHOW_SKIP_STATS, SHOW_SUBMIT_BUTTON,
-        IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
+        LANGUAGE, IP_LOCATION, HIDE_TRIPLE, HIDE_UP_PROMPT, HIDE_VOTE, NO_AUTO_REFRESH, SHARE_QQ,
         UNLOCK_ENABLED, UNLOCK_SERVER_URL, UNLOCK_AK, UNLOCK_CACHE, UNLOCK_SEARCH, UNLOCK_ADD_BANGUMI, UNLOCK_UPOS, UNLOCK_AREA, UNLOCK_TEST_EP,
         UNLOCK_SHOW_INFO, FULL_SCREEN_QUALITY, HALF_SCREEN_QUALITY, UNLOCK_FORCE_UPOS,
         UNLOCK_SERVER_CN, UNLOCK_SERVER_HK, UNLOCK_SERVER_TW, UNLOCK_SERVER_TH,
@@ -282,6 +283,7 @@ object SettingsCodec {
             categoryColors = SettingsKeys.CATEGORY_COLOR_DEFAULTS.mapValues { (category, def) ->
                 parseColor(values[SettingsKeys.colorKey(category)] as? String ?: def, def)
             },
+            language = f(LANGUAGE),
             ipLocation = f(IP_LOCATION),
             hideTriple = f(HIDE_TRIPLE),
             hideUpPrompt = f(HIDE_UP_PROMPT),

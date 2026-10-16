@@ -12,6 +12,7 @@ package com.ctf.bilisb.settings
  */
 object SettingsKeys {
     const val PREFS_NAME = "sponsorblock_settings"
+    const val LANGUAGE = "settings_language"
     const val MIRROR_FILE = "sponsorblock_settings.json"
 
     // 本地 ↔ 权威存储的同步状态标记(属于内部元数据,不是用户设置)
