@@ -266,13 +266,16 @@ object ViewTabHook {
                     else -> method.invoke(origApi, *(args ?: emptyArray()))
                 }
             }
-            if (!args.isNullOrEmpty() && args[0] is Number) {
+            if (method.name == "requestMediaInfo" && !args.isNullOrEmpty() && args[0] is Number) {
                 val mediaId = (args[0] as Number).toLong()
                 val detail = seasonDetailBySeasonId[mediaId.toInt()]
                 if (detail != null) {
                     val mocked = runCatching {
                         val vo = buildOgvIntroInfoVo(cl, detail)
-                        val respClass = Class.forName(HostTargets.OKRETRO_SUCCESS_RESPONSE_CLASS, false, cl)
+                        val legacy = vo.javaClass.name == "${HostTargets.OGV_INTRO_FLOATLAYER_PKG}.bean.OGVIntroInfoVo"
+                        val respClass = Class.forName(
+                            if (legacy) HostTargets.LEGACY_OKRETRO_SUCCESS_RESPONSE_CLASS else HostTargets.OKRETRO_SUCCESS_RESPONSE_CLASS, false, cl,
+                        )
                         respClass.getConstructor(Any::class.java).newInstance(vo)
                     }.onFailure { t ->
                         HookProbe.first(module, "viewTab:introBuildErr", 3) {
@@ -303,8 +306,9 @@ object ViewTabHook {
      */
     private fun installIntroDetailHook(module: XposedModule, cl: ClassLoader) {
         runCatching {
-            val bindContClass = Class.forName(HostTargets.OGV_INTRO_DETAIL_BIND_CONT_CLASS, false, cl)
-            val componentClass = bindContClass.getDeclaredField("this\$0").type
+            val componentClass = runCatching {
+                Class.forName(HostTargets.OGV_INTRO_DETAIL_BIND_CONT_CLASS, false, cl).getDeclaredField("this\$0").type
+            }.getOrElse { Class.forName(HostTargets.LEGACY_OGV_INTRO_COMPONENT, false, cl) }
             val ctor = componentClass.declaredConstructors.firstOrNull()
                 ?: run {
                     HookProbe.miss(module, "viewTab:introDetail", "no constructor on ${componentClass.name}")
@@ -350,7 +354,10 @@ object ViewTabHook {
     }
 
     internal fun buildOgvIntroInfoVo(cl: ClassLoader, detail: ThSeasonDetail): Any {
-        val pkg = HostTargets.OGV_INTRO_FLOATLAYER_PKG
+        val layout = HostTargets.OGV_INTRO_MODEL_LAYOUTS.first { (pkg, model) ->
+            runCatching { Class.forName("$pkg.$model", false, cl) }.isSuccess
+        }
+        val pkg = layout.first
         val areaClass = Class.forName("$pkg.Area", false, cl)
         val areaCtor = areaClass.getConstructor(Long::class.javaPrimitiveType, String::class.java)
         val areas = detail.areas.split(" ").filter { it.isNotBlank() }.mapIndexed { idx, name ->
@@ -358,7 +365,7 @@ object ViewTabHook {
         }
 
         val publishClass = Class.forName("$pkg.Publish", false, cl)
-        val publishCtor = publishClass.getConstructor(
+        val publishCtor = runCatching { publishClass.getConstructor(
             Int::class.javaPrimitiveType,
             Int::class.javaPrimitiveType,
             String::class.java,
@@ -367,21 +374,20 @@ object ViewTabHook {
             String::class.java,
             Boolean::class.javaPrimitiveType,
             Boolean::class.javaPrimitiveType,
-        )
+        ) }.getOrNull()
         val timeLengthShow = detail.timeLengthShow.ifEmpty {
             if (detail.total > 0) "全${detail.total}话" else ""
         }
         val isFinish = timeLengthShow.contains("完结") || timeLengthShow.startsWith("全")
-        val publish = publishCtor.newInstance(
-            0,
-            0,
-            "",
-            "",
-            detail.publishDateShow,
-            timeLengthShow,
-            true,
-            isFinish,
-        )
+        val publish = if (publishCtor != null) {
+            publishCtor.newInstance(0, 0, "", "", detail.publishDateShow, timeLengthShow, true, isFinish)
+        } else {
+            publishClass.getConstructor(
+                String::class.java, String::class.java, Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                String::class.java, String::class.java, Int::class.javaPrimitiveType,
+            ).newInstance("", "", true, isFinish, 0, detail.publishDateShow, timeLengthShow, 0)
+        }
 
         val styleClass = Class.forName("$pkg.Style", false, cl)
         val styleCtor = styleClass.getConstructor(
@@ -413,7 +419,7 @@ object ViewTabHook {
         val rating = ratingClass.getConstructor(Float::class.javaPrimitiveType, String::class.java)
             .newInstance(0f, "")
 
-        val voClass = Class.forName("$pkg.OgvIntroInfoVo", false, cl)
+        val voClass = Class.forName("$pkg.${layout.second}", false, cl)
         val voCtor = voClass.constructors.first { it.parameterTypes.size == 18 }
         val sidLong = detail.seasonId.toLong()
         return voCtor.newInstance(

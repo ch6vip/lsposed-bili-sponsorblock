@@ -148,9 +148,9 @@ object VideoDirectorListener {
             HookProbe.miss(module, "director", "classLoader null")
             return false
         }
-        // 观察者接口跨版本撞名（6.5.0 的 F0 是无关的媒体资源接口，6.6.0 的 E0 是空标记接口），
-        // 不能按名字顺序挑类：对每个候选接口解析注册方法，「能解析出 (add 方法, 接口) 对」的
-        // 即当前版本的观察者接口，代理也实现它 —— 方法解析成功本身就是接口正确性的证明。
+        // 观察者接口跨版本漂移：旧版是 E0/F0，新版 3.20.4 是 u2。
+        // 对每个候选接口解析注册方法，「能解析出 (add 方法, 接口) 对」的即当前版本，
+        // 代理只实现这个接口，避免把同名的无关短接口误当成观察者。
         val addPair = HostTargets.DIRECTOR_OBSERVER_INTERFACES.firstNotNullOfOrNull { ifaceName ->
             val iface = runCatching { Class.forName(ifaceName, false, classLoader) }.getOrNull()
                 ?: return@firstNotNullOfOrNull null
@@ -159,6 +159,11 @@ object VideoDirectorListener {
                 HostTargets.DIRECTOR_ADD_OBSERVER_METHODS,
                 iface,
             ) ?: return@firstNotNullOfOrNull null
+            // 3.20.4 的 J0/S1(u2) 是精确的一参观察者注册/注销形状；
+            // 防止候选接口命中同名但语义不同的继承方法。
+            if (method.parameterTypes.size != 1 || method.parameterTypes[0] != iface) {
+                return@firstNotNullOfOrNull null
+            }
             method to iface
         }
         if (addPair == null) {
@@ -201,7 +206,9 @@ object VideoDirectorListener {
 
     /** 尝试从 widget / 容器上取 director 服务并挂代理（旧目标路径，6.5.0 部分 widget 也有）。 */
     fun tryRegisterFromHost(module: XposedModule, host: Any): Boolean {
-        val service = HookResolve.invokeNoArg(host, HostTargets.DIRECTOR_GET_SERVICE_METHODS) ?: run {
+        val service = HostPlayerProtocol.invokeTyped(
+            host, HostTargets.DIRECTOR_GET_SERVICE_METHODS, HostTargets.DIRECTOR_SERVICE_TYPES,
+        ) ?: run {
             HookProbe.miss(module, "directorFromHost", host.javaClass.name)
             return false
         }
@@ -226,7 +233,9 @@ object VideoDirectorListener {
 
     private fun resolveService(host: Any): Any? {
         if (gate.isRegistered(host)) return host
-        return HookResolve.invokeNoArg(host, HostTargets.DIRECTOR_GET_SERVICE_METHODS)
+        return HostPlayerProtocol.invokeTyped(
+            host, HostTargets.DIRECTOR_GET_SERVICE_METHODS, HostTargets.DIRECTOR_SERVICE_TYPES,
+        )
     }
 
     private fun removeObserver(module: XposedModule, directorService: Any) {
@@ -254,7 +263,7 @@ object VideoDirectorListener {
         }
     }
 
-    /** 探针：`service.D()` -> `Video$e` -> `z()` -> `Video$a`（DanmakuResolveParams）。 */
+    /** 探针：读取当前 Video，再按版本解析 aid/cid。 */
     fun probeCurrentVideo(module: XposedModule, directorService: Any) {
         if (currentVideoOf(directorService) == null) {
             HookProbe.first(module, "directorCurrentVideo", 3) { "null (还没有播放条目)" }
@@ -263,10 +272,8 @@ object VideoDirectorListener {
         HookProbe.first(module, "directorCurrentVideo", 5) { probeInfo(module, directorService) }
     }
 
-    private fun currentVideoOf(directorService: Any): Any? = runCatching {
-        HookResolve.forTarget(directorService, HostTargets.DIRECTOR_CURRENT_VIDEO_METHODS)
-            ?.invoke(directorService)
-    }.getOrNull()
+    private fun currentVideoOf(directorService: Any): Any? =
+        HostPlayerProtocol.currentVideo(directorService)
 
     private fun probeInfo(module: XposedModule, directorService: Any): String {
         val video = currentVideoOf(directorService) ?: return "null (还没有播放条目)"
@@ -293,19 +300,27 @@ object VideoDirectorListener {
     }
 
     /**
-     * 从 `Video$e` 提取 aid/cid。
+     * 从当前视频对象提取 aid/cid。
      *
-     * 主路径：`z()` -> `Video$a`(`DanmakuResolveParams`) 的 `a`/`b` 字段；
-     * 兜底：扫 long 字段取两个大于 0 的值（旧实现的启发式，保留以防实现类不覆写 `z()`）。
+     * 3.20.4: Director 回调对象是 Video$f，D() 返回 Video$b(DanmakuResolveParams)，
+     * 其 c()=avid、d()=cid；旧版则是 Video$e#z() 返回 Video$a，字段 a/b。
      */
     fun extractVideoIds(module: XposedModule, video: Any): Pair<Long, Long>? {
+        val typedIds = HostPlayerProtocol.knownVideoIds(video)
+        if (typedIds != null) {
+            HookProbe.first(module, "idsPrimary", 3) {
+                "${video.javaClass.simpleName} aid=${typedIds.first} cid=${typedIds.second} (typed host path)"
+            }
+            return typedIds
+        }
+
         val params = runCatching {
             HookResolve.forTarget(video, listOf(HostTargets.VIDEO_PARAMS_ACCESSOR))?.invoke(video)
         }.getOrNull()
-
         HookProbe.first(module, "idDiagnostics", 4) {
             buildString {
                 append("video=").append(video.javaClass.name).append(' ').append(describe(video))
+                append(" || typed host path=null")
                 append(" || z()=").append(params?.javaClass?.name ?: "null")
                 if (params != null) append(' ').append(describe(params))
             }
@@ -315,13 +330,10 @@ object VideoDirectorListener {
             val aid = (HookResolve.readField(params, HostTargets.VIDEO_PARAMS_AID_FIELD) as? Number)?.toLong()
             val cid = (HookResolve.readField(params, HostTargets.VIDEO_PARAMS_CID_FIELD) as? Number)?.toLong()
             if (aid != null && aid > 0 && cid != null && cid > 0) {
-                HookProbe.first(module, "idsPrimary", 3) {
-                    "${params.javaClass.simpleName} aid=$aid cid=$cid（${params.javaClass.simpleName}.a/.b）"
+                HookProbe.first(module, "idsLegacy", 3) {
+                    "${params.javaClass.simpleName} aid=$aid cid=$cid（旧版 z()/a/b）"
                 }
                 return aid to cid
-            }
-            HookProbe.first(module, "extractVideoIds", 5) {
-                "params=${params.javaClass.name} aid=$aid cid=$cid ($params)"
             }
         }
 

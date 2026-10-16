@@ -95,6 +95,12 @@ object IpLocationHooks {
 
     fun install(module: XposedModule, cl: ClassLoader) {
         installGroup(module, "ip.restIdentity") { installRest(module, cl) }
+        // 3.20.4 使用原生 gRPC，尚无后续版本的 ignet/KMP 头栈。
+        if (installLegacyIdentity(module, cl)) {
+            installRestParams(module, cl)
+            module.info("IpLocationHooks installed (legacy gRPC)")
+            return
+        }
         // moss 部分：立即尝试，失败则延迟重试
         installMossScope(module, cl)
         installIdentityProvider(module, cl)
@@ -262,6 +268,50 @@ object IpLocationHooks {
         } catch (t: Throwable) {
             HookProbe.miss(module, "ip.mossScope", "install threw: ${t.javaClass.simpleName}: ${t.message}")
         }
+    }
+
+    /** The old gRPC interceptor fills headers synchronously in ClientCall.start(). */
+    private fun installLegacyIdentity(module: XposedModule, cl: ClassLoader): Boolean {
+        val provider = loadQuiet(cl, HostTargets.LEGACY_IDENTITY_PROVIDER) ?: return false
+        if (provider.declaredMethods.none {
+                it.name == HostTargets.LEGACY_METADATA_METHOD && it.parameterTypes.isEmpty() &&
+                    it.returnType == ByteArray::class.java
+            }) return false
+        runCatching {
+            val interceptor = Class.forName(HostTargets.LEGACY_GRPC_INTERCEPTOR, false, cl)
+            val callClass = Class.forName(HostTargets.LEGACY_GRPC_HEADER_CALL, false, cl)
+            val scopedCalls = Collections.synchronizedMap(java.util.WeakHashMap<Any, Boolean>())
+            val createCall = interceptor.declaredMethods.single {
+                it.parameterTypes.size == 3 && it.parameterTypes[0].name == "io.grpc.MethodDescriptor"
+            }
+            module.hook(createCall).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept { chain ->
+                val result = chain.proceed()
+                runCatching {
+                    val description = chain.getArg(0)?.toString().orEmpty()
+                    val wanted = description.contains(REPLY_SERVICE) || description.contains("bilibili.app.interfaces.v1.Space")
+                    if (result != null) scopedCalls[result] = wanted
+                }.onFailure { module.warn("ip: legacy call scope: ${it.message}") }
+                result
+            }
+            val start = callClass.declaredMethods.single {
+                it.name == HostTargets.LEGACY_GRPC_START_METHOD && it.parameterTypes.size == 2 &&
+                    it.returnType == Void.TYPE
+            }
+            module.hook(start).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept { chain ->
+                val wanted = runCatching { enabled(module) && scopedCalls[chain.getThisObject()] == true }.getOrDefault(false)
+                val previous = sScope.get()
+                if (wanted) sScope.set("comment-grpc")
+                try { chain.proceed() } finally {
+                    if (wanted) { if (previous == null) sScope.remove() else sScope.set(previous) }
+                }
+            }
+            installByteProvider(module, cl, provider.name, HostTargets.LEGACY_METADATA_METHOD, true)
+            installByteProvider(module, cl, provider.name, HostTargets.LEGACY_DEVICE_METHOD, false)
+            identityReady.set(true)
+            HookProbe.ok(module, "ip.identityProvider", "${provider.name} n/k")
+            HookProbe.ok(module, "ip.mossScope", "${callClass.name}#${start.name} (per-call service scope)")
+        }.onFailure { HookProbe.miss(module, "ip.legacyIdentity", "${it.javaClass.simpleName}: ${it.message}") }
+        return true
     }
 
     // ------------------------------------------------------------------ KMP 头提供者兜底
@@ -668,8 +718,9 @@ object IpLocationHooks {
         isMetadata: Boolean,
     ) {
         val c = Class.forName(clsName, false, cl)
-        val m = c.declaredMethods.firstOrNull { it.name == methodName }
-            ?: throw NoSuchMethodException("$clsName.$methodName not found")
+        val m = c.declaredMethods.firstOrNull {
+            it.name == methodName && it.parameterTypes.isEmpty() && it.returnType == ByteArray::class.java
+        } ?: throw NoSuchMethodException("$clsName.$methodName(): byte[] not found")
         runCatching { m.isAccessible = true }
         runCatching { module.deoptimize(m) }
         module.hook(m)
@@ -735,7 +786,7 @@ object IpLocationHooks {
         installSpaceRestParams(module, cl)
         var restCls: Class<*>? = null
         var restClsUsed: String? = null
-        for (cn in HostTargets.REST_INTERCEPTOR_CLASSES) {
+        for (cn in HostTargets.REST_INTERCEPTOR_CLASSES + HostTargets.LEGACY_REST_INTERCEPTOR) {
             val c = runCatching { Class.forName(cn, false, cl) }.getOrNull() ?: continue
             val has = c.declaredMethods.any { it.name == "intercept" && it.parameterTypes.size == 1 }
             if (has) {
@@ -810,7 +861,8 @@ object IpLocationHooks {
             return
         }
         try {
-            val xa0 = Class.forName(HostTargets.REST_PARAMS_CLASS, false, cl)
+            val xa0 = loadQuiet(cl, HostTargets.LEGACY_REST_PARAMS_CLASS)
+                ?: Class.forName(HostTargets.REST_PARAMS_CLASS, false, cl)
             // addCommonParamToUrl(t, z.a)：记录 URL
             val toUrl = xa0.declaredMethods.firstOrNull {
                 it.name == HostTargets.REST_PARAMS_TO_URL_METHOD && it.parameterTypes.size == 2
@@ -886,7 +938,7 @@ object IpLocationHooks {
             if (toUrl == null && acp == null) {
                 HookProbe.miss(module, "ip.restParams", "XA0.a has neither addCommonParamToUrl nor addCommonParam(Map)")
             } else {
-                HookProbe.ok(module, "ip.restParams", "XA0.a addCommonParamToUrl=${toUrl != null} addCommonParam=${acp != null}")
+                HookProbe.ok(module, "ip.restParams", "${xa0.name} addCommonParamToUrl=${toUrl != null} addCommonParam=${acp != null}")
             }
         } catch (e: ClassNotFoundException) {
             HookProbe.first(module, "ip.restParamsRetry", 3) {

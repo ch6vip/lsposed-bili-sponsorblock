@@ -23,7 +23,13 @@ import org.json.JSONObject
  */
 class SettingsProvider : ContentProvider() {
 
-    override fun onCreate(): Boolean = true
+    override fun onCreate(): Boolean {
+        // Android 11+ filters provider resolution when the host has no <queries> entry
+        // for this module. A narrow URI grant also makes the provider visible to that
+        // recipient; the call() package/UID checks below still govern all settings IPC.
+        context?.let(::grantHostSettingsVisibility)
+        return true
+    }
 
     /**
      * 响应跨进程调用，返回全部设置键值对。

@@ -96,13 +96,16 @@ object MorePanelInjector {
         classLoader: ClassLoader,
         onOpenPanel: (host: Any) -> Unit,
     ) {
-        val adapterClass = HookResolve.findClass(classLoader, listOf(HostTargets.MORE_PANEL_ADAPTER_CLASS))
+        val layout = HostTargets.MORE_PANEL_LAYOUTS.firstOrNull { (adapter, item, holder) ->
+            listOf(adapter, item, holder).all { HookResolve.findClass(classLoader, listOf(it)) != null }
+        }
+        val adapterClass = layout?.let { HookResolve.findClass(classLoader, listOf(it.first)) }
         if (adapterClass == null) {
             HookProbe.miss(module, "morePanelAdapter", HostTargets.MORE_PANEL_ADAPTER_CLASS)
             return
         }
-        val itemInterface = HookResolve.findClass(classLoader, listOf(HostTargets.MORE_PANEL_ITEM_INTERFACE))
-        val holderInterface = HookResolve.findClass(classLoader, listOf(HostTargets.MORE_PANEL_HOLDER_INTERFACE))
+        val itemInterface = HookResolve.findClass(classLoader, listOf(layout!!.second))
+        val holderInterface = HookResolve.findClass(classLoader, listOf(layout.third))
         if (itemInterface == null || holderInterface == null) {
             HookProbe.miss(module, "morePanelItemInterface", "item/holder interface not found")
             return
@@ -204,19 +207,16 @@ object MorePanelInjector {
         val classLoader = itemInterface.classLoader
             ?: holderInterface.classLoader
             ?: ClassLoader.getSystemClassLoader()
-        // kotlin.Unit 优先用**本模块**的 ClassLoader 加载(LSPosed 模块打进自己的 kotlin-stdlib),
-        // 宿主 ClassLoader 未必暴露该类;加载不到时 fallback 到宿主 CL,再不行打 probe 留痕。
-        val unit = runCatching {
-            Class.forName("kotlin.Unit", false, MorePanelInjector::class.java.classLoader)
-                .getField("INSTANCE").get(null)
-        }.getOrElse {
+        // 绑定协程要返回宿主自己的 Unit（3.20.4 混淆为 gf3.s.a），避免跨 ClassLoader
+        // 返回模块 Unit 后被宿主 check-cast 拒绝。找不到时保留旧版的模块 Unit 兜底。
+        val unit = HostTargets.HOST_UNIT_CLASSES.firstNotNullOfOrNull { name ->
             runCatching {
-                Class.forName("kotlin.Unit", false, classLoader).getField("INSTANCE").get(null)
-            }.getOrElse {
-                HookProbe.miss(module, "morePanelUnit", "kotlin.Unit not loadable from module nor host CL")
-                null
-            }
-        }
+                val cls = Class.forName(name, false, classLoader)
+                cls.declaredFields.firstOrNull { field ->
+                    java.lang.reflect.Modifier.isStatic(field.modifiers) && field.type == cls
+                }?.apply { isAccessible = true }?.get(null)
+            }.getOrNull()
+        } ?: kotlin.Unit
 
         return Proxy.newProxyInstance(
             classLoader,

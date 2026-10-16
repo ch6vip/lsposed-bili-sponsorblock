@@ -107,8 +107,14 @@ object InteractHintHooks {
                 m.parameterTypes.size == 2 &&
                 m.returnType == Void.TYPE &&
                 Modifier.isStatic(m.modifiers)
+        } ?: fpu.declaredMethods.firstOrNull { m ->
+            m.name == HostTargets.FOLLOW_POPUP_LEGACY_METHOD &&
+                m.parameterTypes.size == 2 && m.returnType == Void.TYPE &&
+                !Modifier.isStatic(m.modifiers) &&
+                android.app.Activity::class.java.isAssignableFrom(m.parameterTypes[0]) &&
+                m.parameterTypes[1].name == HostTargets.FOLLOW_POPUP_SCENE_CLASS
         } ?: run {
-            HookProbe.miss(module, "hintFollowPopup", "FollowPopupUtil.b signature not found; skipped")
+            HookProbe.miss(module, "hintFollowPopup", "FollowPopupUtil b/j signature not found; skipped")
             return
         }
         runCatching { target.isAccessible = true }
@@ -124,8 +130,8 @@ object InteractHintHooks {
                 }.getOrElse { false }
                 if (hide) null else chain.proceed() // 拦截，不执行弹窗
             }
-        HookProbe.ok(module, "hintFollowPopup", "FollowPopupUtil#b(${target.parameterTypes.size} params, static)")
-        module.info("hint: follow popup hook ok -> FollowPopupUtil.b")
+        HookProbe.ok(module, "hintFollowPopup", "FollowPopupUtil#${target.name}(${target.parameterTypes.size} params)")
+        module.info("hint: follow popup hook ok -> FollowPopupUtil.${target.name}")
     }
 
     // ------------------------------------------------------------ 投票/互动弹幕

@@ -201,23 +201,46 @@ object BiliSponsorBlockHooks {
         var teardownHooked = false
         for (className in HostTargets.CONTAINER_BINDING_CLASSES) {
             val clazz = runCatching { Class.forName(className, false, cl) }.getOrNull() ?: continue
-            val method = HookResolve.declaredMethodByShape(
+            val bindMethod = HookResolve.declaredMethodByShape(
                 clazz,
                 listOf(HostTargets.BIND_CONTAINER_METHOD),
                 1,
                 paramTypeName = { it in HostTargets.CONTAINER_INTERFACES },
-            ) ?: continue
+            )
+            val serviceMethod = HookResolve.declaredMethodByShape(
+                clazz,
+                listOf(HostTargets.BIND_PLAYER_SERVICE_METHOD),
+                1,
+                paramTypeName = { it in HostTargets.CONTAINER_INTERFACES },
+            )
 
-            hookAfter(module, method, "containerBinding:$className") { chain ->
-                val host = chain.getThisObject() ?: return@hookAfter
-                val container = chain.getArgs().getOrNull(0)
-                // 探针：先确认这个入口到底有没有被调用（宿主类存在 ≠ 这条路径被走到）
-                HookProbe.first(module, "bindPlayerContainerCalled", 5) {
-                    "${host.javaClass.name} <- ${container?.javaClass?.name ?: "null"}"
+            if (bindMethod != null) {
+                hookAfter(module, bindMethod, "containerBinding:$className") { chain ->
+                    val host = chain.getThisObject() ?: return@hookAfter
+                    val container = chain.getArgs().getOrNull(0)
+                    HookProbe.first(module, "bindPlayerContainerCalled", 5) {
+                        "${host.javaClass.name} <- ${container?.javaClass?.name ?: "null"}"
+                    }
+                    bindPlayer(module, host, container)
                 }
-                bindPlayer(module, host, container)
+                hooked = true
             }
-            hooked = true
+
+            // 3.20.4 走 PlayerWidget.q(service.h)，q 的参数既是 Context/播放器服务
+            // 的承载对象，也是后续可通过 q() 取得 service.f0 core 的对象。
+            if (serviceMethod != null && (bindMethod == null || serviceMethod != bindMethod)) {
+                hookAfter(module, serviceMethod, "playerServiceBinding:$className") { chain ->
+                    val host = chain.getThisObject() ?: return@hookAfter
+                    val service = chain.getArgs().getOrNull(0)
+                    HookProbe.first(module, "playerServiceBindingCalled", 5) {
+                        "${host.javaClass.name} <- ${service?.javaClass?.name ?: "null"}"
+                    }
+                    bindPlayer(module, host, service)
+                }
+                hooked = true
+            }
+
+            if (bindMethod == null && serviceMethod == null) continue
 
             // 对每个成功挂上 bind 的 widget 类都尝试挂 detach:
             // 两个 widget 类(PlayerSeekWidget3 / PlayerProgressTextWidget)的实例各自独立
@@ -668,8 +691,12 @@ object BiliSponsorBlockHooks {
         // 提交相关的代码（客户端的 POST 提交、草稿控制器、controller.markOrSubmitCurrentPosition）
         // 仍然保留，等以后有别的入口（例如设置页/长按菜单）时可以直接复用。
 
-        // 探针：从 widget 上试取 director 服务（6.5.0 只有部分 widget 暴露）
-        VideoDirectorListener.tryRegisterFromHost(module, host)
+        // 旧版本部分 widget 自己暴露 Director；3.20.4 的 Director 在 q(h) 参数上，
+        // 即 h.f() -> service.c0，必须同时从 container 尝试注册。
+        VideoDirectorListener.tryRegisterFromHost(module, container)
+        if (container !== host) {
+            VideoDirectorListener.tryRegisterFromHost(module, host)
+        }
 
         lastBoundContextHash = contextHash
 
@@ -950,7 +977,7 @@ object BiliSponsorBlockHooks {
         for (className in HostTargets.PROGRESS_TEXT_WIDGET_CLASSES) {
             val clazz = runCatching { Class.forName(className, false, cl) }.getOrNull()
             if (clazz == null) {
-                HookProbe.miss(module, "progressWidget:$className", "class not found")
+                HookProbe.skip(module, "progressWidget:$className", "optional widget not present in this host")
                 continue
             }
 

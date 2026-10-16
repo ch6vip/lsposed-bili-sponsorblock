@@ -53,6 +53,8 @@ object SeasonMossHook {
     }
 
     fun install(module: XposedModule, cl: ClassLoader) {
+        if (runCatching { Class.forName(HostTargets.VIEW_MOSS_CLASS, false, cl) }.isFailure &&
+            LegacySeasonHook.install(module, cl)) return
         tryInstall(module, cl)
     }
 

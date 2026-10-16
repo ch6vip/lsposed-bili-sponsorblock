@@ -1,7 +1,6 @@
 package com.ctf.bilisb.player
 
 import android.content.Context
-import com.ctf.bilisb.host.HookResolve
 import com.ctf.bilisb.host.HostTargets
 
 /**
@@ -16,12 +15,9 @@ import com.ctf.bilisb.host.HostTargets
  * video id(aid / cid)不由这里取 —— 见 [VideoDirectorListener]。
  */
 object PlayerBridge {
-    /** core 服务接口名（6.5.0：`tv.danmaku.biliplayerv2.service.D`）。 */
-    private const val CORE_SERVICE_TYPE = "tv.danmaku.biliplayerv2.service.D"
-
-    fun coreService(playerContainer: Any): Any? {
-        return HookResolve.invokeNoArg(playerContainer, listOf(HostTargets.GET_CORE_METHOD))
-    }
+    fun coreService(playerContainer: Any): Any? =
+        HostPlayerProtocol.invokeTyped(playerContainer, HostTargets.GET_CORE_METHODS, HostTargets.CORE_SERVICE_TYPES)
+            ?: HostPlayerProtocol.readTypedField(playerContainer, HostTargets.CORE_SERVICE_TYPES)
 
     /**
      * 从 director 服务实例上取 core。
@@ -32,18 +28,15 @@ object PlayerBridge {
      */
     fun coreServiceFromDirector(directorService: Any?): Any? {
         if (directorService == null) return null
-        return runCatching {
-            directorService.javaClass.declaredFields.firstOrNull { it.type.name == CORE_SERVICE_TYPE }
-                ?.apply { isAccessible = true }
-                ?.get(directorService)
-        }.getOrNull()
+        return HostPlayerProtocol.readTypedField(directorService, HostTargets.CORE_SERVICE_TYPES)
     }
 
     fun context(playerContainer: Any): Context? {
         if (playerContainer is Context) return playerContainer
         if (playerContainer is android.view.View) return playerContainer.context
-        val value = HookResolve.invokeNoArg(playerContainer, HostTargets.CONTAINER_CONTEXT_METHODS)
-        return value as? Context
+        return HostPlayerProtocol.invokeTyped(
+            playerContainer, HostTargets.CONTAINER_CONTEXT_METHODS, listOf(Context::class.java.name),
+        ) as? Context
     }
 
     /**

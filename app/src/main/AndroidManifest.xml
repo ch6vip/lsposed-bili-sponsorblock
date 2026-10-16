@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <package android:name="com.bilibili.app.in" />
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -19,9 +22,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".settings.SettingsVisibilityReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name=".settings.SettingsProvider"
             android:authorities="${applicationId}.settings"
+            android:grantUriPermissions="true"
             android:exported="true" />
     </application>
 </manifest>

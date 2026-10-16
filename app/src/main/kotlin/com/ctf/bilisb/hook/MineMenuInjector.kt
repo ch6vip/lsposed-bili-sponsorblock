@@ -202,7 +202,15 @@ object MineMenuInjector {
 
     private fun hookMineAdapter(module: XposedModule, classLoader: ClassLoader, menuItemClass: Class<*>) {
         // 6.5.0 的 adapter 外层类被混淆成 tv.danmaku.bili.ui.main2.mine.d
-        val adapterClass = HookResolve.findClass(classLoader, HostTargets.MINE_ADAPTER_CLASSES)
+        val adapterClass = HostTargets.MINE_ADAPTER_CLASSES.firstNotNullOfOrNull { name ->
+            val candidate = HookResolve.findClass(classLoader, listOf(name)) ?: return@firstNotNullOfOrNull null
+            candidate.takeIf { cls ->
+                cls.declaredMethods.any { method ->
+                    method.name == "onBindViewHolder" && method.parameterTypes.size == 2 &&
+                        method.parameterTypes[1] == Integer.TYPE
+                } && runCatching { cls.getMethod("notifyDataSetChanged") }.isSuccess
+            }
+        }
         if (adapterClass == null) {
             HookProbe.miss(module, "mineAdapter", HostTargets.MINE_ADAPTER_CLASSES.joinToString())
             module.warn("mine adapter not found")

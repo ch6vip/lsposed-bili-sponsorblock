@@ -1,6 +1,7 @@
 package com.ctf.bilisb.unlock
 
 import com.ctf.bilisb.host.HookProbe
+import com.ctf.bilisb.host.HostTargets
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
@@ -29,9 +30,6 @@ import java.util.concurrent.ConcurrentHashMap
 object BiliIntlDnsHook {
 
     private const val SUFFIX = "biliintl.com"
-
-    private const val IGET_DNS_CLASS = "com.bilibili.ignetdns.IgHttpDns"
-    private const val RECORD_CLASS = "com.bilibili.ignetdns.Record"
 
     /** baseUrl → 中继 IP 字节（config TTL 60s 内不重复 parse URI/解析）。 */
     private val relayIpByBaseUrl = ConcurrentHashMap<String, ByteArray>()
@@ -89,7 +87,8 @@ object BiliIntlDnsHook {
                     return@intercept chain.proceed()
                 }
                 // getByAddress(host, bytes)：不发起 DNS，直接按字节构地址
-                val addr = InetAddress.getByAddress(host, relayIpBytes(module)!!)
+                val bytes = relayIpBytes(module) ?: return@intercept chain.proceed()
+                val addr = InetAddress.getByAddress(host, bytes)
                 HookProbe.first(module, "biliIntlDns:rewrite", 5) {
                     "$host → $ip"
                 }
@@ -101,16 +100,21 @@ object BiliIntlDnsHook {
 
     private fun installIgnetDns(module: XposedModule, cl: ClassLoader) {
         runCatching {
-            val dnsCls = Class.forName(IGET_DNS_CLASS, false, cl)
-            val recordCls = Class.forName(RECORD_CLASS, false, cl)
+            val layout = HostTargets.HTTP_DNS_LAYOUTS.firstOrNull { (dns, record, _) ->
+                runCatching { Class.forName(dns, false, cl); Class.forName(record, false, cl) }.isSuccess
+            } ?: error("No supported HTTP DNS implementation")
+            val dnsCls = Class.forName(layout.first, false, cl)
+            val recordCls = Class.forName(layout.second, false, cl)
             val ctor = recordCls.getConstructor(
                 String::class.java, String::class.java, String::class.java, String::class.java,
                 Array<String>::class.java, Long::class.javaPrimitiveType, Long::class.javaPrimitiveType,
             )
             val hooked = mutableListOf<String>()
-            for (name in listOf("resolve", "resolveSync")) {
-                val m = runCatching { dnsCls.getDeclaredMethod(name, String::class.java) }
-                    .getOrNull() ?: continue
+            for (name in layout.third) {
+                val m = dnsCls.declaredMethods.firstOrNull {
+                    it.name == name && it.returnType == recordCls && it.parameterTypes.size in 1..2 &&
+                        it.parameterTypes.all { type -> type == String::class.java }
+                } ?: continue
                 runCatching { m.isAccessible = true }
                 runCatching { module.deoptimize(m) }
                 module.hook(m)
@@ -118,7 +122,8 @@ object BiliIntlDnsHook {
                     .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                     .intercept { chain ->
                         val result = chain.proceed()
-                        rewriteIgnetRecord(module, ctor, chain.args.getOrNull(0), result)
+                        runCatching { rewriteIgnetRecord(module, ctor, chain.args.getOrNull(0), result) }
+                            .getOrDefault(result)
                     }
                 hooked += name
             }
@@ -182,7 +187,7 @@ object BiliIntlDnsHook {
     /** 从 unlock_server_url 取中继 IP 点分串；host 本身是 biliintl 域名时拒绝（防自指环）。 */
     private fun relayIpString(module: XposedModule): String? {
         val bytes = relayIpBytes(module) ?: return null
-        return bytes.joinToString(".")
+        return InetAddress.getByAddress(bytes).hostAddress
     }
 
     private fun relayIpBytes(module: XposedModule): ByteArray? {

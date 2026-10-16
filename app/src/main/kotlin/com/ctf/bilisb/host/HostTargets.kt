@@ -54,7 +54,7 @@ object HostTargets {
      * 进度回调候选（int,int）：6.5.0 是 `G`，6.6.0 改名 `J`；`onPlayerProgressChange`
      * 是旧目标；`updateTime`/`i0` 是旧版控件形态。
      */
-    val PROGRESS_CALLBACK_INT_METHODS = listOf("G", "J", "onPlayerProgressChange", "updateTime", "i0")
+    val PROGRESS_CALLBACK_INT_METHODS = listOf("G", "J", "U", "onPlayerProgressChange", "updateTime", "i0")
 
     /**
      * 进度回调候选（long,long）：6.5.0 里 `j0`（v2 基类）/`k0`（Gemini）是长整型回调，
@@ -70,18 +70,22 @@ object HostTargets {
      */
     val CONTAINER_BINDING_CLASSES = listOf(
         "com.bilibili.playerbizcommonv2.widget.seek.v3.PlayerSeekWidget3",
+        "com.bilibili.playerbizcommonv2.widget.base.PlayerProgressTextWidget",
         "com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget",
     )
     const val BIND_CONTAINER_METHOD = "bindPlayerContainer"
 
-    /** 容器接口候选：6.5.0 是 `f`，6.6.0 的 `bindPlayerContainer` 参数改传子接口 `h`。 */
+    /** 3.20.4 的控件通过 `q(tv.danmaku.biliplayerv2.h)` 注入播放器服务。 */
+    const val BIND_PLAYER_SERVICE_METHOD = "q"
+
+    /** 容器接口候选：旧版是 `f`，新版本的 q 注入参数是 `h`。 */
     val CONTAINER_INTERFACES = listOf(
         "tv.danmaku.biliplayerv2.f",
         "tv.danmaku.biliplayerv2.h",
     )
 
-    /** 从容器取 Android Context 的候选方法名：6.5.0 是 `t()`，旧目标是 `getContext()`。 */
-    val CONTAINER_CONTEXT_METHODS = listOf("t", "getContext")
+    /** 从容器取 Android Context 的候选方法名：3.20.4 的 h 是 `z()`，旧版是 `t()`。 */
+    val CONTAINER_CONTEXT_METHODS = listOf("z", "t", "getContext")
 
     /**
      * widget 的「从窗口分离」回调 —— 6.5.0 上作为**播放器离开**的信号。
@@ -96,8 +100,12 @@ object HostTargets {
 
     // ---------------------------------------------------------------- 播放器 core
 
-    /** 从 widget/容器取 core 服务。6.5.0 与旧目标同名保留。 */
-    const val GET_CORE_METHOD = "getPlayerCoreService"
+    /** 从 widget/容器取 core 服务。3.20.4 的 h 实现 `e.q()` 返回 service.f0。 */
+    val GET_CORE_METHODS = listOf("getPlayerCoreService", "q")
+    val CORE_SERVICE_TYPES = listOf(
+        "tv.danmaku.biliplayerv2.service.D",
+        "tv.danmaku.biliplayerv2.service.f0",
+    )
 
     /** 平滑 seek：6.5.0 是 `o(int,boolean)`（`seekTo(int)` 等价于 `o(pos,false)`）。 */
     val SEEK_SMOOTH_METHODS = listOf("o", "seekTo")
@@ -134,15 +142,17 @@ object HostTargets {
 
     /** 注册/注销观察者：6.5.0 是 `j0(E0)` / `z0(E0)`，6.6.0 注册改名 `l0`（注销仍叫 `z0`）；
      *  旧目标是 `add/removeVideoDirectorObserver`。 */
-    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("j0", "l0", "addVideoDirectorObserver")
-    val DIRECTOR_REMOVE_OBSERVER_METHODS = listOf("z0", "removeVideoDirectorObserver")
+    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("j0", "l0", "J0", "addVideoDirectorObserver")
+    val DIRECTOR_REMOVE_OBSERVER_METHODS = listOf("z0", "S1", "removeVideoDirectorObserver")
 
     /** 从 widget 取 director 服务的方法候选。 */
     val DIRECTOR_GET_SERVICE_METHODS = listOf(
         "getPlayDirectorServiceV3",
         "getPlayDirectorServiceV2",
         "getPlayDirectorService",
+        "f", // 3.20.4: e.f() -> c0
     )
+    val DIRECTOR_SERVICE_TYPES = DIRECTOR_SERVICE_CLASSES + listOf("tv.danmaku.biliplayerv2.service.c0")
 
     /**
      * 观察者接口候选：6.5.0 是 `E0`（回调 a/b/c/e），6.6.0 改名 `F0`（回调形状不变）。
@@ -154,6 +164,7 @@ object HostTargets {
     val DIRECTOR_OBSERVER_INTERFACES = listOf(
         "tv.danmaku.biliplayerv2.service.E0",
         "tv.danmaku.biliplayerv2.service.F0",
+        "tv.danmaku.biliplayerv2.service.u2",
         LEGACY_OBSERVER_INTERFACE,
     )
 
@@ -161,14 +172,22 @@ object HostTargets {
     const val LEGACY_OBSERVER_INTERFACE = "tv.danmaku.biliplayerv2.service.VideoDirectorObserver"
 
     /** 当前 `Video$e` 访问器：6.5.0 是 `D()`，6.6.0 改名 `F()`（返回类型不变）。 */
-    val DIRECTOR_CURRENT_VIDEO_METHODS = listOf("D", "F")
+    val DIRECTOR_CURRENT_VIDEO_METHODS = listOf("P", "D", "F")
+    val DIRECTOR_CURRENT_VIDEO_CLASSES = listOf(
+        "tv.danmaku.biliplayerv2.service.Video\$f",
+        "tv.danmaku.biliplayerv2.service.Video\$e",
+    )
 
-    /** `Video$e`：`z()` 返回 `Video$a`（DanmakuResolveParams）。 */
+    /** 3.20.4 的 `Video$f.D()` 返回 DanmakuResolveParams `Video$b`（a=aid, b=cid）。 */
+    const val VIDEO_DETAILS_ACCESSOR = "D"
+    const val VIDEO_DETAILS_CLASS = "tv.danmaku.biliplayerv2.service.Video\$b"
+
+    /** 旧版 `Video$e`：`z()` 返回 `Video$a`（DanmakuResolveParams）。 */
     const val VIDEO_INTERFACE = "tv.danmaku.biliplayerv2.service.Video\$e"
     const val VIDEO_PARAMS_CLASS = "tv.danmaku.biliplayerv2.service.Video\$a"
     const val VIDEO_PARAMS_ACCESSOR = "z"
 
-    /** `Video$a` = `DanmakuResolveParams`：`a`=avid、`b`=cid（字节码实测）。 */
+    /** `Video$a` = `DanmakuResolveParams`：`a`=avid、`b`=cid（旧版字节码实测）。 */
     const val VIDEO_PARAMS_AID_FIELD = "a"
     const val VIDEO_PARAMS_CID_FIELD = "b"
 
@@ -185,6 +204,8 @@ object HostTargets {
         "com.bilibili.playerbizcommonv2.widget.seek.v3.f",
         "com.bilibili.playerbizcommonv2.widget.seek.v3.q",
         "com.bilibili.playerbizcommonv2.widget.seek.v3.e",
+        "com.bilibili.playerbizcommonv2.widget.seek.v3.c", // 3.20.4: rounded track
+        "com.bilibili.playerbizcommonv2.widget.seek.v3.b", // 3.20.4: SeekBar
     )
     const val DRAW_METHOD = "draw"
 
@@ -203,7 +224,15 @@ object HostTargets {
      * 全量刷新入口跨版本漂移：6.5.0 是 `f0(List)`，6.6.0 是 `e0(List)`。
      */
     const val MORE_PANEL_ADAPTER_CLASS = "com.bilibili.app.gemini.ui.f"
-    val MORE_PANEL_REFRESH_METHODS = listOf("f0", "e0")
+    val MORE_PANEL_REFRESH_METHODS = listOf("f0", "e0", "Z0")
+    // 3.20.4 packages must be resolved together; never mix item/holder interfaces across layouts.
+    val MORE_PANEL_LAYOUTS = listOf(
+        Triple(MORE_PANEL_ADAPTER_CLASS, "com.bilibili.app.gemini.ui.i", "com.bilibili.app.gemini.ui.i\$b"),
+        Triple("com.bilibili.app.gemini.base.ui.b", "com.bilibili.app.gemini.base.ui.e", "com.bilibili.app.gemini.base.ui.e\$c"),
+    )
+    val HOST_UNIT_CLASSES = listOf("kotlin.Unit", "gf3.s")
+    val VIDEO_DETAILS_AID_METHODS = listOf("c")
+    val VIDEO_DETAILS_CID_METHODS = listOf("d")
     const val MORE_PANEL_MENU_SERVICE_CLASS = "com.bilibili.ship.theseus.united.page.toolbar.MenuService"
 
     /** 行条目接口（interface，可以动态代理实现）。 */
@@ -225,6 +254,7 @@ object HostTargets {
     /** 「我的」页 adapter：6.5.0 外层类被混淆成 `d`，Fragment 名保留。 */
     val MINE_ADAPTER_CLASSES = listOf(
         "tv.danmaku.bili.ui.main2.mine.d",
+        "tv.danmaku.bili.ui.main2.mine.c",
         "tv.danmaku.bili.ui.main2.mine.HomeUserCenterAdapter",
     )
 
@@ -257,6 +287,8 @@ object HostTargets {
     /** UP 关注引导气泡入口：静态、2 参、void 的方法（混淆签名会变，按「名字+形状」匹配）。 */
     const val FOLLOW_POPUP_CLASS = "com.bilibili.playerbizcommonv2.widget.popup.FollowPopupUtil"
     const val FOLLOW_POPUP_METHOD = "b"
+    const val FOLLOW_POPUP_LEGACY_METHOD = "j"
+    const val FOLLOW_POPUP_SCENE_CLASS = "$FOLLOW_POPUP_CLASS\$Scene"
 
     /** 互动弹幕投票面板的数据入口。 */
     const val VOTE_WIDGET_CLASS = "com.bilibili.playerbizcommonv2.danmaku.command.InteractDanmakuListWidget"
@@ -304,12 +336,35 @@ object HostTargets {
     /** REST/旧 moss 身份 provider 候选（混淆名；6.3.0=mq0.a，6.4.0 起迁 oq0.a，方法同名 e/d）。 */
     val IDENTITY_PROVIDER_CLASSES = listOf("mq0.a", "oq0.a")
     val IDENTITY_PROVIDER_METHODS = listOf("e", "d")
+    const val LEGACY_IDENTITY_PROVIDER = "if1.a"
+    const val LEGACY_METADATA_METHOD = "n"
+    const val LEGACY_DEVICE_METHOD = "k"
+    const val LEGACY_MOSS_SERVICE = "com.bilibili.lib.moss.api.MossServiceImp"
+    const val LEGACY_GRPC_HEADER_CALL = "of1.a\$a"
+    const val LEGACY_GRPC_START_METHOD = "e"
+    const val LEGACY_GRPC_INTERCEPTOR = "of1.a"
+    const val LEGACY_REST_INTERCEPTOR = "cg1.a"
+
+    val HTTP_DNS_LAYOUTS = listOf(
+        Triple("com.bilibili.ignetdns.IgHttpDns", "com.bilibili.ignetdns.Record", listOf("resolve", "resolveSync")),
+        Triple("com.bilibili.lib.httpdns.impl.NativeHttpDns", "com.bilibili.lib.httpdns.Record", listOf("resolve", "assign", "fallback")),
+    )
+    const val LEGACY_RETROFIT_FACTORY = "qx1.c"
+    const val LEGACY_SECTION_API = "com.bilibili.ship.theseus.ogv.intro.section.floatlayer.d"
+    const val LEGACY_SECTION_METHOD = "getSectionFloatLayerSeason"
+    const val LEGACY_SECTION_MODEL = "com.bilibili.ship.theseus.ogv.intro.section.floatlayer.SectionFloatLayerSeason"
+    const val LEGACY_EPISODE_PKG = "com.bilibili.ship.theseus.ogv.intro.section.bean"
+    val K_SEND_LAYOUTS = listOf(
+        Triple("xr1.j", "b", 7),
+        Triple("kntr.base.moss.api.c", "d", 6),
+    )
 
     /** REST 评论拦截器候选（混淆名；6.3.0=Aq0.a，6.4.0 起=Cq0.a，`intercept(1 参)`）。 */
     val REST_INTERCEPTOR_CLASSES = listOf("Aq0.a", "Cq0.a")
 
     /** okretro REST 公共参数基类（混淆名；6.4.0 移除，靠 Cq0.a 覆盖）。 */
     const val REST_PARAMS_CLASS = "XA0.a"
+    const val LEGACY_REST_PARAMS_CLASS = "com.bilibili.okretro.interceptor.a"
     const val REST_PARAMS_TO_URL_METHOD = "addCommonParamToUrl"
     const val REST_PARAMS_MAP_METHOD = "addCommonParam"
 
@@ -385,5 +440,11 @@ object HostTargets {
     const val OGV_INTRO_DETAIL_BIND_CONT_CLASS =
         "com.bilibili.ship.theseus.ogv.intro.floatlayer.OgvIntroDetailInfoComponent\$bind\$1"
     const val OGV_INTRO_FLOATLAYER_PKG = "com.bilibili.ship.theseus.ogv.intro.floatlayer"
+    const val LEGACY_OGV_INTRO_COMPONENT = "$OGV_INTRO_FLOATLAYER_PKG.OGVIntroDetailInfoComponent"
+    val OGV_INTRO_MODEL_LAYOUTS = listOf(
+        OGV_INTRO_FLOATLAYER_PKG to "OgvIntroInfoVo",
+        "$OGV_INTRO_FLOATLAYER_PKG.bean" to "OGVIntroInfoVo",
+    )
     const val OKRETRO_SUCCESS_RESPONSE_CLASS = "com.bilibili.okretro.response.b\$c"
+    const val LEGACY_OKRETRO_SUCCESS_RESPONSE_CLASS = "com.bilibili.okretro.response.c\$c"
 }

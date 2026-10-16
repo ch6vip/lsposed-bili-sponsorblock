@@ -359,7 +359,7 @@ object PlayViewHook {
      * 响应变换器：对一次 playViewUnite 调用的 reply 应用解锁变换。
      * 每次调用新建（轻量）；只在命中受限且开关开启时做网络与重构。
      */
-    private class ResponseTransformer(
+    internal class ResponseTransformer(
         private val module: XposedModule,
         private val cl: ClassLoader,
         private val req: Any?,
@@ -699,7 +699,7 @@ object PlayViewHook {
         val isPreview: Boolean,
     )
 
-    private fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
+    internal fun extractRequestFacts(module: XposedModule, req: Any?): ExtractedRequestFacts {
         if (req == null) return ExtractedRequestFacts(0, 0, 0, 0, 0, false, "0", "0", false)
         var vodCid = 0L
         var qn = 0L
