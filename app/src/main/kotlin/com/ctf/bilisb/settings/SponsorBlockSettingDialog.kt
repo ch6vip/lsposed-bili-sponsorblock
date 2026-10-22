@@ -79,6 +79,8 @@ object SponsorBlockSettingDialog {
             onSponsorBlockClick = { forward { showDetail(activity, onDismiss) } },
             onEnhanceClick = { forward { showEnhance(activity, onDismiss) } },
             onUnlockClick = { forward { showUnlock(activity, onDismiss) } },
+            statusWriter = writer,
+            onLanguageChanged = { forward { showMain(activity, onDismiss) } },
         )
 
         // 控制中心:主弹窗的专名(2026-09-19 起,不再与模块名 Bili2233 混用)。

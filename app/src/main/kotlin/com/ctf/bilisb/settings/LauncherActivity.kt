@@ -67,6 +67,7 @@ class LauncherActivity : Activity() {
             statusWriter = settingsWriter,
             onSponsorBlockClick = { showDetail() },
             onEnhanceClick = { showEnhance() },
+            onLanguageChanged = { showMain() },
         )
         setContentView(SettingsScreenBuilder.wrapScroll(this, content))
     }

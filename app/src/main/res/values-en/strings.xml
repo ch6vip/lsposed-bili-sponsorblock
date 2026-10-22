@@ -1,4 +1,8 @@
 <resources>
+    <string name="language_title">Language</string>
+    <string name="language_system">Follow system</string>
+    <string name="language_chinese">Simplified Chinese</string>
+    <string name="language_english">English</string>
     <string name="module_name">Bili2233</string>
     <string name="module_description">SponsorBlock-style segment skipping for Bilibili</string>
 

@@ -42,11 +42,12 @@ object ModuleSettings {
      * @param hostContext 宿主 App 的 Context(用于获取 ContentResolver)
      */
     fun load(module: XposedModule, hostContext: Context): SettingsSnapshot {
-        cached?.let { return it }
+        cached?.let { SettingsLanguage.apply(it.language); return it }
 
         // Level 1: IPC(权威)
         val fromIpc = tryIpc(module, hostContext)
         if (fromIpc != null) {
+            SettingsLanguage.apply(fromIpc.language)
             cached = fromIpc
             lastReadSource = "IPC"
             module.info("ModuleSettings: read from IPC")
@@ -56,6 +57,7 @@ object ModuleSettings {
         // Level 2: 镜像文件(兜底)
         val fromFile = tryFileFallback(module)
         if (fromFile != null) {
+            SettingsLanguage.apply(fromFile.language)
             cached = fromFile
             return fromFile
         }
@@ -63,13 +65,15 @@ object ModuleSettings {
         // Level 3: 默认值
         module.info("ModuleSettings: all sources failed, using defaults")
         val defaults = SettingsSnapshot.DEFAULT
+        SettingsLanguage.apply(defaults.language)
         cached = defaults
         lastReadSource = "default"
         return defaults
     }
 
     /** 只读镜像文件(不走 IPC)。增强功能 hook 在拿不到 Context 时用这条兜底通道。 */
-    fun loadFromMirror(module: XposedModule): SettingsSnapshot? = tryFileFallback(module)
+    fun loadFromMirror(module: XposedModule): SettingsSnapshot? =
+        tryFileFallback(module)?.also { SettingsLanguage.apply(it.language) }
 
     /**
      * 读一份新鲜快照,不碰 [cached]。
@@ -78,7 +82,7 @@ object ModuleSettings {
      * 让随后的 `load()` 再吃一次 Binder。
      */
     fun readUncached(module: XposedModule, hostContext: Context): SettingsSnapshot? {
-        return tryIpc(module, hostContext) ?: tryFileFallback(module)
+        return (tryIpc(module, hostContext) ?: tryFileFallback(module))?.also { SettingsLanguage.apply(it.language) }
     }
 
     /** 强制重新加载(配置变化后调用):清空进程内缓存后按 [load] 的来源顺序重新解析。 */
@@ -177,6 +181,7 @@ data class SettingsSnapshot(
      */
     val categoryModes: Map<String, com.ctf.bilisb.model.CategoryMode> = emptyMap(),
     // ---- B 站增强功能(全部默认关闭) ----
+    val language: String = SettingsLanguage.SYSTEM,
     val ipLocation: Boolean = false,
     val hideTriple: Boolean = false,
     val hideUpPrompt: Boolean = false,

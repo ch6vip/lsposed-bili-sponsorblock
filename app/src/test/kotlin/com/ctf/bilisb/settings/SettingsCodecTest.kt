@@ -336,6 +336,7 @@ class SettingsCodecTest {
             showSkipStats = false,
             showSubmitButton = false,
             categoryColors = SettingsSnapshot.DEFAULT.categoryColors + ("intro" to 0xFF00FF00.toInt()),
+            language = SettingsLanguage.CHINESE,
             ipLocation = true,
             hideTriple = true,
             hideUpPrompt = true,
@@ -375,7 +376,7 @@ class SettingsCodecTest {
     fun mapKeySetIsPinned() {
         // 集合比较（顺序无关）；键总数也钉死，防止无意增删
         val keys = SettingsCodec.snapshotToMap(SettingsSnapshot.DEFAULT).keys
-        assertEquals(70, keys.size)
+        assertEquals(71, keys.size)
         assertEquals(
             setOf(
                 "category_mode_sponsor", "category_mode_selfpromo", "category_mode_interaction",
@@ -404,6 +405,7 @@ class SettingsCodecTest {
                 "color_outro", "color_preview", "color_music_offtopic", "color_filler",
                 "color_padding",
                 "color_poi_highlight",
+                "settings_language",
                 "enhance_ip_location", "enhance_hide_triple", "enhance_hide_up_prompt",
                 "enhance_hide_vote", "enhance_no_auto_refresh", "enhance_share_qq",
                 "unlock_enabled", "unlock_server_url", "unlock_server_access_key",

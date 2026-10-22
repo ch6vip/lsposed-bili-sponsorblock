@@ -49,6 +49,7 @@ class SettingsWriter(context: Context) {
 
     init {
         hydrateFromCanonicalStoreIfNeeded()
+        SettingsLanguage.apply(prefs.getString(SettingsKeys.LANGUAGE, SettingsLanguage.SYSTEM))
 
         // 镜像位置 1: 模块自身 filesDir
         mirrorTargets.add(File(appContext.filesDir, SettingsKeys.MIRROR_FILE))
@@ -82,11 +83,13 @@ class SettingsWriter(context: Context) {
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         runCatching { prefs.unregisterOnSharedPreferenceChangeListener(prefsListener) }
-        ioExecutor.shutdownNow()
+        // Let queued settings writes finish when a settings page closes or is rebuilt.
+        ioExecutor.shutdown()
     }
 
     /** 用户(设置页/宿主内弹窗)改了设置:标 dirty 后把镜像与 provider 同步投递到 IO 队列。 */
     private fun onLocalSettingsChanged() {
+        SettingsLanguage.apply(prefs.getString(SettingsKeys.LANGUAGE, SettingsLanguage.SYSTEM))
         editInternal { putBoolean(SettingsKeys.KEY_LOCAL_DIRTY, true) }
         ioExecutor.execute {
             mirrorToFile()
