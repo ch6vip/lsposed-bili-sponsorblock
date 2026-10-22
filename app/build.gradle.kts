@@ -52,8 +52,10 @@ val hasReleaseSigning = releaseStorePath != null &&
 // 0.9.0 = 解锁线收口：选集面板兜底（ViewTabHook）+ 清晰度面板 + 缓存补参/CDN 替换
 //        + season 重试冷却 + D1 失败 Toast；U8 真机回归全通（2026-10-04）。
 // 0.10.0 = 区域搜索、首页番剧页签、清晰度策略、UPOS 测速、TH 字幕 + 并发与边界加固批（真机验收 2026-10-07）
-val MODULE_VERSION_CODE = 17
-val MODULE_VERSION_NAME = "0.10.0"
+// 0.11.0 = 国际版 3.20.4 适配（贡献者真机验证 SponsorBlock 核心链路）+ 中英文语言切换
+//        + 分类四态化/padding 分类 + 片段投票统计 + 东南亚番剧 404 救援（仓库 CI 全绿）
+val MODULE_VERSION_CODE = 18
+val MODULE_VERSION_NAME = "0.11.0"
 
 android {
     namespace = "com.ctf.bilisb"
