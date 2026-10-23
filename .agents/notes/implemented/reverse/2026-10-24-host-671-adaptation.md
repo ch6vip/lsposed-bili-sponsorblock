@@ -96,8 +96,7 @@ Date: 2026-10-24
 - `k:send` 未命中：K/gRPC 发送入口已迁出 `xr1.j`/`kntr.base.moss.api.c`。
   主 MOSS `PlayerMoss.playViewUnite` 正常，**番剧解锁与下载不受影响**。
   定位成本高（`onNext` 是通用回调模式，需从 `PlayViewUnite` 请求特征反向找）。
-- `morePanelRefresh`：`gemini.ui.f` 在 6.7.1 只剩 `<init>(StateFlowImpl)`/`b`/`f`，
-  无 `f0`/`e0`/`Z0(List)`。当前注入静默降级为「只挂建行回调」。
+（`morePanelRefresh` 已在本轮后续解决，见下节。）
 
 ## 验证证据
 
@@ -119,3 +118,43 @@ Hooked URI router: t40.c.m  →  uriRouter : OK 3 methods
 见 `docs/APK_6.7.1_DRIFT.md` §4（本机文档，含 apktool `-r` 与 jadx 分片的完整命令）。
 关键点：**apktool 必须加 `-r`**（全量资源表 G1 提交内存失败）、
 **jadx 必须按 dex 分片 + `-Xmx1500m`**（34 dex 一次性载入 OOM）。
+
+## 后续：morePanel 面板注入迁到 Compose 时代的渲染收口点（已解决）
+
+`morePanelRefresh` 那条路在 6.7.1 上**不是改名，是架构没了**：
+面板整体 Compose 化（`PlayerSettingComposeKt` / `PlayerSettingFunctionWidget2`），
+`gemini.ui.f` 降级成 `EmptyViewComponent`（占位空视图），`MenuService` 只负责分享面板。
+Compose 没有「adapter 持有 List → 全量刷新」这种结构。
+
+但渲染仍收口在一个静态方法上：
+
+```
+MenuService.`showNewMenuInternal$2`
+  ├─ `menu$1`     往 List<h> 加分享行
+  ├─ `setting$1`  往 List<h> 加设置组（含 VideoSettingButtonComponent implements gemini.ui.j）
+  └─ `$3`         channel.c.a(Context, CoroutineScope, List<h>) -> RecyclerView   ← 新 hook 点
+```
+
+`h` = `com.bilibili.app.gemini.ui.h(j, int, Function1)`，字段 `a` 就是 `gemini.ui.j`。
+所以注入方式变成：**hook `channel.c#a`，proceed 之前往 List 里追加我们自己构造的 `h(j=代理)`**。
+
+两个必须注意的点：
+
+1. **必须带内容判据**。`channel.c#a` 被 5+ 处复用（下载清晰度面板、弹幕反馈、
+   StoryMenuService、AI 音频切换），无条件注入会污染这些面板。判据 = 列表里出现
+   `...setting.channel.VideoSetting*Component`（只有播放器面板用这个前缀）。
+2. **旧 adapter 仍在**。`gemini.ui.f` 在 6.7.1 能加载（只是语义变了），所以
+   不能只在「类找不到」时回退 Compose 路径 —— 必须在「刷新方法找不到」时也回退，
+   否则注入静默失效。
+
+复用点：`gemini.ui.j` 与模块已在用的 holder 接口 `gemini.ui.j$b` 是同一套，
+`buildRowItem` 的四条 when 分支（`b(Context,ViewGroup)` 建行 / 2 参绑定 /
+`a()` 返回 viewType key / toString-hashCode-equals）全部原样可用，行视图代码零改动。
+
+真机验证：
+```
+morePanelCompose : OK   com.bilibili.playerbizcommonv2.widget.setting.channel.c#a
+morePanelInjectedCompose <- size=19
+morePanel row clicked
+```
+播放页「⋯」面板底部出现「空降助手 → 打开面板」，点击后模块面板正常弹出。

@@ -319,6 +319,36 @@ object HostTargets {
         Triple(MORE_PANEL_ADAPTER_CLASS, "com.bilibili.app.gemini.ui.i", "com.bilibili.app.gemini.ui.i\$b"),
         Triple("com.bilibili.app.gemini.base.ui.b", "com.bilibili.app.gemini.base.ui.e", "com.bilibili.app.gemini.base.ui.e\$c"),
     )
+    /**
+     * 6.7.1 面板渲染收口点：`com.bilibili.playerbizcommonv2.widget.setting.channel.c#a`
+     *
+     * `a(Context, CoroutineScope, List<h>) -> RecyclerView` 把组件列表渲成 RecyclerView，
+     * 是 6.5.0/6.6.0 那个 `adapter#f0/e0(List)` 在 Compose 时代的等价物。
+     *
+     * 6.7.1 的面板整体重构成 Compose（`PlayerSettingComposeKt` / `PlayerSettingFunctionWidget2`），
+     * 没有「adapter 持有 List」这种结构了；但**渲染入口仍收口在这一个静态方法上**，
+     * 且被 5+ 处复用（MenuService / StoryMenuService / 下载清晰度面板 / 弹幕反馈 /
+     * AI 音频切换面板）—— 所以必须带内容判据，不能无条件注入。
+     *
+     * 组件包装器 `com.bilibili.app.gemini.ui.h`：`<init>(j, int, Function1)`，
+     * 字段 `a` 就是 `gemini.ui.j` 实例 —— 我们构造一个 `h` 塞进 List 即可。
+     */
+    const val SETTING_LIST_RENDER_CLASS = "com.bilibili.playerbizcommonv2.widget.setting.channel.c"
+    const val SETTING_LIST_RENDER_METHOD = "a"
+    const val SETTING_COMPONENT_WRAPPER_CLASS = "com.bilibili.app.gemini.ui.h"
+
+    /** 6.7.1 播放器设置行接口（`gemini.ui.j` 的实现类只在播放器面板里出现）。 */
+    const val SETTING_ROW_INTERFACE_671 = "com.bilibili.app.gemini.ui.j"
+    const val SETTING_ROW_HOLDER_INTERFACE_671 = "com.bilibili.app.gemini.ui.j\$b"
+
+    /**
+     * 6.7.1 播放器设置组件的类名前缀（内容判据）。
+     *
+     * `channel.c#a` 也被下载清度面板 / 弹幕反馈 / StoryMenuService 复用，
+     * 只有列表里出现 `VideoSetting*Component` 才是播放器「更多」面板。
+     */
+    const val SETTING_PLAYER_COMPONENT_PREFIX = "com.bilibili.playerbizcommonv2.widget.setting.channel.VideoSetting"
+
     val HOST_UNIT_CLASSES = listOf("kotlin.Unit", "gf3.s")
     val VIDEO_DETAILS_AID_METHODS = listOf("c")
     val VIDEO_DETAILS_CID_METHODS = listOf("d")

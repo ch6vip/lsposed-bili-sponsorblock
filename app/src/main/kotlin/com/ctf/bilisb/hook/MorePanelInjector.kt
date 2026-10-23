@@ -101,13 +101,17 @@ object MorePanelInjector {
         }
         val adapterClass = layout?.let { HookResolve.findClass(classLoader, listOf(it.first)) }
         if (adapterClass == null) {
+            // 6.7.1 没有「adapter 持有 List」这种结构了（面板整体 Compose 化），
+            // 但渲染仍收口在 channel.c#a(Context, CoroutineScope, List<h>)。
             HookProbe.miss(module, "morePanelAdapter", HostTargets.MORE_PANEL_ADAPTER_CLASS)
+            installComposeEraPath(module, classLoader, onOpenPanel)
             return
         }
         val itemInterface = HookResolve.findClass(classLoader, listOf(layout!!.second))
         val holderInterface = HookResolve.findClass(classLoader, listOf(layout.third))
         if (itemInterface == null || holderInterface == null) {
             HookProbe.miss(module, "morePanelItemInterface", "item/holder interface not found")
+            installComposeEraPath(module, classLoader, onOpenPanel)
             return
         }
 
@@ -120,11 +124,15 @@ object MorePanelInjector {
             }
         }
         if (refresh == null) {
+            // 6.7.1 的 `gemini.ui.f` 还在，但已降级成 EmptyViewComponent（占位空视图），
+            // 刷新方法不存在 —— 此时必须回退到 channel.c#a 那条渲染收口路径，
+            // 否则面板注入在本版本上会整体失效。
             HookProbe.miss(
                 module,
                 "morePanelRefresh",
                 "${adapterClass.name}#${HostTargets.MORE_PANEL_REFRESH_METHODS}(List)",
             )
+            installComposeEraPath(module, classLoader, onOpenPanel)
             return
         }
 
@@ -190,6 +198,131 @@ object MorePanelInjector {
         val ours = rowItem
         return ours != null && item === ours
     }
+
+    /**
+     * 6.7.1 Compose 时代的面板注入。
+     *
+     * 宿主链路（`docs`/`.agents/notes/implemented/reverse/2026-10-24-host-671-adaptation.md`）：
+     * ```
+     * MenuService.`showNewMenuInternal$2`
+     *   ├─ `menu$1`     往 List<h> 加分享行
+     *   ├─ `setting$1`  往 List<h> 加设置组（含 VideoSettingButtonComponent）
+     *   └─ `$3`         channel.c.a(Context, scope, List<h>) -> RecyclerView  ← 我们挂这里
+     * ```
+     * `h` = `gemini.ui.h(j, int, Function1)`，字段 `a` 就是 `gemini.ui.j` 实例。
+     *
+     * 注入方式：hook `channel.c#a`，在 **proceed 之前**往 List 里追加一个我们自己构造的
+     * `h(j=我们的代理)`。`channel.c#a` 会遍历 List 取 `h.a` 建 adapter，
+     * 所以我们只要实现 `gemini.ui.j`（interface，用 Proxy）就能进面板。
+     *
+     * **必须带内容判据**：`channel.c#a` 还被下载清晰度面板、弹幕反馈、
+     * StoryMenuService、AI 音频切换面板复用（5+ 处），无条件注入会污染这些面板。
+     * 判据 = 列表里出现 `...setting.channel.VideoSetting*Component`。
+     */
+    private fun installComposeEraPath(
+        module: XposedModule,
+        classLoader: ClassLoader,
+        onOpenPanel: (host: Any) -> Unit,
+    ) {
+        val renderClass = HookResolve.findClass(classLoader, listOf(HostTargets.SETTING_LIST_RENDER_CLASS))
+        val rowInterface = HookResolve.findClass(classLoader, listOf(HostTargets.SETTING_ROW_INTERFACE_671))
+        val holderInterface = HookResolve.findClass(classLoader, listOf(HostTargets.SETTING_ROW_HOLDER_INTERFACE_671))
+        val wrapperClass = HookResolve.findClass(classLoader, listOf(HostTargets.SETTING_COMPONENT_WRAPPER_CLASS))
+        if (renderClass == null || rowInterface == null || holderInterface == null || wrapperClass == null) {
+            HookProbe.miss(
+                module,
+                "morePanelCompose",
+                "render/row/holder/wrapper not all present " +
+                    "(render=$renderClass row=$rowInterface holder=$holderInterface wrapper=$wrapperClass)",
+            )
+            return
+        }
+
+        // 渲染收口：a(Context, CoroutineScope, List) -> RecyclerView
+        val render = renderClass.declaredMethods.firstOrNull { method ->
+            method.name == HostTargets.SETTING_LIST_RENDER_METHOD &&
+                method.parameterTypes.size == 3 &&
+                method.parameterTypes[2] == List::class.java
+        }
+        if (render == null) {
+            HookProbe.miss(module, "morePanelCompose", "${renderClass.name}#${HostTargets.SETTING_LIST_RENDER_METHOD}(3) not found")
+            return
+        }
+
+        module.hook(render)
+            .setPriority(XposedInterface.PRIORITY_DEFAULT)
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .intercept { chain ->
+                // proceed 之前插入：channel.c#a 内部会立刻遍历 List 建 adapter，
+                // 插在后面就赶不上本次渲染了。
+                runCatching {
+                    injectComposeRow(module, chain, rowInterface, holderInterface, wrapperClass, onOpenPanel)
+                }.onFailure {
+                    module.info("morePanel compose inject failed: ${it.javaClass.simpleName}: ${it.message}")
+                }
+                chain.proceed()
+            }
+        HookProbe.ok(module, "morePanelCompose", "${renderClass.name}#${render.name}")
+    }
+
+    /** 判据 + 追加一个 `h(我们的 j 代理)`。 */
+    private fun injectComposeRow(
+        module: XposedModule,
+        chain: XposedInterface.Chain,
+        rowInterface: Class<*>,
+        holderInterface: Class<*>,
+        wrapperClass: Class<*>,
+        onOpenPanel: (host: Any) -> Unit,
+    ) {
+        @Suppress("UNCHECKED_CAST")
+        val list = chain.getArgs().getOrNull(2) as? MutableList<Any?> ?: return
+        if (!looksLikePlayerSettingGroup(list)) return
+        if (list.any { isOurComposeRow(it) }) return
+
+        val row = buildRowItem(module, rowInterface, holderInterface, onOpenPanel)
+        // h(j, int, Function1)：中间是「是否缩进/边距」类标记，给 0；Function1 给 null 由宿主默认处理。
+        val wrapper = wrapperClass.declaredConstructors.firstNotNullOfOrNull { ctor ->
+            val ps = ctor.parameterTypes
+            if (ps.size == 3 && ps[0] == rowInterface && ps[1] == Integer.TYPE) {
+                runCatching { ctor.isAccessible = true; ctor.newInstance(row, 0, null) }.getOrNull()
+            } else {
+                null
+            }
+        }
+        if (wrapper == null) {
+            HookProbe.miss(module, "morePanelComposeWrapper", wrapperClass.name)
+            return
+        }
+        rowItem = row
+        composeRowWrapper = wrapper
+        list.add(wrapper)
+        HookProbe.ok(module, "morePanelInjectedCompose", "size=${list.size}")
+    }
+
+    /**
+     * 判据：列表里出现 `setting.channel.VideoSetting*Component` 才是播放器「更多」面板。
+     *
+     * `channel.c#a` 被下载清晰度 / 弹幕反馈 / StoryMenuService / AI 音频复用，
+     * 它们用的是别的组件类，不会命中这个前缀。
+     */
+    private fun looksLikePlayerSettingGroup(list: List<Any?>): Boolean {
+        for (element in list) {
+            @Suppress("SENSELESS_COMPARISON")
+            val safe = element ?: continue
+            val component = HookResolve.readField(safe, "a") ?: continue
+            if (component.javaClass.name.startsWith(HostTargets.SETTING_PLAYER_COMPONENT_PREFIX)) return true
+        }
+        return false
+    }
+
+    private fun isOurComposeRow(element: Any?): Boolean {
+        val ours = composeRowWrapper
+        return ours != null && element === ours
+    }
+
+    /** 6.7.1 注入的包装器实例（诊断与去重用）。 */
+    @Volatile
+    private var composeRowWrapper: Any? = null
 
     /**
      * 构造我们这一行的条目（动态代理实现宿主 `i` 接口）。

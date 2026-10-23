@@ -155,6 +155,27 @@ class HostTargets671Test {
     }
 
     @Test
+    fun morePanelComposeEraTargets() {
+        // 6.7.1：面板整体 Compose 化，没有「adapter 持有 List」结构了。
+        // 渲染仍收口在 channel.c#a(Context, CoroutineScope, List<h>)。
+        assertEquals(
+            "com.bilibili.playerbizcommonv2.widget.setting.channel.c",
+            HostTargets.SETTING_LIST_RENDER_CLASS,
+        )
+        assertEquals("a", HostTargets.SETTING_LIST_RENDER_METHOD)
+        assertEquals("com.bilibili.app.gemini.ui.h", HostTargets.SETTING_COMPONENT_WRAPPER_CLASS)
+        assertEquals("com.bilibili.app.gemini.ui.j", HostTargets.SETTING_ROW_INTERFACE_671)
+        assertEquals("com.bilibili.app.gemini.ui.j\$b", HostTargets.SETTING_ROW_HOLDER_INTERFACE_671)
+        // 内容判据前缀：channel.c#a 被下载/弹幕/Story 等 5+ 处复用，必须靠它区分
+        assertEquals(
+            "com.bilibili.playerbizcommonv2.widget.setting.channel.VideoSetting",
+            HostTargets.SETTING_PLAYER_COMPONENT_PREFIX,
+        )
+        // 旧版本路径不得删除
+        assertTrue("旧刷新方法候选仍须保留", HostTargets.MORE_PANEL_REFRESH_METHODS.isNotEmpty())
+    }
+
+    @Test
     fun mossDescriptorHintsIncludeIs1() {
         // 6.7.1：MossInterceptor$e.b 的类型从 xr1.g 换成 Is1.g，服务名 a 从 xr1.k 换成 Is1.k。
         // 缺这一项会让 IP 属地的「评论区限定改写」在 6.7.1 上全部落空（服务名恒 null）。
