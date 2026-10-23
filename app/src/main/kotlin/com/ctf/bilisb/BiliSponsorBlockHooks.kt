@@ -94,6 +94,9 @@ object BiliSponsorBlockHooks {
         installSafely(module, "legacyContainer") { hookLegacyContainer(module, cl) }
         installSafely(module, "seekTrack") { hookProgressDrawable(module, cl) }
         installSafely(module, "progressCallback") { hookProgressText(module, cl) }
+        // 宿主进度 tick 派发器（6.7.1 = service.B0#k(II)；6.6.0 = service.D0$c#run）。
+        // 不是主喂入源（那是我方 500ms 轮询），但提供交叉验证心跳与 seek 后的细粒度。
+        installSafely(module, "seekTickDispatcher") { hookSeekTickDispatcher(module, cl) }
         installSafely(module, "mineMenu") { com.ctf.bilisb.hook.MineMenuInjector.install(module, cl) }
         installSafely(module, "morePanel") {
             com.ctf.bilisb.hook.MorePanelInjector.install(module, cl) { rowView ->
@@ -1158,6 +1161,86 @@ object BiliSponsorBlockHooks {
             }
             walk(root)
             if (found.isEmpty()) "no time text in ${root.javaClass.simpleName} subtree" else found.toString()
+        }
+    }
+
+    /**
+     * 宿主进度 tick 派发器（6.6.0 / 6.7.1）—— 第二喂入源。
+     *
+     * 主喂入源始终是模块自持的 500ms 轮询（[progressPollers]）；这里挂派发器是为了：
+     *  1. 把「宿主确实在推进度」这件事变成可观测心跳（轮询死掉时靠它交叉验证）；
+     *  2. 在 seek 后的爆发期提供比 500ms 更细的粒度（跳过判定不会迟到一个轮询周期）。
+     *
+     * 6.7.1 形态（`docs/APK_6.7.1_DRIFT.md` §1.2）：
+     *   `service.B0#k(II)`（SeekService 派发器）→ 遍历 `service.k` → `k#f(II)`
+     * 6.6.0 形态：
+     *   `service.D0$c#run()`（Runnable，内部同样读 core 后派发）
+     *
+     * 两者都**不注册监听器**，只在 after 里用已绑定 handle 的 core 读 pos/dur 喂控制器 ——
+     * 往宿主监听器列表里塞代理的风险是列表持有者同名同形无法区分（见 HostTargets 注释）。
+     */
+    private fun hookSeekTickDispatcher(module: XposedModule, cl: ClassLoader) {
+        var hooked = 0
+        for (className in HostTargets.SEEK_TICK_DISPATCHER_CLASSES) {
+            val clazz = runCatching { Class.forName(className, false, cl) }.getOrNull() ?: continue
+
+            // 6.7.1 的派发器是 k(II)V；6.6.0 的 Runnable 是无参 run()V。
+            // 用「按形状解析」而不是按名字：k 这种单字母名在同类的其它方法上也会出现，
+            // 必须锁死 (int,int)->void 这个签名，否则会挂到无关重载上。
+            val method = HookResolve.declaredMethod(
+                clazz,
+                HostTargets.SEEK_TICK_RUN_METHODS,
+                Int::class.javaPrimitiveType!!,
+                Int::class.javaPrimitiveType!!,
+            ) ?: HookResolve.declaredMethod(clazz, listOf(HostTargets.SEEK_TICK_RUN_METHOD))
+
+            if (method == null) {
+                HookProbe.miss(module, "seekTickDispatcher:$className", "no k(II)V / run()V")
+                continue
+            }
+
+            val key = "seekTickDispatcher:$className#${method.name}"
+            hookAfter(module, method, key) { chain ->
+                val target = chain.getThisObject() ?: return@hookAfter
+                // 派发器实例不是容器，取不到 Context ⇒ 用已绑定 handle 的唯一 context 猜。
+                // 正常情况下只有一个活跃 handle（单播放器），多开小窗时由 handle 自身的
+                // contextHash 精确匹配，这里不做广播。
+                feedProgressFromDispatcher(module, target, key)
+            }
+            HookProbe.ok(module, key, "${clazz.name}#${method.name}")
+            hooked++
+        }
+        if (hooked == 0) {
+            // 不是致命：主喂入源是自持轮询。但缺了它就没有交叉验证心跳，因此必须留名。
+            HookProbe.miss(
+                module,
+                "seekTickDispatcher",
+                HostTargets.SEEK_TICK_DISPATCHER_CLASSES.joinToString(),
+            )
+        }
+    }
+
+    /**
+     * 派发器 after 回调的喂入：派发器本身没有 Context，所以从 controller 侧的活跃 handle
+     * 反查 core（[SponsorBlockController.activeContextHashes]），逐个读 pos/dur 喂进去。
+     *
+     * 抽出来是为了能在单测里独立驱动（不依赖真实宿主类）。
+     */
+    private fun feedProgressFromDispatcher(module: XposedModule, target: Any, key: String) {
+        val controller = sponsorBlockController ?: return
+        val hashes = controller.activeContextHashes()
+        if (hashes.isEmpty()) return
+        for (contextHash in hashes) {
+            val core = controller.coreForContext(contextHash) ?: continue
+            val positionMs = PlayerActions.currentPositionMs(module, core) ?: continue
+            val durationMs = PlayerActions.durationMs(module, core) ?: continue
+            HookProbe.first(module, "seekTickDispatcherArgs", 5) {
+                "${target.javaClass.simpleName} hash=$contextHash pos=$positionMs dur=$durationMs"
+            }
+            cancelDeferredTeardown(module, contextHash)
+            if (controller.latestStateExists(contextHash)) {
+                controller.onProgress(contextHash, positionMs, durationMs)
+            }
         }
     }
 

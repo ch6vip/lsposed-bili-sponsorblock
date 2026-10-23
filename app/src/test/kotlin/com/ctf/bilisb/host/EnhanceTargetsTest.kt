@@ -47,11 +47,12 @@ class EnhanceTargetsTest {
 
     @Test
     fun `moss 描述符类型提示包含全部已知版本`() {
-        // 6.5.0=kr1 / 6.4.0=Zq1 / 6.3.0=jp1 / 6.6.0=xr1 —— 缺一个丢一个版本的定位能力
+        // 6.5.0=kr1 / 6.4.0=Zq1 / 6.3.0=jp1 / 6.6.0=xr1 / 6.7.1=Is1
+        // —— 缺一个丢一个版本的定位能力（Is1 排首位：解析取第一个命中，新版本优先）
         listOf(HostTargets.MOSS_DESCRIPTOR_G_TYPE_HINTS, HostTargets.MOSS_DESCRIPTOR_K_TYPE_HINTS)
             .forEach { hints ->
                 assertEquals(
-                    listOf("kr1", "Zq1", "jp1", "xr1"),
+                    listOf("Is1", "kr1", "Zq1", "jp1", "xr1"),
                     hints.map { it.substringBeforeLast('.') },
                 )
             }

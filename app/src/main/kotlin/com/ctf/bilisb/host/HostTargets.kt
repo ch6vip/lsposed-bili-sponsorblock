@@ -50,17 +50,17 @@ object HostTargets {
         "com.bilibili.playerbizcommon.widget.control.PlayerProgressTextWidget",
     )
 
-    /**
-     * 进度回调候选（int,int）：6.5.0 是 `G`，6.6.0 改名 `J`；`onPlayerProgressChange`
-     * 是旧目标；`updateTime`/`i0` 是旧版控件形态。
-     */
-    val PROGRESS_CALLBACK_INT_METHODS = listOf("G", "J", "U", "onPlayerProgressChange", "updateTime", "i0")
+    /** 进度回调候选（int,int）：6.5.0 是 `G`，6.6.0 改名 `J`，**6.7.1 是 `H`**；
+     *  `onPlayerProgressChange` 是旧目标；`updateTime`/`i0` 是旧版控件形态。 */
+    val PROGRESS_CALLBACK_INT_METHODS = listOf("H", "G", "J", "U", "onPlayerProgressChange", "updateTime", "i0")
 
     /**
      * 进度回调候选（long,long）：6.5.0 里 `j0`（v2 基类）/`k0`（Gemini）是长整型回调，
-     * 6.6.0 的 v2 基类改名 `g0`。与 int 版同时挂，探针日志会告诉我们哪个真的会回调。
+     * 6.6.0 的 v2 基类改名 `g0`。**6.7.1 是 `l0(J,J)`**（字节码实证：
+     * `PlayerProgressTextWidget#l0(JJ)V`，由 `q0#H(II)` 实现类 `int-to-long` 后转调）。
+     * 与 int 版同时挂，探针日志会告诉我们哪个真的会回调。
      */
-    val PROGRESS_CALLBACK_LONG_METHODS = listOf("j0", "k0", "g0", "J")
+    val PROGRESS_CALLBACK_LONG_METHODS = listOf("l0", "j0", "k0", "g0", "J")
 
     // ---------------------------------------------------------------- 播放器容器
 
@@ -102,7 +102,20 @@ object HostTargets {
 
     /** 从 widget/容器取 core 服务。3.20.4 的 h 实现 `e.q()` 返回 service.f0。 */
     val GET_CORE_METHODS = listOf("getPlayerCoreService", "q")
+    /**
+     * core 服务接口类型候选（按优先级）。
+     *
+     * **6.7.1 起 IPlayerCoreService 改名 `service.A`**：`PlayerSeekWidget3#getPlayerCoreService()`、
+     * `PlayerProgressTextWidget#getPlayerCoreService()`、容器 `f#m()`、
+     * `PlayDirectorServiceV3.W7()` 全部返回 `service.A`。
+     *
+     * 旧列表缺 A 会让 6.7.1 上 `PlayerBridge.coreService()` 恒为 null —— 表现是
+     * 「bind 一直 defer、poller 起来但永远读不到 pos/dur」，即整条跳过链路静默失效。
+     * A 必须排在最前：6.7.1 的 `service.D` 已降级为 `Function1` 包装类（构造参数是
+     * `service.A` + `service.E`），它的类型名不再代表 core。
+     */
     val CORE_SERVICE_TYPES = listOf(
+        "tv.danmaku.biliplayerv2.service.A",
         "tv.danmaku.biliplayerv2.service.D",
         "tv.danmaku.biliplayerv2.service.f0",
     )
@@ -116,7 +129,7 @@ object HostTargets {
     val GET_DURATION_METHODS = listOf("getDuration", "getRealDuration")
     val GET_POSITION_METHODS = listOf("getCurrentPosition")
 
-    // ---------------------------------------------------------------- 进度 tick（6.6.0）
+    // ---------------------------------------------------------------- 进度 tick（6.6.0 / 6.7.1）
 
     /**
      * 6.6.0 的进度 tick 源：文本进度控件不再参与播放（真机实测三个
@@ -124,13 +137,33 @@ object HostTargets {
      * `g#draw`）。tick 由 SeekService(D0) 的派发器执行——`D0$c.run`（字节码实证：
      * `D0.i(core).getDuration()/getCurrentPosition() → 遍历监听器 → s0#J(pos,dur)`）。
      *
-     * 实现：hook 派发器的 `run()`，after 里用已绑定 handle 的 core 读 pos/dur 喂控制器
-     * （不往宿主监听器列表里塞代理——D0 上 d/e 两个 WI1.h 持有者同名同形无法区分，
-     * 注册错列表会静默无效）。6.5.0 无此类（SeekService 是 C0，tick 类名不同），
-     * 走文本控件回调旧路径，miss 探针仅记录。
+     * **6.7.1 全链路重组（dexscan + 字节码实证）**：
+     *  - SeekService 实现类从 `D0` 改为 **`service.B0`**（`B0 implements service.Y`）；
+     *  - `D0` 变成**观察者接口**（`a()`/`b(Video$e,Video$e)`/`c(Video$e)`/`e(Video$e)`），
+     *    不再有 `D0$c` 内部类 —— 旧目标在 6.7.1 上恒为 MISS；
+     *  - tick 派发器是 **`B0#k(II)`**：`k(I,I)V` 遍历 `sK1.e.b` 列表里的 `service.k` 并调
+     *    `k#f(I,I)`（pos, dur）；
+     *  - 监听器接口是 **`service.q0#H(I,I)`**（旧版 `service.s0#J(JJ)` 已 gone）。
+     *
+     * 实现：hook 派发器的 `k(II)` / `run()`，after 里用已绑定 handle 的 core 读 pos/dur 喂
+     * 控制器（不往宿主监听器列表里塞代理——同名同形的持有者无法区分，注错列表会静默无效）。
      */
-    val SEEK_TICK_DISPATCHER_CLASSES = listOf("tv.danmaku.biliplayerv2.service.D0\$c")
-    val SEEK_TICK_RUN_METHOD = "run"
+    val SEEK_TICK_DISPATCHER_CLASSES = listOf(
+        "tv.danmaku.biliplayerv2.service.B0",
+        "tv.danmaku.biliplayerv2.service.D0\$c",
+    )
+
+    /** tick 派发方法名候选（6.7.1 是 `k(I,I)V`，6.6.0 是 `run()`）。 */
+    val SEEK_TICK_RUN_METHODS = listOf("k", "run")
+
+    /** 旧单名保留：仅对 `run()` 形态（Runnable 派发器）有效。 */
+    const val SEEK_TICK_RUN_METHOD = "run"
+
+    /** 6.7.1 进度监听器接口：`q0#H(I,I)`（pos, dur），由 `B0#k(II)` 派发。 */
+    const val SEEK_TICK_LISTENER_INTERFACE_671 = "tv.danmaku.biliplayerv2.service.q0"
+
+    /** 6.7.1 SeekService 实现类（实现 `service.Y`，持有派发器 `k(II)`）。 */
+    const val SEEK_SERVICE_IMPL_671 = "tv.danmaku.biliplayerv2.service.B0"
 
     // ---------------------------------------------------------------- 视频信息（aid/cid）
 
@@ -141,18 +174,33 @@ object HostTargets {
     )
 
     /** 注册/注销观察者：6.5.0 是 `j0(E0)` / `z0(E0)`，6.6.0 注册改名 `l0`（注销仍叫 `z0`）；
-     *  旧目标是 `add/removeVideoDirectorObserver`。 */
-    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("j0", "l0", "J0", "addVideoDirectorObserver")
-    val DIRECTOR_REMOVE_OBSERVER_METHODS = listOf("z0", "S1", "removeVideoDirectorObserver")
+     *  旧目标是 `add/removeVideoDirectorObserver`。
+     *
+     *  **6.7.1**：观察者接口换成 `service.D0`，注册/注销改用 `B0` / `m0`
+     *  （`PlayDirectorServiceV3#B0(Lservice/D0;)V`、`#m0(Lservice/D0;)V`）。
+     *  旧名在该版本全部 MISS（`j0` 已不存在，`l0` 位被插件化方法取代）。*/
+    val DIRECTOR_ADD_OBSERVER_METHODS = listOf("B0", "j0", "l0", "J0", "addVideoDirectorObserver")
+    val DIRECTOR_REMOVE_OBSERVER_METHODS = listOf("m0", "z0", "S1", "removeVideoDirectorObserver")
 
-    /** 从 widget 取 director 服务的方法候选。 */
+    /**
+     * 从 widget / 容器取 director 服务的方法候选。
+     *
+     * **6.7.1**：`PlayerSeekWidget3` 不再暴露任何返回 director 类型的方法，
+     * 唯一入口是**容器** `cK1.e`（`extends tv.danmaku.biliplayerv2.h`）的 `B()`，
+     * 返回 `service.y`（`PlayDirectorServiceV3 implements service.y`）。
+     * 这也是 `directorFromHost` 在 6.7.1 上恒 MISS 的根因 —— 缺 `B` + 缺 `service.y` 类型。
+     */
     val DIRECTOR_GET_SERVICE_METHODS = listOf(
         "getPlayDirectorServiceV3",
         "getPlayDirectorServiceV2",
         "getPlayDirectorService",
+        "B", // 6.7.1: cK1.e(容器)#B() -> service.y
         "f", // 3.20.4: e.f() -> c0
     )
-    val DIRECTOR_SERVICE_TYPES = DIRECTOR_SERVICE_CLASSES + listOf("tv.danmaku.biliplayerv2.service.c0")
+    val DIRECTOR_SERVICE_TYPES = DIRECTOR_SERVICE_CLASSES + listOf(
+        "tv.danmaku.biliplayerv2.service.y",
+        "tv.danmaku.biliplayerv2.service.c0",
+    )
 
     /**
      * 观察者接口候选：6.5.0 是 `E0`（回调 a/b/c/e），6.6.0 改名 `F0`（回调形状不变）。
@@ -162,6 +210,7 @@ object HostTargets {
      * 反推（见 VideoDirectorListener.registerDirectorService）。
      */
     val DIRECTOR_OBSERVER_INTERFACES = listOf(
+        "tv.danmaku.biliplayerv2.service.D0",
         "tv.danmaku.biliplayerv2.service.E0",
         "tv.danmaku.biliplayerv2.service.F0",
         "tv.danmaku.biliplayerv2.service.u2",
@@ -171,14 +220,25 @@ object HostTargets {
     /** 旧目标观察者接口（8.96）。 */
     const val LEGACY_OBSERVER_INTERFACE = "tv.danmaku.biliplayerv2.service.VideoDirectorObserver"
 
-    /** 当前 `Video$e` 访问器：6.5.0 是 `D()`，6.6.0 改名 `F()`（返回类型不变）。 */
-    val DIRECTOR_CURRENT_VIDEO_METHODS = listOf("P", "D", "F")
+    /**
+     * 当前 `Video$e` 访问器：6.5.0 是 `D()`，6.6.0 改名 `F()`。
+     *
+     * **6.7.1 起 `PlayDirectorServiceV3#C()` 是唯一返回真 `Video$e` 的访问器**
+     * （`P`/`D`/`F` 在该类里已全部消失，`D(Z)` 是无关的布尔方法）。
+     * `C` 排在候选首位；`P` 保留给 3.20.4 旧形态。
+     */
+    val DIRECTOR_CURRENT_VIDEO_METHODS = listOf("C", "P", "D", "F")
     val DIRECTOR_CURRENT_VIDEO_CLASSES = listOf(
-        "tv.danmaku.biliplayerv2.service.Video\$f",
         "tv.danmaku.biliplayerv2.service.Video\$e",
+        "tv.danmaku.biliplayerv2.service.Video\$f",
     )
 
-    /** 3.20.4 的 `Video$f.D()` 返回 DanmakuResolveParams `Video$b`（a=aid, b=cid）。 */
+    /**
+     * 3.20.4 的 `Video$f.D()` 返回 DanmakuResolveParams `Video$b`（a=aid, b=cid）。
+     *
+     * 注意 6.7.1 的 `Video$e.D()` 已改返 `KL1.f`（P2P 稿件元数据），不再是 `Video$b` ——
+     * 类型校验会如实拒绝它，正确落空到下面的 [VIDEO_PARAMS_ACCESSOR] 路径。
+     */
     const val VIDEO_DETAILS_ACCESSOR = "D"
     const val VIDEO_DETAILS_CLASS = "tv.danmaku.biliplayerv2.service.Video\$b"
 
@@ -190,6 +250,25 @@ object HostTargets {
     /** `Video$a` = `DanmakuResolveParams`：`a`=avid、`b`=cid（旧版字节码实测）。 */
     const val VIDEO_PARAMS_AID_FIELD = "a"
     const val VIDEO_PARAMS_CID_FIELD = "b"
+
+    // ------------------------------------------------- 6.7.1 P2P 稿件元数据（aid/cid 新链路）
+
+    /**
+     * 6.7.1 新增的 aid/cid 载体：`Video$e#D()` 返回的 `KL1.f`。
+     *
+     * 字段语义由宿主 `KL1.b` 装配 `P2PManuscriptInfo` 时逐字段赋值实证：
+     *   `c` → `setAvid`（aid）　`d` → `setCid`（cid）　`b` → `setEpisodeId`（epId）
+     * 还有 `a`/`e` 两个 long 与 `f`=`VideoBizType`。
+     *
+     * 为什么单列而不是替换 `Video$a` 路径：`Video$a` 上的 `a`/`b` 仍是 aid/cid（构造点
+     * `gemini.base.player.a#w()` 用 aid/cid 字段喂进去），只是 6.7.1 里 `w()` 在主播放器
+     * 上是 `@Nullable` 且可能返回 null；`KL1.f` 是更稳的非空来源，作为**首选**，`Video$a`
+     * 兜底，两者都在时以字段更明确的 `KL1.f` 为准。
+     */
+    const val PLAY_DETAILS_CLASS = "KL1.f"
+    const val PLAY_DETAILS_ACCESSOR = "D"
+    const val PLAY_DETAILS_AID_FIELD = "c"
+    const val PLAY_DETAILS_CID_FIELD = "d"
 
     // ---------------------------------------------------------------- 进度条标记
 
@@ -226,7 +305,17 @@ object HostTargets {
     const val MORE_PANEL_ADAPTER_CLASS = "com.bilibili.app.gemini.ui.f"
     val MORE_PANEL_REFRESH_METHODS = listOf("f0", "e0", "Z0")
     // 3.20.4 packages must be resolved together; never mix item/holder interfaces across layouts.
+    //
+    // 6.7.1 重组（dex 索引实证）：adapter 仍是 `gemini.ui.f`，但
+    //   - item 接口从 `gemini.ui.i`（现在是 RecyclerView 的 ItemDecoration）变成 `gemini.ui.j`
+    //     （`b(Context,ViewGroup)->j$b` / `f(j$b,Continuation)` = 建行/绑行）；
+    //   - holder 接口从 `gemini.ui.i$b` 变成 `gemini.ui.j$b`（`getRoot()->View`）；
+    //   - `gemini.ui.f` 现在 `implements gemini.ui.j`，且刷新入口不再叫 f0/e0/Z0
+    //     （只剩 `<init>(StateFlowImpl)` / `b(...)` / `f(...)`），所以刷新方法匹配会落空 ——
+    //     该版本的注入退化为「只挂建行回调」而不是全量刷新（见 MorePanelInjector）。
+    // 三元组必须整组同源，不能把 6.7.1 的 adapter 和 6.5.0 的 holder 拼在一起。
     val MORE_PANEL_LAYOUTS = listOf(
+        Triple(MORE_PANEL_ADAPTER_CLASS, "com.bilibili.app.gemini.ui.j", "com.bilibili.app.gemini.ui.j\$b"),
         Triple(MORE_PANEL_ADAPTER_CLASS, "com.bilibili.app.gemini.ui.i", "com.bilibili.app.gemini.ui.i\$b"),
         Triple("com.bilibili.app.gemini.base.ui.b", "com.bilibili.app.gemini.base.ui.e", "com.bilibili.app.gemini.base.ui.e\$c"),
     )
@@ -379,11 +468,17 @@ object HostTargets {
 
     /**
      * gRPC 方法描述符字段的**类型名提示**（字段挂在 MossInterceptor$e.b，类型随构建漂移：
-     * 6.3.0=jp1.g / 6.4.0=Zq1.g / 6.5.0=kr1.g / 6.6.0=xr1.g；服务名兜底字段同理为 *.k）。
-     * 顺序即尝试顺序。
+     * 6.3.0=jp1.g / 6.4.0=Zq1.g / 6.5.0=kr1.g / 6.6.0=xr1.g / **6.7.1=Is1.g**）。
+     * 服务名兜底字段同理为 *.k（6.7.1 是 `Is1.k`）。顺序即尝试顺序。
+     *
+     * 6.7.1 实证（dexscan 索引）：`MossInterceptor$e` 仍存在，但字段类型已换包 ——
+     *   `b` = `LIs1/g;`（方法描述符）　`a` = `LIs1/k;`（服务名）
+     * `Is1.g` 的字段布局与 kr1.g 一致：`a`=packageName, `b`/`c`=service/method 名，
+     * 共 13 个字段且含 `KClass`/`SerializationStrategy` 两个 kotlinx 字段，形状可辨识。
+     * 缺这一项会让 6.7.1 上 IP 属地的「评论区限定改写」全部落空（服务名恒为 null）。
      */
-    val MOSS_DESCRIPTOR_G_TYPE_HINTS = listOf("kr1.g", "Zq1.g", "jp1.g", "xr1.g")
-    val MOSS_DESCRIPTOR_K_TYPE_HINTS = listOf("kr1.k", "Zq1.k", "jp1.k", "xr1.k")
+    val MOSS_DESCRIPTOR_G_TYPE_HINTS = listOf("Is1.g", "kr1.g", "Zq1.g", "jp1.g", "xr1.g")
+    val MOSS_DESCRIPTOR_K_TYPE_HINTS = listOf("Is1.k", "kr1.k", "Zq1.k", "jp1.k", "xr1.k")
 
     // ------------------------------------------------------------ 解锁番剧（U1 起，见 docs/UNLOCK_PLAN.md）
 
@@ -432,7 +527,20 @@ object HostTargets {
     /**
      * gripper 账户门面实现（dex 索引实证：实现 GAccount.getAccessKey）。
      * 解锁线运行时令牌的捕获点：hook 其 getAccessKey()，App 任何鉴权请求都会经过。
+     *
+     * **6.7.1 起实现类从 `account.d` 换成 `account.f`**：`account.d` 仍是
+     * `SuspendProducer` 子类（`create()`/`invokeProducer()`/`prepareParams()`），
+     * 但不再声明 `getAccessKey()`。6.7.1 上实现 `GAccount` 接口的**只有**
+     * `com.bilibili.gripper.container.account.f`（`implements GAccount`，
+     * 带 getAccessKey/getMid/getName/getAvatarUrl/getLevel 全套）。
+     * 候选顺序即行为：f 在前，d 保留给 6.5.0/6.6.0。
      */
+    val GRIPPER_ACCOUNT_CLASSES = listOf(
+        "com.bilibili.gripper.container.account.f",
+        "com.bilibili.gripper.container.account.d",
+    )
+
+    /** 兼容单名（6.5.0/6.6.0 的实现类）。新代码请用 [GRIPPER_ACCOUNT_CLASSES]。 */
     const val GRIPPER_ACCOUNT_CLASS = "com.bilibili.gripper.container.account.d"
     const val GRIPPER_GET_ACCESS_KEY = "getAccessKey"
 

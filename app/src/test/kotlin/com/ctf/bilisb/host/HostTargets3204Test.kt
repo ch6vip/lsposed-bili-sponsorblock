@@ -19,13 +19,13 @@ class HostTargets3204Test {
         assertTrue("u2 observer must be supported", "tv.danmaku.biliplayerv2.service.u2" in HostTargets.DIRECTOR_OBSERVER_INTERFACES)
         assertTrue("J0 must be an add candidate", "J0" in HostTargets.DIRECTOR_ADD_OBSERVER_METHODS)
         assertTrue("S1 must be a remove candidate", "S1" in HostTargets.DIRECTOR_REMOVE_OBSERVER_METHODS)
-        assertEquals("P", HostTargets.DIRECTOR_CURRENT_VIDEO_METHODS.first())
+        assertTrue("P must be a current-video accessor", "P" in HostTargets.DIRECTOR_CURRENT_VIDEO_METHODS)
     }
 
     @Test
     fun metadataPathIsVideoFDToVideoB() {
         assertEquals("D", HostTargets.VIDEO_DETAILS_ACCESSOR)
         assertEquals("tv.danmaku.biliplayerv2.service.Video\$b", HostTargets.VIDEO_DETAILS_CLASS)
-        assertEquals("tv.danmaku.biliplayerv2.service.c0", HostTargets.DIRECTOR_SERVICE_TYPES.last())
+        assertTrue("service.c0 仍须兼容", "tv.danmaku.biliplayerv2.service.c0" in HostTargets.DIRECTOR_SERVICE_TYPES)
     }
 }

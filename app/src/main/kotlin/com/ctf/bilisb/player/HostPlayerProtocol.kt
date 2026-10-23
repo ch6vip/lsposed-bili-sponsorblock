@@ -51,6 +51,17 @@ internal object HostPlayerProtocol {
             if (aid != null && cid != null && aid > 0 && cid > 0) return aid to cid
         }
 
+        // 6.7.1 主路径：Video$e#D() -> KL1.f（P2P 稿件元数据，c=aid / d=cid）。
+        // 先于 Video$a 尝试：KL1.f 是 6.7.1 上非空且字段语义被宿主装配代码实证的那个。
+        val playDetails = invokeTyped(
+            video, listOf(HostTargets.PLAY_DETAILS_ACCESSOR), listOf(HostTargets.PLAY_DETAILS_CLASS),
+        )
+        if (playDetails != null) {
+            val aid = (HookResolve.readField(playDetails, HostTargets.PLAY_DETAILS_AID_FIELD) as? Number)?.toLong()
+            val cid = (HookResolve.readField(playDetails, HostTargets.PLAY_DETAILS_CID_FIELD) as? Number)?.toLong()
+            if (aid != null && cid != null && aid > 0 && cid > 0) return aid to cid
+        }
+
         val params = invokeTyped(
             video, listOf(HostTargets.VIDEO_PARAMS_ACCESSOR), listOf(HostTargets.VIDEO_PARAMS_CLASS),
         )
