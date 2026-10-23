@@ -133,13 +133,26 @@ object PlayViewHook {
     private fun installAccessKeyCapture(module: XposedModule, cl: ClassLoader) {
         if (akCaptureInstalled.getAndSet(true)) return
         try {
-            val cls = Class.forName(HostTargets.GRIPPER_ACCOUNT_CLASS, false, cl)
-            val m = cls.declaredMethods.firstOrNull {
-                it.name == HostTargets.GRIPPER_GET_ACCESS_KEY && it.parameterTypes.isEmpty()
+            // 实现类跨版本漂移：6.5.0/6.6.0 是 account.d，6.7.1 起换成 account.f
+            // （d 只剩 SuspendProducer 三件套，不再声明 getAccessKey）。
+            // 按候选顺序取第一个「真的声明了无参 getAccessKey」的类，而不是取第一个能加载的类 ——
+            // 否则 6.7.1 上会加载到 d 然后静默 MISS。
+            val found = HostTargets.GRIPPER_ACCOUNT_CLASSES.firstNotNullOfOrNull { name ->
+                val cls = runCatching { Class.forName(name, false, cl) }.getOrNull()
+                    ?: return@firstNotNullOfOrNull null
+                val method = cls.declaredMethods.firstOrNull {
+                    it.name == HostTargets.GRIPPER_GET_ACCESS_KEY && it.parameterTypes.isEmpty()
+                } ?: return@firstNotNullOfOrNull null
+                method
             } ?: run {
-                HookProbe.miss(module, "unlock:akCapture", "getAccessKey not found")
+                HookProbe.miss(
+                    module,
+                    "unlock:akCapture",
+                    "getAccessKey not found on ${HostTargets.GRIPPER_ACCOUNT_CLASSES.joinToString()}",
+                )
                 return
             }
+            val m = found
             runCatching { m.isAccessible = true }
             runCatching { module.deoptimize(m) }
             module.hook(m)
