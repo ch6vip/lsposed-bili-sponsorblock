@@ -351,12 +351,44 @@ object HostTargets {
     const val MENU_GROUP_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup"
     const val MENU_ITEM_CLASS = "com.bilibili.lib.homepage.mine.MenuGroup\$Item"
 
-    /** 点击链路（`bilisb://settings`）拦截候选。 */
+    /**
+     * 点击链路（`bilisb://settings`）拦截候选。
+     *
+     * **6.7.1 重构**：`com.bilibili.lib.blrouter.Router` / `BLRouter` 已不存在 ——
+     * blrouter 整体改造成 `internal.bridge.*`（`AbstractChainBridge` 链式桥）
+     * + `compat.generated.*`（KSP 生成的拦截器）两层结构。
+     *
+     * 但**顶层数据模型仍是真名**，且有唯一收口点：
+     *   - `com.bilibili.lib.blrouter.RouteRequest`（`Parcelable`，含 a()/f()/h()/j() 四个取 Uri 的方法）
+     *   - `t40.c` 路由门面：`m(Context, RouteRequest)->RouteResponse` 是**所有**公开
+     *     跳转方法的最终汇聚点（`i`/`o`/`c`/`d`/`l`/`p` 等 14 个静态方法内部都调 `m`）。
+     *     挂 `m` 一个点即可覆盖全部 URL 跳转，比旧版按类名启发式扫方法更稳。
+     * `t40.c` 是被大量业务代码直接调用的全局门面（8 个以上包引用），不是死代码。
+     *
+     * 顺序即行为：6.7.1 的门面放最前；`IntentHandlerActivity` 作为外部 Intent
+     * 入口兜底（它仍存活，处理 scheme 唤起）；旧名保留给 6.5.0/6.6.0。
+     */
     val ROUTER_CLASSES = listOf(
+        "t40.c",
+        "tv.danmaku.bili.ui.intent.IntentHandlerActivity",
         "com.bilibili.lib.blrouter.Router",
         "com.bilibili.lib.blrouter.BLRouter",
-        "tv.danmaku.bili.ui.intent.IntentHandlerActivity",
     )
+
+    /** 6.7.1 路由门面的收口方法：`m(Context, RouteRequest) -> RouteResponse`。 */
+    const val ROUTER_FUNNEL_CLASS = "t40.c"
+    const val ROUTER_FUNNEL_METHOD = "m"
+
+    /** blrouter 顶层数据模型（真名，跨版本稳定）：从这里取 Uri 做判定。 */
+    const val ROUTE_REQUEST_CLASS = "com.bilibili.lib.blrouter.RouteRequest"
+    val ROUTE_REQUEST_URI_METHODS = listOf("a", "f", "h", "j")
+
+    /**
+     * 路由响应模型（真名）。收口点返回它，拦截后要造一个 `Code.OK` 的实例干净截断
+     * （返回 null 会被当成失败走错误分支，proceed 又会真的路由一次）。
+     */
+    const val ROUTE_RESPONSE_CLASS = "com.bilibili.lib.blrouter.RouteResponse"
+    const val ROUTE_RESPONSE_CODE_CLASS = "com.bilibili.lib.blrouter.RouteResponse\$Code"
 
     // ---------------------------------------------------------------- B 站增强（候选表，2026-09-30 收编）
 

@@ -427,8 +427,59 @@ object MineMenuInjector {
                     if (!data.isNullOrEmpty()) return data
                 }
             }
+            // 6.7.1 的主路径：路由参数是 `com.bilibili.lib.blrouter.RouteRequest`，
+            // 它不实现 CharSequence/Intent，必须按候选方法名把内部 Uri 取出来。
+            // 四个候选（a/f/h/j）都是 `()->android.net.Uri`，语义分别是原始/最终/跳转后的
+            // Uri 视图；任一个命中 `bilisb://` 就足够判定，取第一个非空的即可。
+            routeRequestUri(arg)?.let { if (it.contains("bilisb://")) return it }
         }
         return args.firstOrNull()?.toString().orEmpty()
+    }
+
+    /**
+     * 从 6.7.1 的 `RouteRequest` 上取 Uri。
+     *
+     * 用「名字候选 + 返回类型必须是 android.net.Uri」双重约束：四个候选全是无参方法，
+     * 只按名字匹配可能命中同名的非 Uri 方法（该类的 `g()` 返回 ArrayList）。
+     */
+    private fun routeRequestUri(arg: Any?): String? {
+        if (arg == null) return null
+        if (arg.javaClass.name != HostTargets.ROUTE_REQUEST_CLASS) return null
+        for (name in HostTargets.ROUTE_REQUEST_URI_METHODS) {
+            val method = runCatching { arg.javaClass.getMethod(name) }.getOrNull() ?: continue
+            if (method.returnType != Uri::class.java) continue
+            val value = runCatching { method.invoke(arg) }.getOrNull() as? Uri ?: continue
+            val text = value.toString()
+            if (text.isNotEmpty()) return text
+        }
+        return null
+    }
+
+    /**
+     * 为 6.7.1 的路由收口点构造一个 `RouteResponse(Code.OK, request, "")`。
+     *
+     * 为什么需要：`t40.c#m(Context, RouteRequest)` 的返回类型是 `RouteResponse`，
+     * 调用方会读它的 `a()`（`Code == OK` 即成功）来决定后续动作。返回 null 会被当成失败
+     * 走错误分支（可能弹「页面不存在」Toast），proceed 又会真的去路由一次。
+     * 造一个 OK 响应是唯一干净的中断方式。
+     *
+     * 构造器签名跨版本可能变，所以按「参数个数 + 首参是 Code + 次参是 RouteRequest」定位，
+     * 失败就返回 null 让调用方回退到 proceed（绝不因造对象失败而丢跳转）。
+     */
+    private fun synthesizeRouteOk(method: java.lang.reflect.Method, args: List<Any?>?): Any? {
+        return runCatching {
+            val responseClass = method.returnType
+            val codeClass = Class.forName(HostTargets.ROUTE_RESPONSE_CODE_CLASS, false, responseClass.classLoader)
+            val okCode = codeClass.enumConstants?.firstOrNull { (it as Enum<*>).name == "OK" } ?: return null
+            val request = args.orEmpty().firstOrNull { it?.javaClass?.name == HostTargets.ROUTE_REQUEST_CLASS }
+            val ctor = responseClass.declaredConstructors.firstOrNull { c ->
+                val ps = c.parameterTypes
+                ps.size == 3 && ps[0] == codeClass && ps[1].name == HostTargets.ROUTE_REQUEST_CLASS &&
+                    ps[2] == String::class.java
+            } ?: return null
+            ctor.isAccessible = true
+            ctor.newInstance(okCode, request, "")
+        }.getOrNull()
     }
 
     private fun hookUriRouter(module: XposedModule, classLoader: ClassLoader) {
@@ -440,9 +491,20 @@ object MineMenuInjector {
         for (className in HostTargets.ROUTER_CLASSES) {
             val routerClass = findClass(classLoader, className) ?: continue
 
+            // 6.7.1 的路由门面 `t40.c` 是纯混淆名：收口方法叫 `m`，首参是 Context，
+            // 启发式关键词一个都命中不了，必须按「类 + 方法名 + 首参是 Context + 次参是
+            // RouteRequest」显式定位。其余候选（IntentHandlerActivity / 旧 Router）继续走启发式。
+            val isFunnel = className == HostTargets.ROUTER_FUNNEL_CLASS
+
             val methods = routerClass.declaredMethods.filter { method ->
                 val params = method.parameterTypes
                 if (params.isEmpty()) return@filter false
+                if (isFunnel) {
+                    return@filter method.name == HostTargets.ROUTER_FUNNEL_METHOD &&
+                        params.size == 2 &&
+                        params[0] == android.content.Context::class.java &&
+                        params[1].name == HostTargets.ROUTE_REQUEST_CLASS
+                }
                 val first = params[0].name
                 val name = method.name.lowercase()
                 first.endsWith("Uri") || first.endsWith("Intent") || first == "java.lang.String" ||
@@ -474,6 +536,12 @@ object MineMenuInjector {
                                     return@intercept when {
                                         rt == Void.TYPE || rt == Void::class.java -> null
                                         rt == java.lang.Boolean.TYPE || rt == Boolean::class.java -> true
+                                        // 6.7.1 收口点返回 RouteResponse：必须造一个 OK 响应截断，
+                                        // 否则 chain.proceed() 会让宿主继续路由到不存在的页面
+                                        // （我们已经在弹窗里消费了这次跳转）。
+                                        rt.name == HostTargets.ROUTE_RESPONSE_CLASS -> {
+                                            synthesizeRouteOk(method, chain.args) ?: chain.proceed()
+                                        }
                                         else -> chain.proceed()
                                     }
                                 }

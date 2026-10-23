@@ -131,6 +131,30 @@ class HostTargets671Test {
     }
 
     @Test
+    fun routerFunnelIsT40C() {
+        // 6.7.1：blrouter.Router / BLRouter 已不存在，重构为 internal.bridge.* +
+        // compat.generated.*。但 t40.c#m(Context, RouteRequest)->RouteResponse 是所有
+        // 公开跳转方法的唯一汇聚点，挂它一个即可覆盖全部 URL 跳转。
+        assertEquals("t40.c", HostTargets.ROUTER_CLASSES.first())
+        assertEquals("t40.c", HostTargets.ROUTER_FUNNEL_CLASS)
+        assertEquals("m", HostTargets.ROUTER_FUNNEL_METHOD)
+        // blrouter 顶层数据模型是真名，跨版本稳定
+        assertEquals("com.bilibili.lib.blrouter.RouteRequest", HostTargets.ROUTE_REQUEST_CLASS)
+        assertEquals("com.bilibili.lib.blrouter.RouteResponse", HostTargets.ROUTE_RESPONSE_CLASS)
+        assertEquals(
+            "com.bilibili.lib.blrouter.RouteResponse\$Code",
+            HostTargets.ROUTE_RESPONSE_CODE_CLASS,
+        )
+        // 四个取 Uri 的方法都必须保留（顺序即尝试顺序）
+        assertEquals(listOf("a", "f", "h", "j"), HostTargets.ROUTE_REQUEST_URI_METHODS)
+        // IntentHandlerActivity 兜底仍在（外部 scheme 唤起）
+        assertTrue(
+            "IntentHandlerActivity 仍须保留",
+            "tv.danmaku.bili.ui.intent.IntentHandlerActivity" in HostTargets.ROUTER_CLASSES,
+        )
+    }
+
+    @Test
     fun mossDescriptorHintsIncludeIs1() {
         // 6.7.1：MossInterceptor$e.b 的类型从 xr1.g 换成 Is1.g，服务名 a 从 xr1.k 换成 Is1.k。
         // 缺这一项会让 IP 属地的「评论区限定改写」在 6.7.1 上全部落空（服务名恒 null）。
